@@ -49,6 +49,8 @@ export default function ClipEditor({
   const [endSec, setEndSec] = useState<number | null>(null)
   const [clips, setClips] = useState<Clip[]>(initialClips)
   const [saving, setSaving] = useState(false)
+
+  // Transcribe state
   const [transcribeStatuses, setTranscribeStatuses] = useState<Record<string, string | null>>(
     Object.fromEntries(initialClips.map(c => [c.id, c.transcribe_status]))
   )
@@ -56,8 +58,18 @@ export default function ClipEditor({
     useState<Record<string, LyricsSegment[]>>(initialSegmentsByClip)
   const [transcribing, setTranscribing] = useState<Record<string, boolean>>({})
   const [transcribeErrors, setTranscribeErrors] = useState<Record<string, string>>({})
+
+  // Render state
+  const [renderStatuses, setRenderStatuses] = useState<Record<string, string | null>>(
+    Object.fromEntries(initialClips.map(c => [c.id, c.render_status]))
+  )
+  const [rendering, setRendering] = useState<Record<string, boolean>>({})
+  const [renderErrors, setRenderErrors] = useState<Record<string, string>>({})
+  const [renderDownloadUrls, setRenderDownloadUrls] = useState<Record<string, string>>({})
+
   const supabase = createClient()
 
+  // Signed URL for video preview
   useEffect(() => {
     if (!project.yt_source_path) return
     supabase.storage
@@ -68,6 +80,28 @@ export default function ClipEditor({
       })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.yt_source_path])
+
+  // Pre-generate download URLs for clips already rendered
+  useEffect(() => {
+    const rendered = initialClips.filter(c => c.render_status === 'success' && c.render_path)
+    if (rendered.length === 0) return
+
+    Promise.all(
+      rendered.map(async c => {
+        const { data } = await supabase.storage
+          .from('renders')
+          .createSignedUrl(c.render_path!, 3600)
+        return data?.signedUrl ? ([c.id, data.signedUrl] as [string, string]) : null
+      })
+    ).then(results => {
+      const urls: Record<string, string> = {}
+      for (const r of results) {
+        if (r) urls[r[0]] = r[1]
+      }
+      setRenderDownloadUrls(urls)
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const handleTimeUpdate = useCallback(() => {
     if (videoRef.current) setCurrentTime(videoRef.current.currentTime)
@@ -94,6 +128,7 @@ export default function ClipEditor({
     if (!error && data) {
       setClips(prev => [...prev, data])
       setTranscribeStatuses(prev => ({ ...prev, [data.id]: null }))
+      setRenderStatuses(prev => ({ ...prev, [data.id]: null }))
       setStartSec(null)
       setEndSec(null)
     }
@@ -108,7 +143,6 @@ export default function ClipEditor({
       delete next[clipId]
       return next
     })
-
     try {
       const res = await fetch('/api/transcribe', {
         method: 'POST',
@@ -125,6 +159,42 @@ export default function ClipEditor({
       setTranscribeErrors(prev => ({ ...prev, [clipId]: msg }))
     } finally {
       setTranscribing(prev => ({ ...prev, [clipId]: false }))
+    }
+  }
+
+  async function handleRender(clipId: string) {
+    setRendering(prev => ({ ...prev, [clipId]: true }))
+    setRenderStatuses(prev => ({ ...prev, [clipId]: 'pending' }))
+    setRenderErrors(prev => {
+      const next = { ...prev }
+      delete next[clipId]
+      return next
+    })
+    try {
+      const res = await fetch('/api/render', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clip_id: clipId }),
+      })
+      const body = (await res.json()) as { renderPath?: string; error?: string }
+      if (!res.ok) throw new Error(body.error ?? 'Render failed')
+
+      setRenderStatuses(prev => ({ ...prev, [clipId]: 'success' }))
+
+      if (body.renderPath) {
+        const { data: signed } = await supabase.storage
+          .from('renders')
+          .createSignedUrl(body.renderPath, 3600)
+        if (signed?.signedUrl) {
+          setRenderDownloadUrls(prev => ({ ...prev, [clipId]: signed.signedUrl }))
+        }
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Render failed'
+      setRenderStatuses(prev => ({ ...prev, [clipId]: 'failed' }))
+      setRenderErrors(prev => ({ ...prev, [clipId]: msg }))
+    } finally {
+      setRendering(prev => ({ ...prev, [clipId]: false }))
     }
   }
 
@@ -205,10 +275,13 @@ export default function ClipEditor({
             Clips ({clips.length})
           </h3>
           {clips.map((clip, i) => {
-            const status = transcribeStatuses[clip.id]
+            const transcribeStatus = transcribeStatuses[clip.id]
             const isTranscribing = transcribing[clip.id] ?? false
             const segments = segmentsByClip[clip.id] ?? []
             const comments = initialCommentsByClip[clip.id] ?? []
+            const renderStatus = renderStatuses[clip.id]
+            const isRendering = rendering[clip.id] ?? false
+            const downloadUrl = renderDownloadUrls[clip.id]
 
             return (
               <div key={clip.id} className="space-y-2">
@@ -230,10 +303,10 @@ export default function ClipEditor({
 
                   <button
                     onClick={() => handleTranscribe(clip.id)}
-                    disabled={isTranscribing || status === 'pending'}
+                    disabled={isTranscribing || transcribeStatus === 'pending'}
                     className="ml-auto flex items-center gap-2 rounded-lg bg-[#272729] px-3 py-1.5 text-[13px] text-white transition-colors hover:bg-[#2a2a2d] disabled:opacity-40"
                   >
-                    {isTranscribing || status === 'pending' ? (
+                    {isTranscribing || transcribeStatus === 'pending' ? (
                       <>
                         <span className="h-3 w-3 animate-spin rounded-full border border-white/30 border-t-white" />
                         자막 추출 중…
@@ -244,13 +317,13 @@ export default function ClipEditor({
                   </button>
                 </div>
 
-                {status === 'failed' && (
+                {transcribeStatus === 'failed' && (
                   <p className="px-1 text-[13px] text-red-400">
                     {transcribeErrors[clip.id] ?? '자막 추출 실패'}
                   </p>
                 )}
 
-                {status === 'success' && segments.length > 0 && (
+                {transcribeStatus === 'success' && segments.length > 0 && (
                   <SubtitleEditor
                     key={`${clip.id}-${segments.length}`}
                     clipId={clip.id}
@@ -269,6 +342,52 @@ export default function ClipEditor({
                   initialTemplateId={clip.template_id}
                   templates={templates}
                 />
+
+                {/* Render section */}
+                <div className="rounded-xl bg-[#1d1d1f] px-5 py-4">
+                  <div className="flex items-center gap-3">
+                    <h3 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-[rgba(255,255,255,0.4)]">
+                      렌더
+                    </h3>
+
+                    {renderStatus === 'success' && (
+                      <span className="text-[12px] text-emerald-400">완료</span>
+                    )}
+
+                    <button
+                      onClick={() => handleRender(clip.id)}
+                      disabled={isRendering || renderStatus === 'pending'}
+                      className="ml-auto flex items-center gap-2 rounded-lg bg-[#0071e3] px-4 py-1.5 text-[13px] text-white transition-colors hover:bg-[#0077ed] disabled:opacity-40"
+                    >
+                      {isRendering || renderStatus === 'pending' ? (
+                        <>
+                          <span className="h-3 w-3 animate-spin rounded-full border border-white/30 border-t-white" />
+                          렌더 중…
+                        </>
+                      ) : renderStatus === 'success' ? (
+                        '재렌더'
+                      ) : (
+                        '렌더 시작'
+                      )}
+                    </button>
+                  </div>
+
+                  {renderStatus === 'success' && downloadUrl && (
+                    <a
+                      href={downloadUrl}
+                      download={`clip-${i + 1}.mp4`}
+                      className="mt-3 inline-flex items-center gap-1.5 text-[14px] text-[#2997ff] hover:underline"
+                    >
+                      ↓ clip-{i + 1}.mp4 다운로드
+                    </a>
+                  )}
+
+                  {renderStatus === 'failed' && (
+                    <p className="mt-3 text-[12px] text-red-400">
+                      {renderErrors[clip.id] ?? '렌더 실패'}
+                    </p>
+                  )}
+                </div>
               </div>
             )
           })}
