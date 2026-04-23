@@ -10,6 +10,8 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
+    "@remotion/cli": "^4.0.451",
+    "@remotion/player": "^4.0.451",
     "@supabase/ssr": "^0.5.2",
     "@supabase/supabase-js": "^2.45.4",
     "axios": "^1.7.9",
@@ -17,6 +19,7 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-player": "^2.16.0",
+    "remotion": "^4.0.451",
     "replicate": "^1.4.0"
   },
   "devDependencies": {

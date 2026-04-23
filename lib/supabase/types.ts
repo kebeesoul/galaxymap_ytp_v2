@@ -9,6 +9,9 @@ export type Database = {
           end_sec: number
           id: string
           project_id: string | null
+          render_error: string | null
+          render_path: string | null
+          render_status: string | null
           start_sec: number
           template_id: string | null
           transcribe_status: string | null
@@ -18,6 +21,9 @@ export type Database = {
           end_sec: number
           id?: string
           project_id?: string | null
+          render_error?: string | null
+          render_path?: string | null
+          render_status?: string | null
           start_sec: number
           template_id?: string | null
           transcribe_status?: string | null
@@ -27,6 +33,9 @@ export type Database = {
           end_sec?: number
           id?: string
           project_id?: string | null
+          render_error?: string | null
+          render_path?: string | null
+          render_status?: string | null
           start_sec?: number
           template_id?: string | null
           transcribe_status?: string | null
