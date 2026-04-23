@@ -10,6 +10,7 @@ export type Database = {
           id: string
           project_id: string | null
           start_sec: number
+          template_id: string | null
           transcribe_status: string | null
         }
         Insert: {
@@ -18,6 +19,7 @@ export type Database = {
           id?: string
           project_id?: string | null
           start_sec: number
+          template_id?: string | null
           transcribe_status?: string | null
         }
         Update: {
@@ -26,6 +28,7 @@ export type Database = {
           id?: string
           project_id?: string | null
           start_sec?: number
+          template_id?: string | null
           transcribe_status?: string | null
         }
         Relationships: [
@@ -44,6 +47,7 @@ export type Database = {
           clip_id: string | null
           id: string
           likes_count: number | null
+          source: string | null
           username: string
         }
         Insert: {
@@ -51,6 +55,7 @@ export type Database = {
           clip_id?: string | null
           id?: string
           likes_count?: number | null
+          source?: string | null
           username: string
         }
         Update: {
@@ -58,6 +63,7 @@ export type Database = {
           clip_id?: string | null
           id?: string
           likes_count?: number | null
+          source?: string | null
           username?: string
         }
         Relationships: [
