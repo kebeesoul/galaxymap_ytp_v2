@@ -65,7 +65,11 @@ export default function ClipEditor({
   )
   const [rendering, setRendering] = useState<Record<string, boolean>>({})
   const [renderErrors, setRenderErrors] = useState<Record<string, string>>({})
-  const [renderDownloadUrls, setRenderDownloadUrls] = useState<Record<string, string>>({})
+  // Storage paths (not signed URLs) — fresh URL generated on each download click
+  const [renderPaths, setRenderPaths] = useState<Record<string, string>>(
+    Object.fromEntries(initialClips.flatMap(c => (c.render_path ? [[c.id, c.render_path]] : [])))
+  )
+  const [downloading, setDownloading] = useState<Record<string, boolean>>({})
 
   const supabase = createClient()
 
@@ -80,28 +84,6 @@ export default function ClipEditor({
       })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.yt_source_path])
-
-  // Pre-generate download URLs for clips already rendered
-  useEffect(() => {
-    const rendered = initialClips.filter(c => c.render_status === 'success' && c.render_path)
-    if (rendered.length === 0) return
-
-    Promise.all(
-      rendered.map(async c => {
-        const { data } = await supabase.storage
-          .from('renders')
-          .createSignedUrl(c.render_path!, 3600)
-        return data?.signedUrl ? ([c.id, data.signedUrl] as [string, string]) : null
-      })
-    ).then(results => {
-      const urls: Record<string, string> = {}
-      for (const r of results) {
-        if (r) urls[r[0]] = r[1]
-      }
-      setRenderDownloadUrls(urls)
-    })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
 
   const handleTimeUpdate = useCallback(() => {
     if (videoRef.current) setCurrentTime(videoRef.current.currentTime)
@@ -178,16 +160,9 @@ export default function ClipEditor({
       })
       const body = (await res.json()) as { renderPath?: string; error?: string }
       if (!res.ok) throw new Error(body.error ?? 'Render failed')
-
       setRenderStatuses(prev => ({ ...prev, [clipId]: 'success' }))
-
       if (body.renderPath) {
-        const { data: signed } = await supabase.storage
-          .from('renders')
-          .createSignedUrl(body.renderPath, 3600)
-        if (signed?.signedUrl) {
-          setRenderDownloadUrls(prev => ({ ...prev, [clipId]: signed.signedUrl }))
-        }
+        setRenderPaths(prev => ({ ...prev, [clipId]: body.renderPath! }))
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Render failed'
@@ -195,6 +170,23 @@ export default function ClipEditor({
       setRenderErrors(prev => ({ ...prev, [clipId]: msg }))
     } finally {
       setRendering(prev => ({ ...prev, [clipId]: false }))
+    }
+  }
+
+  async function handleDownload(clipId: string, filename: string) {
+    const renderPath = renderPaths[clipId]
+    if (!renderPath) return
+    setDownloading(prev => ({ ...prev, [clipId]: true }))
+    try {
+      const { data } = await supabase.storage.from('renders').createSignedUrl(renderPath, 300)
+      if (data?.signedUrl) {
+        const a = document.createElement('a')
+        a.href = data.signedUrl
+        a.download = filename
+        a.click()
+      }
+    } finally {
+      setDownloading(prev => ({ ...prev, [clipId]: false }))
     }
   }
 
@@ -281,7 +273,8 @@ export default function ClipEditor({
             const comments = initialCommentsByClip[clip.id] ?? []
             const renderStatus = renderStatuses[clip.id]
             const isRendering = rendering[clip.id] ?? false
-            const downloadUrl = renderDownloadUrls[clip.id]
+            const hasRenderPath = Boolean(renderPaths[clip.id])
+            const isDownloading = downloading[clip.id] ?? false
 
             return (
               <div key={clip.id} className="space-y-2">
@@ -372,14 +365,21 @@ export default function ClipEditor({
                     </button>
                   </div>
 
-                  {renderStatus === 'success' && downloadUrl && (
-                    <a
-                      href={downloadUrl}
-                      download={`clip-${i + 1}.mp4`}
-                      className="mt-3 inline-flex items-center gap-1.5 text-[14px] text-[#2997ff] hover:underline"
+                  {renderStatus === 'success' && hasRenderPath && (
+                    <button
+                      onClick={() => handleDownload(clip.id, `clip-${i + 1}.mp4`)}
+                      disabled={isDownloading}
+                      className="mt-3 flex items-center gap-1.5 text-[14px] text-[#2997ff] transition-opacity hover:underline disabled:opacity-40"
                     >
-                      ↓ clip-{i + 1}.mp4 다운로드
-                    </a>
+                      {isDownloading ? (
+                        <>
+                          <span className="h-3 w-3 animate-spin rounded-full border border-[#2997ff]/40 border-t-[#2997ff]" />
+                          준비 중…
+                        </>
+                      ) : (
+                        <>↓ clip-{i + 1}.mp4 다운로드</>
+                      )}
+                    </button>
                   )}
 
                   {renderStatus === 'failed' && (
