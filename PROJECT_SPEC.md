@@ -171,9 +171,65 @@ POST /api/import { project_id, url }
 
 ## Stop Condition — Phase 1
 
-- [ ] 프로젝트 생성
-- [ ] yt-dlp 워커 → 메타데이터 + 저화질 mp4 → Supabase Storage 저장
-- [ ] 썸네일 / 타이틀 / duration 에디터 표시
-- [ ] import_status 3상태 UI
-- [ ] <video> scrubber로 clip start/end 마킹 → clips 테이블 저장
-- [ ] 렌더 / 가사 / 템플릿 없음
+- [x] 프로젝트 생성
+- [x] yt-dlp 워커 → 메타데이터 + 저화질 mp4 → Supabase Storage 저장
+- [x] 썸네일 / 타이틀 / duration 에디터 표시
+- [x] import_status 3상태 UI
+- [x] <video> scrubber로 clip start/end 마킹 → clips 테이블 저장
+- [x] 렌더 / 가사 / 템플릿 없음
+
+---
+
+## Phase 2 — Whisper 자막 추출 + 편집
+
+### 실행 환경
+- Replicate API: `vaibhavs10/incredibly-fast-whisper`
+- 트리거: 에디터 내 "자막 추출" 버튼 1회 클릭
+- 결과: lyrics_segments 테이블 자동 저장
+
+### API Route — app/api/transcribe/route.ts
+
+POST /api/transcribe { clip_id: string }
+
+1. clips 테이블에서 start_sec / end_sec 조회
+2. Supabase Storage에서 preview mp4 signed URL 생성
+3. Replicate API 호출:
+   - model: vaibhavs10/incredibly-fast-whisper
+   - input: { audio: signed_url, language: "korean", word_timestamps: true }
+4. 결과 파싱 → lyrics_segments 테이블 insert
+   (word 단위 segments: text, start_sec, end_sec)
+5. 저장된 segments 반환
+
+에러 처리:
+- Replicate timeout (60초) → transcribe_status = 'failed'
+- clips 테이블에 transcribe_status 컬럼 추가 (pending | success | failed)
+
+### DB 추가
+
+```sql
+ALTER TABLE clips ADD COLUMN transcribe_status text;
+```
+
+### 자막 편집 UX — SubtitleEditor.tsx
+
+구조:
+- 세그먼트 목록을 텍스트 에디터로 표시
+- 텍스트 직접 수정 시 → 해당 segment text 업데이트
+- 줄바꿈(Enter) → segment 분리, 타임스탬프 균등 재계산
+- 세그먼트 병합(Backspace at start) → 앞 segment와 합치고 타임스탬프 합산
+- 저장 버튼 → lyrics_segments 테이블 upsert
+
+### /editor/[id] 변경
+
+ClipEditor에 "자막 추출" 버튼 추가:
+- clip 저장 완료 후 활성화
+- 클릭 → POST /api/transcribe
+- transcribe_status 3상태: pending(스피너) / success(SubtitleEditor 표시) / failed(에러)
+
+### Stop Condition — Phase 2
+
+- [ ] "자막 추출" 버튼 → Replicate API 호출
+- [ ] 결과 lyrics_segments 테이블 저장
+- [ ] SubtitleEditor에서 텍스트 직접 편집 가능
+- [ ] 줄바꿈/병합 시 타임스탬프 자동 재계산
+- [ ] 저장 → DB upsert 반영
