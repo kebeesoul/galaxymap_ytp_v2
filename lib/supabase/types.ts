@@ -10,6 +10,7 @@ export type Database = {
           id: string
           project_id: string | null
           start_sec: number
+          transcribe_status: string | null
         }
         Insert: {
           created_at?: string | null
@@ -17,6 +18,7 @@ export type Database = {
           id?: string
           project_id?: string | null
           start_sec: number
+          transcribe_status?: string | null
         }
         Update: {
           created_at?: string | null
@@ -24,6 +26,7 @@ export type Database = {
           id?: string
           project_id?: string | null
           start_sec?: number
+          transcribe_status?: string | null
         }
         Relationships: [
           {
