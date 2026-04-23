@@ -327,3 +327,67 @@ type RenderInput = {
   preview_path: string  // Supabase Storage signed URL
 }
 ```
+
+#### Composition 3종 (remotion/compositions/)
+- LayoutA.tsx — 상단 자막 + 하단 댓글 카드
+- LayoutB.tsx — 자막만
+- LayoutC.tsx — 댓글만
+
+#### 공통 레이어 (remotion/compositions/layers/)
+- SubtitleLayer.tsx — segments 타임스탬프 기반 자막 렌더
+- CommentLayer.tsx — comments 카드 렌더
+- VideoLayer.tsx — preview mp4 재생 (배경)
+
+---
+
+### render-queue/worker.ts
+
+- Next.js API route로부터 render job 수신
+- Remotion CLI 실행:
+  `npx remotion render <composition> --props='...' --output=out/[clip_id].mp4`
+- 완료 후 Supabase Storage `renders/[clip_id].mp4` 업로드
+- clips 테이블 render_status 업데이트
+
+---
+
+### DB 추가
+
+```sql
+ALTER TABLE clips ADD COLUMN render_status text;
+-- pending | success | failed
+ALTER TABLE clips ADD COLUMN render_path text;
+-- Supabase Storage path: renders/[clip_id].mp4
+ALTER TABLE clips ADD COLUMN render_error text;
+```
+
+### Storage 버킷 추가
+- `renders` (private) — 완성된 mp4 저장
+
+---
+
+### API Route — app/api/render/route.ts
+
+POST /api/render { clip_id }
+
+1. clips + segments + comments + template 조회
+2. render_status = 'pending' 업데이트
+3. render-queue/worker.ts에 job 전달
+4. 완료 시: render_status = 'success' + render_path 업데이트
+5. 실패 시: render_status = 'failed' + render_error 업데이트
+
+---
+
+### /editor/[id] 변경
+- TemplatePicker 아래 "렌더 시작" 버튼 추가
+- render_status 3상태: pending(스피너) / success(다운로드 링크) / failed(에러)
+
+---
+
+### Stop Condition — Phase 4
+- [ ] Remotion composition 3종 (LayoutA/B/C) 구현
+- [ ] SubtitleLayer 타임스탬프 기반 자막 동작
+- [ ] CommentLayer 카드 렌더 동작
+- [ ] render-queue worker → Remotion CLI 실행 → mp4 출력
+- [ ] 출력 mp4 Supabase Storage renders/ 업로드
+- [ ] render_status 3상태 UI
+- [ ] 완료 후 다운로드 링크 표시
