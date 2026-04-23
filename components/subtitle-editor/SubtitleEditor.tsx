@@ -40,6 +40,7 @@ export default function SubtitleEditor({ clipId, initialSegments }: Props) {
   )
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [insertFailed, setInsertFailed] = useState(false)
   const inputRefs = useRef<Map<number, HTMLTextAreaElement>>(new Map())
   const supabase = createClient()
 
@@ -118,6 +119,7 @@ export default function SubtitleEditor({ clipId, initialSegments }: Props) {
   async function handleSave() {
     setSaving(true)
     setSaveError(null)
+    setInsertFailed(false)
 
     const { error: deleteError } = await supabase
       .from('lyrics_segments')
@@ -143,6 +145,7 @@ export default function SubtitleEditor({ clipId, initialSegments }: Props) {
 
     if (insertError) {
       setSaveError(insertError.message)
+      setInsertFailed(true)
     }
 
     setSaving(false)
@@ -163,7 +166,23 @@ export default function SubtitleEditor({ clipId, initialSegments }: Props) {
         </button>
       </div>
 
-      {saveError && <p className="mb-3 text-[12px] text-red-400">{saveError}</p>}
+      {saveError && (
+        <div className="mb-3 rounded-lg border border-red-500/40 bg-red-950/40 px-4 py-3">
+          <p className="text-[13px] font-semibold text-red-400">
+            {insertFailed ? '저장 실패 — 자막 데이터가 삭제됐습니다. 지금 바로 재시도하세요.' : '저장 실패'}
+          </p>
+          <p className="mt-1 font-mono text-[11px] text-red-300/70">{saveError}</p>
+          {insertFailed && (
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="mt-3 rounded-lg bg-red-600 px-4 py-1.5 text-[13px] text-white transition-colors hover:bg-red-500 disabled:opacity-40"
+            >
+              {saving ? '재시도 중…' : '재시도'}
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="space-y-1">
         {segments.map((seg, idx) => (

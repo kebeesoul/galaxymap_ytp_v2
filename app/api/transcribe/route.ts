@@ -32,7 +32,12 @@ interface LyricsRow {
   end_sec: number
 }
 
-function parseSegments(output: ReplicateOutput, clipId: string): LyricsRow[] {
+function parseSegments(
+  output: ReplicateOutput,
+  clipId: string,
+  clipStart: number,
+  clipEnd: number
+): LyricsRow[] {
   const rows: LyricsRow[] = []
 
   for (const seg of output.segments ?? []) {
@@ -40,11 +45,13 @@ function parseSegments(output: ReplicateOutput, clipId: string): LyricsRow[] {
       for (const w of seg.words) {
         const text = w.word.trim()
         if (!text) continue
+        if (w.start < clipStart || w.end > clipEnd) continue
         rows.push({ clip_id: clipId, text, start_sec: w.start, end_sec: w.end })
       }
     } else {
       const text = seg.text.trim()
       if (!text) continue
+      if (seg.start < clipStart || seg.end > clipEnd) continue
       rows.push({ clip_id: clipId, text, start_sec: seg.start, end_sec: seg.end })
     }
   }
@@ -113,13 +120,13 @@ export async function POST(request: NextRequest) {
     })
 
     const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('Replicate timeout (60s)')), 60_000)
+      setTimeout(() => reject(new Error('Replicate timeout (180s)')), 180_000)
     )
 
     const output = (await Promise.race([replicatePromise, timeoutPromise])) as ReplicateOutput
 
-    // 6. 결과 파싱
-    const rows = parseSegments(output, clip_id)
+    // 6. 결과 파싱 (클립 구간 내 segments만)
+    const rows = parseSegments(output, clip_id, Number(clip.start_sec), Number(clip.end_sec))
 
     if (rows.length === 0) {
       throw new Error('Replicate returned no segments')

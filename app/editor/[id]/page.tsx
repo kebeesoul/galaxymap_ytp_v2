@@ -36,7 +36,7 @@ export default async function EditorPage({ params }: Props) {
 
   if (clipIds.length > 0) {
     const [{ data: segments }, { data: comments }] = await Promise.all([
-      supabase.from('lyrics_segments').select('*').in('clip_id', clipIds),
+      supabase.from('lyrics_segments').select('*').in('clip_id', clipIds).order('start_sec'),
       supabase.from('comments').select('*').in('clip_id', clipIds),
     ])
 

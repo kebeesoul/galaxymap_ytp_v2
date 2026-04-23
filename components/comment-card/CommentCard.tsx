@@ -32,6 +32,7 @@ function toLocal(c: Comment): LocalComment {
 
 export default function CommentCard({ clipId, videoId, initialComments }: Props) {
   const [comments, setComments] = useState<LocalComment[]>(initialComments.map(toLocal))
+  const hasYoutubeComments = comments.some(c => c.source === 'youtube')
   const [fetching, setFetching] = useState(false)
   const [fetchError, setFetchError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -117,14 +118,17 @@ export default function CommentCard({ clipId, videoId, initialComments }: Props)
         </h3>
         <button
           onClick={handleFetchYoutube}
-          disabled={fetching}
-          className="flex items-center gap-1.5 rounded-lg bg-[#272729] px-3 py-1.5 text-[13px] text-white transition-colors hover:bg-[#2a2a2d] disabled:opacity-40"
+          disabled={fetching || hasYoutubeComments}
+          title={hasYoutubeComments ? '이미 YouTube 댓글을 불러왔습니다' : undefined}
+          className="flex items-center gap-1.5 rounded-lg bg-[#272729] px-3 py-1.5 text-[13px] text-white transition-colors hover:bg-[#2a2a2d] disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {fetching ? (
             <>
               <span className="h-3 w-3 animate-spin rounded-full border border-white/30 border-t-white" />
               불러오는 중…
             </>
+          ) : hasYoutubeComments ? (
+            'YouTube 댓글 완료'
           ) : (
             'YouTube 댓글 불러오기'
           )}

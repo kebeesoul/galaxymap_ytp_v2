@@ -33,13 +33,20 @@ function getLayout(config: Json): string {
 export default function TemplatePicker({ clipId, initialTemplateId, templates }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(initialTemplateId)
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const supabase = createClient()
 
   async function handleSelect(templateId: string) {
     if (selectedId === templateId) return
     setSaving(true)
+    setSaveError(null)
+    const prev = selectedId
     setSelectedId(templateId)
-    await supabase.from('clips').update({ template_id: templateId }).eq('id', clipId)
+    const { error } = await supabase.from('clips').update({ template_id: templateId }).eq('id', clipId)
+    if (error) {
+      setSaveError(error.message)
+      setSelectedId(prev)
+    }
     setSaving(false)
   }
 
@@ -51,6 +58,9 @@ export default function TemplatePicker({ clipId, initialTemplateId, templates }:
         </h3>
         {saving && (
           <span className="h-3 w-3 animate-spin rounded-full border border-white/30 border-t-white" />
+        )}
+        {saveError && (
+          <span className="text-[12px] text-red-400">{saveError}</span>
         )}
       </div>
       <div className="grid grid-cols-3 gap-3">

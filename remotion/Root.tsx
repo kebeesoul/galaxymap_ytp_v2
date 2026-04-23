@@ -1,4 +1,4 @@
-import { Composition } from 'remotion'
+import { Composition, registerRoot } from 'remotion'
 import LayoutA from './compositions/LayoutA'
 import LayoutB from './compositions/LayoutB'
 import LayoutC from './compositions/LayoutC'
@@ -67,3 +67,5 @@ export function RemotionRoot() {
     </>
   )
 }
+
+registerRoot(RemotionRoot)

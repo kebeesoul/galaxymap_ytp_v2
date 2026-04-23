@@ -114,9 +114,16 @@ export default function EditorClient({
     return (
       <div className="space-y-4">
         <ProjectHeader project={project} />
-        <div className="flex items-center gap-4 rounded-xl bg-[#1d1d1f] p-6">
-          <div className="h-6 w-6 animate-spin rounded-full border-2 border-white/20 border-t-white" />
-          <span className="text-[17px] text-white">Importing…</span>
+        <div className="rounded-xl bg-[#1d1d1f] p-6">
+          <div className="flex items-center gap-4">
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-white/20 border-t-white" />
+            <span className="text-[17px] text-white">Importing…</span>
+          </div>
+          <p className="mt-3 text-[13px] text-[rgba(255,255,255,0.35)]">
+            오래 걸리거나 멈춘 것 같다면 재시도하세요.
+          </p>
+          <ImportButton onClick={handleImport} loading={importing} label="재시도" />
+          {error && <p className="mt-2 text-[14px] text-red-400">{error}</p>}
         </div>
       </div>
     )
