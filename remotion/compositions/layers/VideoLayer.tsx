@@ -1,13 +1,18 @@
-import { OffthreadVideo } from 'remotion'
+import { OffthreadVideo, useVideoConfig } from 'remotion'
 
 interface Props {
-  previewPath: string // signed URL
+  src: string
+  startSec: number
+  endSec: number
 }
 
-export default function VideoLayer({ previewPath }: Props) {
+export default function VideoLayer({ src, startSec, endSec }: Props) {
+  const { fps } = useVideoConfig()
   return (
     <OffthreadVideo
-      src={previewPath}
+      src={src}
+      startFrom={Math.round(startSec * fps)}
+      endAt={Math.round(endSec * fps)}
       style={{ width: '100%', height: '100%', objectFit: 'cover' }}
     />
   )
