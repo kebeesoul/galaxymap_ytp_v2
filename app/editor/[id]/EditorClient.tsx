@@ -8,13 +8,15 @@ import type { Tables } from '@/lib/supabase/types'
 
 type Project = Tables<'projects'>
 type Clip = Tables<'clips'>
+type LyricsSegment = Tables<'lyrics_segments'>
 
 interface Props {
   project: Project
   initialClips: Clip[]
+  initialSegmentsByClip: Record<string, LyricsSegment[]>
 }
 
-export default function EditorClient({ project, initialClips }: Props) {
+export default function EditorClient({ project, initialClips, initialSegmentsByClip }: Props) {
   const router = useRouter()
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState('')
@@ -70,7 +72,11 @@ export default function EditorClient({ project, initialClips }: Props) {
             )}
           </div>
         </div>
-        <ClipEditor project={project} initialClips={initialClips} />
+        <ClipEditor
+          project={project}
+          initialClips={initialClips}
+          initialSegmentsByClip={initialSegmentsByClip}
+        />
       </div>
     )
   }
