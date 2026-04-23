@@ -5,13 +5,18 @@ import { createClient } from '@/lib/supabase/client'
 import type { Tables } from '@/lib/supabase/types'
 import VideoPreview from './VideoPreview'
 import SubtitleEditor from '@/components/subtitle-editor/SubtitleEditor'
+import CommentCard from '@/components/comment-card/CommentCard'
+import TemplatePicker from '@/components/template-picker/TemplatePicker'
 
 type Clip = Tables<'clips'>
 type LyricsSegment = Tables<'lyrics_segments'>
+type Comment = Tables<'comments'>
+type Template = Tables<'templates'>
 
 interface Props {
   project: {
     id: string
+    yt_video_id: string | null
     yt_source_path: string | null
     yt_duration_sec: number | null
     yt_thumbnail_url: string | null
@@ -19,6 +24,8 @@ interface Props {
   }
   initialClips: Clip[]
   initialSegmentsByClip: Record<string, LyricsSegment[]>
+  initialCommentsByClip: Record<string, Comment[]>
+  templates: Template[]
 }
 
 function formatTime(sec: number): string {
@@ -28,7 +35,13 @@ function formatTime(sec: number): string {
   return `${m}:${s.toString().padStart(2, '0')}.${ms}`
 }
 
-export default function ClipEditor({ project, initialClips, initialSegmentsByClip }: Props) {
+export default function ClipEditor({
+  project,
+  initialClips,
+  initialSegmentsByClip,
+  initialCommentsByClip,
+  templates,
+}: Props) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const [signedUrl, setSignedUrl] = useState<string | null>(null)
   const [currentTime, setCurrentTime] = useState(0)
@@ -90,7 +103,11 @@ export default function ClipEditor({ project, initialClips, initialSegmentsByCli
   async function handleTranscribe(clipId: string) {
     setTranscribing(prev => ({ ...prev, [clipId]: true }))
     setTranscribeStatuses(prev => ({ ...prev, [clipId]: 'pending' }))
-    setTranscribeErrors(prev => { const next = { ...prev }; delete next[clipId]; return next })
+    setTranscribeErrors(prev => {
+      const next = { ...prev }
+      delete next[clipId]
+      return next
+    })
 
     try {
       const res = await fetch('/api/transcribe', {
@@ -143,7 +160,7 @@ export default function ClipEditor({ project, initialClips, initialSegmentsByCli
 
           <button
             onClick={() => setStartSec(videoRef.current?.currentTime ?? 0)}
-            className="rounded-lg bg-[#272729] px-3 py-1.5 text-[13px] text-white hover:bg-[#2a2a2d] transition-colors"
+            className="rounded-lg bg-[#272729] px-3 py-1.5 text-[13px] text-white transition-colors hover:bg-[#2a2a2d]"
           >
             <span className="mr-1.5 font-mono text-[rgba(255,255,255,0.4)]">I</span>
             In
@@ -156,7 +173,7 @@ export default function ClipEditor({ project, initialClips, initialSegmentsByCli
 
           <button
             onClick={() => setEndSec(videoRef.current?.currentTime ?? 0)}
-            className="rounded-lg bg-[#272729] px-3 py-1.5 text-[13px] text-white hover:bg-[#2a2a2d] transition-colors"
+            className="rounded-lg bg-[#272729] px-3 py-1.5 text-[13px] text-white transition-colors hover:bg-[#2a2a2d]"
           >
             <span className="mr-1.5 font-mono text-[rgba(255,255,255,0.4)]">O</span>
             Out
@@ -191,9 +208,11 @@ export default function ClipEditor({ project, initialClips, initialSegmentsByCli
             const status = transcribeStatuses[clip.id]
             const isTranscribing = transcribing[clip.id] ?? false
             const segments = segmentsByClip[clip.id] ?? []
+            const comments = initialCommentsByClip[clip.id] ?? []
 
             return (
               <div key={clip.id} className="space-y-2">
+                {/* Clip header */}
                 <div className="flex items-center gap-3 rounded-xl bg-[#1d1d1f] px-5 py-3">
                   <span className="w-6 text-center text-[12px] text-[rgba(255,255,255,0.3)]">
                     {i + 1}
@@ -238,6 +257,18 @@ export default function ClipEditor({ project, initialClips, initialSegmentsByCli
                     initialSegments={segments}
                   />
                 )}
+
+                <CommentCard
+                  clipId={clip.id}
+                  videoId={project.yt_video_id ?? ''}
+                  initialComments={comments}
+                />
+
+                <TemplatePicker
+                  clipId={clip.id}
+                  initialTemplateId={clip.template_id}
+                  templates={templates}
+                />
               </div>
             )
           })}

@@ -5,6 +5,8 @@ import EditorClient from './EditorClient'
 import type { Tables } from '@/lib/supabase/types'
 
 type LyricsSegment = Tables<'lyrics_segments'>
+type Comment = Tables<'comments'>
+type Template = Tables<'templates'>
 
 interface Props {
   params: { id: string }
@@ -28,20 +30,30 @@ export default async function EditorPage({ params }: Props) {
     .order('created_at', { ascending: true })
 
   const clipIds = (clips ?? []).map(c => c.id)
+
   let segmentsByClip: Record<string, LyricsSegment[]> = {}
+  let commentsByClip: Record<string, Comment[]> = {}
 
   if (clipIds.length > 0) {
-    const { data: segments } = await supabase
-      .from('lyrics_segments')
-      .select('*')
-      .in('clip_id', clipIds)
+    const [{ data: segments }, { data: comments }] = await Promise.all([
+      supabase.from('lyrics_segments').select('*').in('clip_id', clipIds),
+      supabase.from('comments').select('*').in('clip_id', clipIds),
+    ])
 
     for (const seg of segments ?? []) {
       if (!seg.clip_id) continue
       if (!segmentsByClip[seg.clip_id]) segmentsByClip[seg.clip_id] = []
       segmentsByClip[seg.clip_id].push(seg)
     }
+
+    for (const c of comments ?? []) {
+      if (!c.clip_id) continue
+      if (!commentsByClip[c.clip_id]) commentsByClip[c.clip_id] = []
+      commentsByClip[c.clip_id].push(c)
+    }
   }
+
+  const { data: templates } = await supabase.from('templates').select('*').order('name')
 
   return (
     <div className="min-h-screen bg-black">
@@ -64,6 +76,8 @@ export default async function EditorPage({ params }: Props) {
           project={project}
           initialClips={clips ?? []}
           initialSegmentsByClip={segmentsByClip}
+          initialCommentsByClip={commentsByClip}
+          templates={templates ?? []}
         />
       </div>
     </div>

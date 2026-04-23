@@ -9,14 +9,24 @@ import type { Tables } from '@/lib/supabase/types'
 type Project = Tables<'projects'>
 type Clip = Tables<'clips'>
 type LyricsSegment = Tables<'lyrics_segments'>
+type Comment = Tables<'comments'>
+type Template = Tables<'templates'>
 
 interface Props {
   project: Project
   initialClips: Clip[]
   initialSegmentsByClip: Record<string, LyricsSegment[]>
+  initialCommentsByClip: Record<string, Comment[]>
+  templates: Template[]
 }
 
-export default function EditorClient({ project, initialClips, initialSegmentsByClip }: Props) {
+export default function EditorClient({
+  project,
+  initialClips,
+  initialSegmentsByClip,
+  initialCommentsByClip,
+  templates,
+}: Props) {
   const router = useRouter()
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState('')
@@ -67,7 +77,8 @@ export default function EditorClient({ project, initialClips, initialSegmentsByC
             )}
             {project.yt_duration_sec && (
               <p className="mt-1 text-[14px] text-[rgba(255,255,255,0.3)]">
-                {Math.floor(project.yt_duration_sec / 60)}:{(project.yt_duration_sec % 60).toString().padStart(2, '0')}
+                {Math.floor(project.yt_duration_sec / 60)}:
+                {(project.yt_duration_sec % 60).toString().padStart(2, '0')}
               </p>
             )}
           </div>
@@ -76,6 +87,8 @@ export default function EditorClient({ project, initialClips, initialSegmentsByC
           project={project}
           initialClips={initialClips}
           initialSegmentsByClip={initialSegmentsByClip}
+          initialCommentsByClip={initialCommentsByClip}
+          templates={templates}
         />
       </div>
     )
