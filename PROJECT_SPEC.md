@@ -233,3 +233,75 @@ ClipEditor에 "자막 추출" 버튼 추가:
 - [ ] SubtitleEditor에서 텍스트 직접 편집 가능
 - [ ] 줄바꿈/병합 시 타임스탬프 자동 재계산
 - [ ] 저장 → DB upsert 반영
+
+---
+
+## Phase 3 — Comment Card + Template Picker
+
+### Comment Card — 댓글 수집 + 편집
+
+#### DB 추가
+comments 테이블 기존 스키마 사용 (clip_id, username, body, likes_count)
+comments 테이블에 source 컬럼 추가:
+```sql
+ALTER TABLE comments ADD COLUMN source text default 'manual';
+-- 'youtube' | 'manual'
+```
+
+#### API Route — app/api/comments/fetch/route.ts
+POST /api/comments/fetch { clip_id, video_id }
+
+1. YouTube Data API v3 commentThreads.list 호출
+   - videoId: video_id
+   - maxResults: 20
+   - order: relevance
+2. 결과 파싱 → comments 테이블 insert (source = 'youtube')
+3. 저장된 comments 반환
+
+env 추가: YOUTUBE_API_KEY
+
+#### UI — CommentCard.tsx
+- clip별 댓글 목록 표시
+- "YouTube 댓글 불러오기" 버튼 → POST /api/comments/fetch
+- 각 댓글: username / body / likes_count 인라인 편집 가능
+- 댓글 추가 버튼 → 빈 row insert (source = 'manual')
+- 댓글 삭제 버튼
+- 저장 → comments upsert
+
+---
+
+### Template Picker — 프리셋 고정
+
+#### 프리셋 3종 (하드코딩)
+- LAYOUT_A: 자막 + 댓글 (상단 자막 / 하단 댓글 카드)
+- LAYOUT_B: 자막만
+- LAYOUT_C: 댓글만
+
+#### DB
+templates 테이블에 프리셋 3개 seed insert:
+```sql
+INSERT INTO templates (name, config_json) VALUES
+  ('subtitle_comment', '{"layout": "LAYOUT_A"}'),
+  ('subtitle_only',    '{"layout": "LAYOUT_B"}'),
+  ('comment_only',     '{"layout": "LAYOUT_C"}');
+
+ALTER TABLE clips ADD COLUMN template_id uuid references templates(id);
+```
+
+#### UI — TemplatePicker.tsx
+- 프리셋 3개 카드 표시 (아이콘 + 레이블)
+- 선택 시 clips.template_id 업데이트
+
+---
+
+### /editor/[id] 변경
+- SubtitleEditor 아래 CommentCard 추가
+- CommentCard 아래 TemplatePicker 추가
+
+---
+
+### Stop Condition — Phase 3
+- [ ] YouTube 댓글 자동 수집 → comments 테이블 저장
+- [ ] 댓글 인라인 편집 / 추가 / 삭제 / 저장
+- [ ] 프리셋 3종 선택 UI
+- [ ] 선택한 template_id clips 테이블 저장
