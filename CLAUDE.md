@@ -5,8 +5,8 @@ Music Shortform Generator — galaxymap internal tool
 Single-user creator workflow. No multi-user. No auto-publishing.
 
 ## Phase
-Current: Phase 4  
-Completed: Phase 1, Phase 2, Phase 3  
+Current: 완료  
+Completed: Phase 1, Phase 2, Phase 3, Phase 4  
 Spec: PROJECT_SPEC.md 참고
 
 ## Stack
