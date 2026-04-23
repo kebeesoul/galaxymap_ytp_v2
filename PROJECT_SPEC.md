@@ -305,3 +305,25 @@ ALTER TABLE clips ADD COLUMN template_id uuid references templates(id);
 - [ ] 댓글 인라인 편집 / 추가 / 삭제 / 저장
 - [ ] 프리셋 3종 선택 UI
 - [ ] 선택한 template_id clips 테이블 저장
+
+---
+
+## Phase 4 — Remotion 렌더
+
+### 렌더 전략
+- DEV/PROD 모두 local Mac Studio worker
+- Lambda 전환 없음 (daily volume < 100 clips)
+- Next.js → render-queue → Remotion CLI 순서로 실행
+
+### Remotion Composition
+
+#### 입력 데이터 구조
+```ts
+type RenderInput = {
+  clip: { start_sec: number; end_sec: number }
+  layout: 'LAYOUT_A' | 'LAYOUT_B' | 'LAYOUT_C'
+  segments: { text: string; start_sec: number; end_sec: number }[]
+  comments: { username: string; body: string; likes_count: number }[]
+  preview_path: string  // Supabase Storage signed URL
+}
+```
