@@ -96,27 +96,23 @@ export async function POST(request: NextRequest) {
     preview_path: signed.signedUrl,
   }
 
-  try {
-    // 7. Run render
-    const { renderPath } = await renderClip({ clipId: clip_id, input: renderInput })
+  // 7. Fire render in background — return 202 immediately
+  void (async () => {
+    const bg = createClient()
+    try {
+      const { renderPath } = await renderClip({ clipId: clip_id, input: renderInput })
+      await bg
+        .from('clips')
+        .update({ render_status: 'success', render_path: renderPath, render_error: null })
+        .eq('id', clip_id)
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Render failed'
+      await bg
+        .from('clips')
+        .update({ render_status: 'failed', render_error: message })
+        .eq('id', clip_id)
+    }
+  })()
 
-    // 8. Update render_status = success
-    const { data: updated } = await supabase
-      .from('clips')
-      .update({ render_status: 'success', render_path: renderPath, render_error: null })
-      .eq('id', clip_id)
-      .select()
-      .single()
-
-    return NextResponse.json({ clip: updated, renderPath })
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Render failed'
-
-    await supabase
-      .from('clips')
-      .update({ render_status: 'failed', render_error: message })
-      .eq('id', clip_id)
-
-    return NextResponse.json({ error: message }, { status: 502 })
-  }
+  return NextResponse.json({ queued: true }, { status: 202 })
 }
