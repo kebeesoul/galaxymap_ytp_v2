@@ -171,9 +171,223 @@ POST /api/import { project_id, url }
 
 ## Stop Condition — Phase 1
 
-- [ ] 프로젝트 생성
-- [ ] yt-dlp 워커 → 메타데이터 + 저화질 mp4 → Supabase Storage 저장
-- [ ] 썸네일 / 타이틀 / duration 에디터 표시
-- [ ] import_status 3상태 UI
-- [ ] <video> scrubber로 clip start/end 마킹 → clips 테이블 저장
-- [ ] 렌더 / 가사 / 템플릿 없음
+- [x] 프로젝트 생성
+- [x] yt-dlp 워커 → 메타데이터 + 저화질 mp4 → Supabase Storage 저장
+- [x] 썸네일 / 타이틀 / duration 에디터 표시
+- [x] import_status 3상태 UI
+- [x] <video> scrubber로 clip start/end 마킹 → clips 테이블 저장
+- [x] 렌더 / 가사 / 템플릿 없음
+
+---
+
+## Phase 2 — Whisper 자막 추출 + 편집
+
+### 실행 환경
+- Replicate API: `vaibhavs10/incredibly-fast-whisper`
+- 트리거: 에디터 내 "자막 추출" 버튼 1회 클릭
+- 결과: lyrics_segments 테이블 자동 저장
+
+### API Route — app/api/transcribe/route.ts
+
+POST /api/transcribe { clip_id: string }
+
+1. clips 테이블에서 start_sec / end_sec 조회
+2. Supabase Storage에서 preview mp4 signed URL 생성
+3. Replicate API 호출:
+   - model: vaibhavs10/incredibly-fast-whisper
+   - input: { audio: signed_url, language: "korean", word_timestamps: true }
+4. 결과 파싱 → lyrics_segments 테이블 insert
+   (word 단위 segments: text, start_sec, end_sec)
+5. 저장된 segments 반환
+
+에러 처리:
+- Replicate timeout (60초) → transcribe_status = 'failed'
+- clips 테이블에 transcribe_status 컬럼 추가 (pending | success | failed)
+
+### DB 추가
+
+```sql
+ALTER TABLE clips ADD COLUMN transcribe_status text;
+```
+
+### 자막 편집 UX — SubtitleEditor.tsx
+
+구조:
+- 세그먼트 목록을 텍스트 에디터로 표시
+- 텍스트 직접 수정 시 → 해당 segment text 업데이트
+- 줄바꿈(Enter) → segment 분리, 타임스탬프 균등 재계산
+- 세그먼트 병합(Backspace at start) → 앞 segment와 합치고 타임스탬프 합산
+- 저장 버튼 → lyrics_segments 테이블 upsert
+
+### /editor/[id] 변경
+
+ClipEditor에 "자막 추출" 버튼 추가:
+- clip 저장 완료 후 활성화
+- 클릭 → POST /api/transcribe
+- transcribe_status 3상태: pending(스피너) / success(SubtitleEditor 표시) / failed(에러)
+
+### Stop Condition — Phase 2
+
+- [ ] "자막 추출" 버튼 → Replicate API 호출
+- [ ] 결과 lyrics_segments 테이블 저장
+- [ ] SubtitleEditor에서 텍스트 직접 편집 가능
+- [ ] 줄바꿈/병합 시 타임스탬프 자동 재계산
+- [ ] 저장 → DB upsert 반영
+
+---
+
+## Phase 3 — Comment Card + Template Picker
+
+### Comment Card — 댓글 수집 + 편집
+
+#### DB 추가
+comments 테이블 기존 스키마 사용 (clip_id, username, body, likes_count)
+comments 테이블에 source 컬럼 추가:
+```sql
+ALTER TABLE comments ADD COLUMN source text default 'manual';
+-- 'youtube' | 'manual'
+```
+
+#### API Route — app/api/comments/fetch/route.ts
+POST /api/comments/fetch { clip_id, video_id }
+
+1. YouTube Data API v3 commentThreads.list 호출
+   - videoId: video_id
+   - maxResults: 20
+   - order: relevance
+2. 결과 파싱 → comments 테이블 insert (source = 'youtube')
+3. 저장된 comments 반환
+
+env 추가: YOUTUBE_API_KEY
+
+#### UI — CommentCard.tsx
+- clip별 댓글 목록 표시
+- "YouTube 댓글 불러오기" 버튼 → POST /api/comments/fetch
+- 각 댓글: username / body / likes_count 인라인 편집 가능
+- 댓글 추가 버튼 → 빈 row insert (source = 'manual')
+- 댓글 삭제 버튼
+- 저장 → comments upsert
+
+---
+
+### Template Picker — 프리셋 고정
+
+#### 프리셋 3종 (하드코딩)
+- LAYOUT_A: 자막 + 댓글 (상단 자막 / 하단 댓글 카드)
+- LAYOUT_B: 자막만
+- LAYOUT_C: 댓글만
+
+#### DB
+templates 테이블에 프리셋 3개 seed insert:
+```sql
+INSERT INTO templates (name, config_json) VALUES
+  ('subtitle_comment', '{"layout": "LAYOUT_A"}'),
+  ('subtitle_only',    '{"layout": "LAYOUT_B"}'),
+  ('comment_only',     '{"layout": "LAYOUT_C"}');
+
+ALTER TABLE clips ADD COLUMN template_id uuid references templates(id);
+```
+
+#### UI — TemplatePicker.tsx
+- 프리셋 3개 카드 표시 (아이콘 + 레이블)
+- 선택 시 clips.template_id 업데이트
+
+---
+
+### /editor/[id] 변경
+- SubtitleEditor 아래 CommentCard 추가
+- CommentCard 아래 TemplatePicker 추가
+
+---
+
+### Stop Condition — Phase 3
+- [ ] YouTube 댓글 자동 수집 → comments 테이블 저장
+- [ ] 댓글 인라인 편집 / 추가 / 삭제 / 저장
+- [ ] 프리셋 3종 선택 UI
+- [ ] 선택한 template_id clips 테이블 저장
+
+---
+
+## Phase 4 — Remotion 렌더
+
+### 렌더 전략
+- DEV/PROD 모두 local Mac Studio worker
+- Lambda 전환 없음 (daily volume < 100 clips)
+- Next.js → render-queue → Remotion CLI 순서로 실행
+
+### Remotion Composition
+
+#### 입력 데이터 구조
+```ts
+type RenderInput = {
+  clip: { start_sec: number; end_sec: number }
+  layout: 'LAYOUT_A' | 'LAYOUT_B' | 'LAYOUT_C'
+  segments: { text: string; start_sec: number; end_sec: number }[]
+  comments: { username: string; body: string; likes_count: number }[]
+  preview_path: string  // Supabase Storage signed URL
+}
+```
+
+#### Composition 3종 (remotion/compositions/)
+- LayoutA.tsx — 상단 자막 + 하단 댓글 카드
+- LayoutB.tsx — 자막만
+- LayoutC.tsx — 댓글만
+
+#### 공통 레이어 (remotion/compositions/layers/)
+- SubtitleLayer.tsx — segments 타임스탬프 기반 자막 렌더
+- CommentLayer.tsx — comments 카드 렌더
+- VideoLayer.tsx — preview mp4 재생 (배경)
+
+---
+
+### render-queue/worker.ts
+
+- Next.js API route로부터 render job 수신
+- Remotion CLI 실행:
+  `npx remotion render <composition> --props='...' --output=out/[clip_id].mp4`
+- 완료 후 Supabase Storage `renders/[clip_id].mp4` 업로드
+- clips 테이블 render_status 업데이트
+
+---
+
+### DB 추가
+
+```sql
+ALTER TABLE clips ADD COLUMN render_status text;
+-- pending | success | failed
+ALTER TABLE clips ADD COLUMN render_path text;
+-- Supabase Storage path: renders/[clip_id].mp4
+ALTER TABLE clips ADD COLUMN render_error text;
+```
+
+### Storage 버킷 추가
+- `renders` (private) — 완성된 mp4 저장
+
+---
+
+### API Route — app/api/render/route.ts
+
+POST /api/render { clip_id }
+
+1. clips + segments + comments + template 조회
+2. render_status = 'pending' 업데이트
+3. render-queue/worker.ts에 job 전달
+4. 완료 시: render_status = 'success' + render_path 업데이트
+5. 실패 시: render_status = 'failed' + render_error 업데이트
+
+---
+
+### /editor/[id] 변경
+- TemplatePicker 아래 "렌더 시작" 버튼 추가
+- render_status 3상태: pending(스피너) / success(다운로드 링크) / failed(에러)
+
+---
+
+### Stop Condition — Phase 4
+- [ ] Remotion composition 3종 (LayoutA/B/C) 구현
+- [ ] SubtitleLayer 타임스탬프 기반 자막 동작
+- [ ] CommentLayer 카드 렌더 동작
+- [ ] render-queue worker → Remotion CLI 실행 → mp4 출력
+- [ ] 출력 mp4 Supabase Storage renders/ 업로드
+- [ ] render_status 3상태 UI
+- [ ] 완료 후 다운로드 링크 표시

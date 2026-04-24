@@ -1,0 +1,8 @@
+services:
+  ingest:
+    build:
+      context: ./workers/ingest
+    ports:
+      - "8001:8001"
+    env_file:
+      - .env.local
