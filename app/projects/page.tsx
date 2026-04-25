@@ -1,10 +1,8 @@
 import { createClient } from '@/lib/supabase/server'
-import type { Tables } from '@/lib/supabase/types'
+import type { Project } from '@/lib/types'
 import Link from 'next/link'
 
 export const dynamic = 'force-dynamic'
-
-type Project = Tables<'projects'>
 
 export default async function ProjectsPage() {
   let projects: Project[] = []

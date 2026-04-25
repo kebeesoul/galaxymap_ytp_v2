@@ -2,16 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import type { Tables } from '@/lib/supabase/types'
+import { formatTime } from '@/lib/utils/time'
+import type { Clip, LyricsSegment, Comment, Template } from '@/lib/types'
 import VideoPreview from './VideoPreview'
 import SubtitleEditor from '@/components/subtitle-editor/SubtitleEditor'
 import CommentCard from '@/components/comment-card/CommentCard'
 import TemplatePicker from '@/components/template-picker/TemplatePicker'
-
-type Clip = Tables<'clips'>
-type LyricsSegment = Tables<'lyrics_segments'>
-type Comment = Tables<'comments'>
-type Template = Tables<'templates'>
 
 interface Props {
   project: {
@@ -35,13 +31,6 @@ interface StatusResponse {
   render_status?: string | null
   render_path?: string | null
   render_error?: string | null
-}
-
-function formatTime(sec: number): string {
-  const m = Math.floor(sec / 60)
-  const s = Math.floor(sec % 60)
-  const ms = Math.floor((sec % 1) * 10)
-  return `${m}:${s.toString().padStart(2, '0')}.${ms}`
 }
 
 export default function ClipEditor({

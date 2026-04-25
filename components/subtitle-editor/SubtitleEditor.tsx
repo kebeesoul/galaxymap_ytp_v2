@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { Tables } from '@/lib/supabase/types'
+import { formatTime } from '@/lib/utils/time'
 
 type Segment = Tables<'lyrics_segments'>
 
@@ -22,13 +23,6 @@ interface Props {
 }
 
 let _localIdCounter = 0
-
-function formatTime(sec: number): string {
-  const m = Math.floor(sec / 60)
-  const s = Math.floor(sec % 60)
-  const ms = Math.floor((sec % 1) * 10)
-  return `${m}:${s.toString().padStart(2, '0')}.${ms}`
-}
 
 export default function SubtitleEditor({ clipId, initialSegments, currentTime, onSeek }: Props) {
   const [segments, setSegments] = useState<LocalSegment[]>(() =>

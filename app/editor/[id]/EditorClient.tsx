@@ -4,13 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import ClipEditor from '@/components/video-editor/ClipEditor'
 import VideoPreview from '@/components/video-editor/VideoPreview'
-import type { Tables } from '@/lib/supabase/types'
-
-type Project = Tables<'projects'>
-type Clip = Tables<'clips'>
-type LyricsSegment = Tables<'lyrics_segments'>
-type Comment = Tables<'comments'>
-type Template = Tables<'templates'>
+import type { Project, Clip, LyricsSegment, Comment, Template } from '@/lib/types'
 
 interface Props {
   project: Project
