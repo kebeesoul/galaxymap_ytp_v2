@@ -135,6 +135,7 @@ export type Database = {
           import_status: string | null
           ip_confirmed_at: string | null
           ip_owner: boolean
+          song_lyrics: string | null
           song_title: string
           source_url: string
           yt_duration_sec: number | null
@@ -151,6 +152,7 @@ export type Database = {
           import_status?: string | null
           ip_confirmed_at?: string | null
           ip_owner?: boolean
+          song_lyrics?: string | null
           song_title: string
           source_url: string
           yt_duration_sec?: number | null
@@ -167,6 +169,7 @@ export type Database = {
           import_status?: string | null
           ip_confirmed_at?: string | null
           ip_owner?: boolean
+          song_lyrics?: string | null
           song_title?: string
           source_url?: string
           yt_duration_sec?: number | null

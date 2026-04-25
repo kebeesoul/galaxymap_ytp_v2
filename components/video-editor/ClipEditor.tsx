@@ -35,6 +35,7 @@ interface Props {
     yt_duration_sec: number | null
     yt_thumbnail_url: string | null
     yt_title: string | null
+    song_lyrics: string | null
   }
   initialClips: Clip[]
   initialSegmentsByClip: Record<string, LyricsSegment[]>
@@ -118,9 +119,22 @@ export default function ClipEditor({
   )
   const [downloading, setDownloading] = useState<Record<string, boolean>>({})
 
-  const [lyricsInput, setLyricsInput] = useState<Record<string, string>>({})
-  const [lyricsInputOpen, setLyricsInputOpen] = useState<Record<string, boolean>>({})
-  const [savingLyrics, setSavingLyrics] = useState<Record<string, boolean>>({})
+  // Project-level lyrics (full song lyrics)
+  const [songLyrics, setSongLyrics] = useState(project.song_lyrics ?? '')
+  const [lyricsEditOpen, setLyricsEditOpen] = useState(!(project.song_lyrics?.trim()))
+  const [savingProjectLyrics, setSavingProjectLyrics] = useState(false)
+  const savedLyricsRef = useRef(project.song_lyrics ?? '')
+  // Lyrics scroll container ref for auto-scroll to highlighted region
+  const lyricsScrollRef = useRef<HTMLDivElement>(null)
+  // Line range for the current clip-in-progress (0-based indices into allLines)
+  const [regionLineFrom, setRegionLineFrom] = useState<number | null>(null)
+  const [regionLineTo, setRegionLineTo] = useState<number | null>(null)
+
+  // Derived lines from project-level lyrics
+  const allLines = useMemo(
+    () => songLyrics.split('\n').map(l => l.trim()).filter(Boolean),
+    [songLyrics]
+  )
 
   const pollingIntervalsRef = useRef<Record<string, ReturnType<typeof setInterval>>>({})
   const pollCountsRef = useRef<Record<string, number>>({})
@@ -245,6 +259,59 @@ export default function ClipEditor({
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [])
 
+  // Auto-detect which lyrics lines correspond to the selected waveform region
+  useEffect(() => {
+    if (startSec === null || endSec === null || allLines.length === 0) {
+      setRegionLineFrom(null)
+      setRegionLineTo(null)
+      return
+    }
+    const totalDur = project.yt_duration_sec ?? 0
+    if (!totalDur) return
+    const from = Math.max(0, Math.floor((startSec / totalDur) * allLines.length))
+    const to = Math.min(
+      allLines.length - 1,
+      Math.ceil((endSec / totalDur) * allLines.length) - 1
+    )
+    setRegionLineFrom(from)
+    setRegionLineTo(Math.max(from, to))
+  }, [startSec, endSec, allLines.length, project.yt_duration_sec])
+
+  // Auto-scroll lyrics panel so highlighted lines are visible
+  useEffect(() => {
+    if (regionLineFrom === null || !lyricsScrollRef.current) return
+    const el = lyricsScrollRef.current
+    const lineHeight = 28
+    const target = regionLineFrom * lineHeight - el.clientHeight / 3
+    el.scrollTo({ top: Math.max(0, target), behavior: 'smooth' })
+  }, [regionLineFrom])
+
+  async function handleSaveProjectLyrics() {
+    setSavingProjectLyrics(true)
+    await supabase.from('projects').update({ song_lyrics: songLyrics }).eq('id', project.id)
+    savedLyricsRef.current = songLyrics
+    setSavingProjectLyrics(false)
+    setLyricsEditOpen(false)
+  }
+
+  // Click a line in the lyrics list to expand / contract the selected range
+  function handleLyricsLineClick(i: number) {
+    if (regionLineFrom === null || regionLineTo === null) {
+      setRegionLineFrom(i)
+      setRegionLineTo(i)
+      return
+    }
+    if (i < regionLineFrom) {
+      setRegionLineFrom(i)
+    } else if (i > regionLineTo) {
+      setRegionLineTo(i)
+    } else if (i === regionLineFrom && regionLineFrom < regionLineTo) {
+      setRegionLineFrom(i + 1)
+    } else if (i === regionLineTo && regionLineTo > regionLineFrom) {
+      setRegionLineTo(i - 1)
+    }
+  }
+
 
   async function saveClip() {
     if (startSec === null || endSec === null || endSec <= startSec) return
@@ -255,15 +322,31 @@ export default function ClipEditor({
       .select()
       .single()
     if (!error && data) {
+      // Auto-create lyrics segments from the selected line range
+      if (allLines.length > 0 && regionLineFrom !== null && regionLineTo !== null) {
+        const selectedLines = allLines.slice(regionLineFrom, regionLineTo + 1)
+        const step = (endSec - startSec) / selectedLines.length
+        const rows = selectedLines.map((text, i) => ({
+          clip_id: data.id,
+          text,
+          start_sec: Math.round((startSec + step * i) * 100) / 100,
+          end_sec: Math.round((startSec + step * (i + 1)) * 100) / 100,
+        }))
+        const { data: segs } = await supabase.from('lyrics_segments').insert(rows).select()
+        if (segs) {
+          setSegmentsByClip(prev => ({ ...prev, [data.id]: segs }))
+          setTranscribeStatuses(prev => ({ ...prev, [data.id]: 'success' }))
+        }
+      }
+
       setClips(prev => [...prev, data])
-      setTranscribeStatuses(prev => ({ ...prev, [data.id]: null }))
+      setTranscribeStatuses(prev => ({ ...prev, [data.id]: prev[data.id] ?? null }))
       setRenderStatuses(prev => ({ ...prev, [data.id]: null }))
       setTemplateIdsByClip(prev => ({ ...prev, [data.id]: null }))
       setBgmByClip(prev => ({ ...prev, [data.id]: { bgm_url: null, bgm_volume: 0.3, original_volume: 1.0 } }))
       setCommentsByClip(prev => ({ ...prev, [data.id]: [] }))
-      setLyricsInput(prev => ({ ...prev, [data.id]: '' }))
-      setLyricsInputOpen(prev => ({ ...prev, [data.id]: false }))
-      setSavingLyrics(prev => ({ ...prev, [data.id]: false }))
+      setRegionLineFrom(null)
+      setRegionLineTo(null)
       setStartSec(null)
       setEndSec(null)
     }
@@ -297,34 +380,6 @@ export default function ClipEditor({
     }
   }
 
-  async function handleSaveLyrics(clipId: string) {
-    const clip = clips.find(c => c.id === clipId)
-    if (!clip) return
-    const text = lyricsInput[clipId]?.trim() ?? ''
-    if (!text) return
-
-    const lines = text.split('\n').map(l => l.trim()).filter(Boolean)
-    const start = Number(clip.start_sec)
-    const end = Number(clip.end_sec)
-    const step = (end - start) / lines.length
-
-    const rows = lines.map((line, i) => ({
-      clip_id: clipId,
-      text: line,
-      start_sec: Math.round((start + step * i) * 100) / 100,
-      end_sec: Math.round((start + step * (i + 1)) * 100) / 100,
-    }))
-
-    setSavingLyrics(prev => ({ ...prev, [clipId]: true }))
-    await supabase.from('lyrics_segments').delete().eq('clip_id', clipId)
-    const { data } = await supabase.from('lyrics_segments').insert(rows).select()
-    if (data) {
-      setSegmentsByClip(prev => ({ ...prev, [clipId]: data }))
-      setTranscribeStatuses(prev => ({ ...prev, [clipId]: 'success' }))
-      setLyricsInputOpen(prev => ({ ...prev, [clipId]: false }))
-    }
-    setSavingLyrics(prev => ({ ...prev, [clipId]: false }))
-  }
 
   async function handleRender(clipId: string) {
     setRendering(prev => ({ ...prev, [clipId]: true }))
@@ -394,6 +449,102 @@ export default function ClipEditor({
         )}
       </div>
 
+      {/* ── 전체 가사 패널 ─────────────────────────────────── */}
+      <div className="rounded-xl bg-[#1d1d1f] px-5 py-4">
+        <div className="mb-2 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <span className="text-[12px] font-semibold uppercase tracking-[0.08em] text-[rgba(255,255,255,0.4)]">
+              전체 가사
+            </span>
+            {allLines.length > 0 && !lyricsEditOpen && (
+              <span className="text-[12px] text-[rgba(255,255,255,0.3)]">{allLines.length}줄</span>
+            )}
+          </div>
+          {!lyricsEditOpen && (
+            <button
+              onClick={() => setLyricsEditOpen(true)}
+              className="text-[12px] text-[rgba(255,255,255,0.35)] transition-colors hover:text-white"
+            >
+              {allLines.length > 0 ? '수정' : '입력'}
+            </button>
+          )}
+        </div>
+
+        {lyricsEditOpen ? (
+          <>
+            <p className="mb-2 text-[11px] text-[rgba(255,255,255,0.3)]">
+              전체 가사를 한 줄씩 입력하세요. 파형으로 구간을 선택하면 해당 줄이 자동으로 연결됩니다.
+            </p>
+            <textarea
+              value={songLyrics}
+              onChange={e => setSongLyrics(e.target.value)}
+              rows={10}
+              placeholder={'첫 번째 줄\n두 번째 줄\n...'}
+              className="w-full resize-none rounded-lg bg-[#272729] px-3 py-2 font-mono text-[13px] text-white outline-none placeholder:text-[rgba(255,255,255,0.2)] focus:ring-1 focus:ring-[#0071e3]"
+            />
+            <div className="mt-3 flex items-center justify-between">
+              <span className="text-[12px] text-[rgba(255,255,255,0.3)]">{allLines.length}줄</span>
+              <div className="flex gap-2">
+                {savedLyricsRef.current && (
+                  <button
+                    onClick={() => { setSongLyrics(savedLyricsRef.current); setLyricsEditOpen(false) }}
+                    className="rounded-lg bg-[#272729] px-3 py-1.5 text-[13px] text-white transition-colors hover:bg-[#2a2a2d]"
+                  >
+                    취소
+                  </button>
+                )}
+                <button
+                  onClick={handleSaveProjectLyrics}
+                  disabled={savingProjectLyrics || !songLyrics.trim()}
+                  className="rounded-lg bg-[#0071e3] px-4 py-1.5 text-[13px] text-white transition-colors hover:bg-[#0077ed] disabled:opacity-30"
+                >
+                  {savingProjectLyrics ? '저장 중…' : '저장'}
+                </button>
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            <div ref={lyricsScrollRef} className="max-h-52 overflow-y-auto space-y-px pr-1">
+              {allLines.length === 0 ? (
+                <p className="py-4 text-center text-[13px] text-[rgba(255,255,255,0.2)]">
+                  전체 가사를 먼저 입력하세요 → 파형으로 구간을 잡으면 해당 가사가 자동으로 연결됩니다
+                </p>
+              ) : (
+                allLines.map((line, i) => {
+                  const inRange =
+                    regionLineFrom !== null &&
+                    regionLineTo !== null &&
+                    i >= regionLineFrom &&
+                    i <= regionLineTo
+                  return (
+                    <div
+                      key={i}
+                      onClick={() => handleLyricsLineClick(i)}
+                      className={`flex cursor-pointer select-none gap-3 rounded px-2 py-1 transition-colors ${
+                        inRange ? 'bg-[#0071e3]/25 hover:bg-[#0071e3]/35' : 'hover:bg-[#272729]'
+                      }`}
+                    >
+                      <span className={`w-5 shrink-0 text-right font-mono text-[11px] ${inRange ? 'text-[#2997ff]' : 'text-[rgba(255,255,255,0.2)]'}`}>
+                        {i + 1}
+                      </span>
+                      <span className={`text-[13px] leading-snug ${inRange ? 'text-white' : 'text-[rgba(255,255,255,0.45)]'}`}>
+                        {line}
+                      </span>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+            {allLines.length > 0 && regionLineFrom !== null && regionLineTo !== null && (
+              <p className="mt-2 text-[11px] text-[#2997ff]">
+                {regionLineFrom + 1}~{regionLineTo + 1}번 줄 선택 ({regionLineTo - regionLineFrom + 1}줄) — 클릭해서 범위 조정
+              </p>
+            )}
+          </>
+        )}
+      </div>
+
       {/* Waveform editor */}
       {videoEl && (
         <WaveformEditor
@@ -455,6 +606,12 @@ export default function ClipEditor({
           >
             1 min
           </button>
+
+          {canSave && allLines.length > 0 && regionLineFrom !== null && regionLineTo !== null && (
+            <span className="font-mono text-[12px] text-[#2997ff]">
+              줄 {regionLineFrom + 1}~{regionLineTo + 1}
+            </span>
+          )}
 
           <button
             onClick={saveClip}
@@ -522,47 +679,11 @@ export default function ClipEditor({
                           자막 추출 중…
                         </>
                       ) : (
-                        '① 자막 추출'
+                        'Whisper 자막 추출'
                       )}
-                    </button>
-                    <button
-                      onClick={() => setLyricsInputOpen(prev => ({ ...prev, [clip.id]: !prev[clip.id] }))}
-                      className={`rounded-lg px-3 py-1.5 text-[13px] text-white transition-colors hover:bg-[#2a2a2d] ${lyricsInputOpen[clip.id] ? 'bg-[#0071e3]/20 ring-1 ring-[#0071e3]' : 'bg-[#272729]'}`}
-                    >
-                      가사 입력
                     </button>
                   </div>
                 </div>
-
-                {lyricsInputOpen[clip.id] && (
-                  <div className="rounded-xl bg-[#1d1d1f] px-5 py-4">
-                    <p className="mb-2 text-[12px] text-[rgba(255,255,255,0.4)]">
-                      가사를 한 줄씩 입력하세요. 줄마다 구간이 균등 배분됩니다.
-                    </p>
-                    <textarea
-                      value={lyricsInput[clip.id] ?? ''}
-                      onChange={e => setLyricsInput(prev => ({ ...prev, [clip.id]: e.target.value }))}
-                      rows={8}
-                      placeholder={'사랑했지만\n이젠 안녕\n...'}
-                      className="w-full resize-none rounded-lg bg-[#272729] px-3 py-2 text-[14px] text-white outline-none placeholder:text-[rgba(255,255,255,0.2)] focus:ring-1 focus:ring-[#0071e3]"
-                    />
-                    <div className="mt-3 flex justify-end gap-2">
-                      <button
-                        onClick={() => setLyricsInputOpen(prev => ({ ...prev, [clip.id]: false }))}
-                        className="rounded-lg bg-[#272729] px-3 py-1.5 text-[13px] text-white transition-colors hover:bg-[#2a2a2d]"
-                      >
-                        취소
-                      </button>
-                      <button
-                        onClick={() => handleSaveLyrics(clip.id)}
-                        disabled={savingLyrics[clip.id] || !(lyricsInput[clip.id]?.trim())}
-                        className="rounded-lg bg-[#0071e3] px-4 py-1.5 text-[13px] text-white transition-colors hover:bg-[#0077ed] disabled:opacity-30"
-                      >
-                        {savingLyrics[clip.id] ? '저장 중…' : '적용'}
-                      </button>
-                    </div>
-                  </div>
-                )}
 
                 {transcribeStatus === 'failed' && (
                   <p className="px-1 text-[13px] text-red-400">

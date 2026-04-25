@@ -37,6 +37,7 @@ export default function SubtitleEditor({ clipId, initialSegments, currentTime, o
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [insertFailed, setInsertFailed] = useState(false)
+  const [syncMode, setSyncMode] = useState(false)
   const inputRefs = useRef<Map<number, HTMLTextAreaElement>>(new Map())
 
   const supabase = useMemo(() => createClient(), [])
@@ -48,6 +49,19 @@ export default function SubtitleEditor({ clipId, initialSegments, currentTime, o
       return found
     }, -1)
   }, [currentTime, segments])
+
+  // Tap-to-sync: set this line's start_sec to currentTime and close the gap with the previous line
+  function handleTapSync(idx: number) {
+    if (currentTime === undefined) return
+    setSegments(prev => {
+      const updated = [...prev]
+      if (idx > 0) {
+        updated[idx - 1] = { ...updated[idx - 1], end_sec: currentTime }
+      }
+      updated[idx] = { ...updated[idx], start_sec: currentTime }
+      return updated
+    })
+  }
 
   function handleTextChange(idx: number, value: string) {
     setSegments(prev => prev.map((s, i) => (i === idx ? { ...s, text: value } : s)))
@@ -162,13 +176,27 @@ export default function SubtitleEditor({ clipId, initialSegments, currentTime, o
         <h3 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-[rgba(255,255,255,0.4)]">
           자막 ({segments.length})
         </h3>
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="rounded-lg bg-[#0071e3] px-3 py-1.5 text-[13px] text-white transition-colors hover:bg-[#0077ed] disabled:opacity-30"
-        >
-          {saving ? '저장 중…' : '저장'}
-        </button>
+        <div className="flex items-center gap-2">
+          {onSeek && (
+            <button
+              onClick={() => setSyncMode(prev => !prev)}
+              className={`rounded-lg px-3 py-1.5 text-[13px] text-white transition-colors ${
+                syncMode
+                  ? 'bg-red-500/80 ring-1 ring-red-400 hover:bg-red-400/80'
+                  : 'bg-[#272729] hover:bg-[#2a2a2d]'
+              }`}
+            >
+              {syncMode ? '● 싱크 중' : '싱크 맞추기'}
+            </button>
+          )}
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="rounded-lg bg-[#0071e3] px-3 py-1.5 text-[13px] text-white transition-colors hover:bg-[#0077ed] disabled:opacity-30"
+          >
+            {saving ? '저장 중…' : '저장'}
+          </button>
+        </div>
       </div>
 
       {saveError && (
@@ -189,11 +217,15 @@ export default function SubtitleEditor({ clipId, initialSegments, currentTime, o
         </div>
       )}
 
-      {onSeek && (
-        <p className="mb-2 text-[11px] text-[rgba(255,255,255,0.2)]">
-          타임코드 클릭 → 해당 위치로 이동
+      {syncMode ? (
+        <p className="mb-2 text-[11px] text-red-400/80">
+          ▶ 음악 재생 후, 각 줄이 시작되는 순간 ● 버튼을 누르면 싱크가 설정됩니다
         </p>
-      )}
+      ) : onSeek ? (
+        <p className="mb-2 text-[11px] text-[rgba(255,255,255,0.2)]">
+          타임코드 클릭 → 해당 위치로 이동 &nbsp;·&nbsp; 싱크 맞추기 → 재생 중 각 줄 시작 시점에 ● 탭
+        </p>
+      ) : null}
 
       <div className="space-y-1">
         {segments.map((seg, idx) => {
@@ -201,21 +233,32 @@ export default function SubtitleEditor({ clipId, initialSegments, currentTime, o
           return (
             <div
               key={seg.localId}
-              className={`flex items-start gap-3 rounded-lg px-2 py-1 transition-colors ${isActive ? 'bg-[#0071e3]/20' : ''}`}
+              className={`flex items-start gap-2 rounded-lg px-2 py-1 transition-colors ${isActive ? 'bg-[#0071e3]/20' : ''}`}
             >
-              <button
-                type="button"
-                onClick={() => onSeek?.(seg.start_sec)}
-                className={`mt-2 w-16 shrink-0 text-left font-mono text-[11px] transition-colors ${
-                  isActive
-                    ? 'text-[#2997ff]'
-                    : onSeek
-                      ? 'text-[rgba(255,255,255,0.3)] hover:text-[#2997ff]'
-                      : 'text-[rgba(255,255,255,0.2)] cursor-default'
-                }`}
-              >
-                {formatTime(seg.start_sec)}
-              </button>
+              {syncMode ? (
+                <button
+                  type="button"
+                  onClick={() => handleTapSync(idx)}
+                  className="mt-1.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-red-500 text-white transition-transform hover:scale-110 hover:bg-red-400 active:scale-95"
+                  title="지금 재생 위치로 싱크"
+                >
+                  <span className="text-[9px] leading-none">●</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => onSeek?.(seg.start_sec)}
+                  className={`mt-2 w-16 shrink-0 text-left font-mono text-[11px] transition-colors ${
+                    isActive
+                      ? 'text-[#2997ff]'
+                      : onSeek
+                        ? 'text-[rgba(255,255,255,0.3)] hover:text-[#2997ff]'
+                        : 'text-[rgba(255,255,255,0.2)] cursor-default'
+                  }`}
+                >
+                  {formatTime(seg.start_sec)}
+                </button>
+              )}
               <textarea
                 ref={el => {
                   if (el) inputRefs.current.set(seg.localId, el)
