@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import ClipEditor from '@/components/video-editor/ClipEditor'
 import VideoPreview from '@/components/video-editor/VideoPreview'
@@ -28,8 +28,18 @@ export default function EditorClient({
   templates,
 }: Props) {
   const router = useRouter()
+  const routerRef = useRef(router)
+  routerRef.current = router
+
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState('')
+
+  // Auto-poll every 3s while worker is queued or running
+  useEffect(() => {
+    if (project.import_status !== 'pending' && project.import_status !== 'processing') return
+    const id = setInterval(() => routerRef.current.refresh(), 3_000)
+    return () => clearInterval(id)
+  }, [project.import_status])
 
   async function handleImport() {
     setImporting(true)
@@ -44,6 +54,7 @@ export default function EditorClient({
         const body = (await res.json()) as { error?: string }
         throw new Error(body.error ?? 'Import failed')
       }
+      // 202 received — refresh immediately to show pending state, then polling takes over
       router.refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error')
@@ -110,17 +121,18 @@ export default function EditorClient({
     )
   }
 
-  if (project.import_status === 'pending') {
+  if (project.import_status === 'pending' || project.import_status === 'processing') {
+    const label = project.import_status === 'processing' ? 'Downloading…' : 'Queued…'
     return (
       <div className="space-y-4">
         <ProjectHeader project={project} />
         <div className="rounded-xl bg-[#1d1d1f] p-6">
           <div className="flex items-center gap-4">
             <div className="h-6 w-6 animate-spin rounded-full border-2 border-white/20 border-t-white" />
-            <span className="text-[17px] text-white">Importing…</span>
+            <span className="text-[17px] text-white">{label}</span>
           </div>
           <p className="mt-3 text-[13px] text-[rgba(255,255,255,0.35)]">
-            오래 걸리거나 멈춘 것 같다면 재시도하세요.
+            동영상을 다운로드하고 있습니다. 잠시 기다려 주세요.
           </p>
           <ImportButton onClick={handleImport} loading={importing} label="재시도" />
           {error && <p className="mt-2 text-[14px] text-red-400">{error}</p>}
@@ -172,7 +184,7 @@ function ImportButton({
     <button
       onClick={onClick}
       disabled={loading}
-      className="flex items-center gap-2 rounded-lg bg-[#0071e3] px-6 py-3 text-[17px] text-white transition-colors hover:bg-[#0077ed] disabled:opacity-50"
+      className="mt-5 flex items-center gap-2 rounded-lg bg-[#0071e3] px-6 py-3 text-[17px] text-white transition-colors hover:bg-[#0077ed] disabled:opacity-50"
     >
       {loading && (
         <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />

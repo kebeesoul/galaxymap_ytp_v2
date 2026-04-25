@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { Tables } from '@/lib/supabase/types'
 import VideoPreview from './VideoPreview'
@@ -29,7 +29,7 @@ interface Props {
 }
 
 const POLL_INTERVAL_MS = 3_000
-const POLL_MAX = 100 // 5분
+const POLL_MAX = 100
 
 interface StatusResponse {
   render_status?: string | null
@@ -52,6 +52,8 @@ export default function ClipEditor({
   templates,
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null)
+  const lastTimeRef = useRef(0)
+
   const [signedUrl, setSignedUrl] = useState<string | null>(null)
   const [currentTime, setCurrentTime] = useState(0)
   const [startSec, setStartSec] = useState<number | null>(null)
@@ -59,7 +61,6 @@ export default function ClipEditor({
   const [clips, setClips] = useState<Clip[]>(initialClips)
   const [saving, setSaving] = useState(false)
 
-  // Transcribe state
   const [transcribeStatuses, setTranscribeStatuses] = useState<Record<string, string | null>>(
     Object.fromEntries(initialClips.map(c => [c.id, c.transcribe_status]))
   )
@@ -68,23 +69,21 @@ export default function ClipEditor({
   const [transcribing, setTranscribing] = useState<Record<string, boolean>>({})
   const [transcribeErrors, setTranscribeErrors] = useState<Record<string, string>>({})
 
-  // Render state
   const [renderStatuses, setRenderStatuses] = useState<Record<string, string | null>>(
     Object.fromEntries(initialClips.map(c => [c.id, c.render_status]))
   )
   const [rendering, setRendering] = useState<Record<string, boolean>>({})
   const [renderErrors, setRenderErrors] = useState<Record<string, string>>({})
-  // Storage paths (not signed URLs) — fresh URL generated on each download click
   const [renderPaths, setRenderPaths] = useState<Record<string, string>>(
     Object.fromEntries(initialClips.flatMap(c => (c.render_path ? [[c.id, c.render_path]] : [])))
   )
   const [downloading, setDownloading] = useState<Record<string, boolean>>({})
 
-  // Polling refs — not state to avoid re-renders
   const pollingIntervalsRef = useRef<Record<string, ReturnType<typeof setInterval>>>({})
   const pollCountsRef = useRef<Record<string, number>>({})
 
-  const supabase = createClient()
+  // Single stable Supabase client — never recreated on re-render
+  const supabase = useMemo(() => createClient(), [])
 
   // Signed URL for video preview
   useEffect(() => {
@@ -95,10 +94,9 @@ export default function ClipEditor({
       .then(({ data }) => {
         if (data?.signedUrl) setSignedUrl(data.signedUrl)
       })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project.yt_source_path])
+  }, [project.yt_source_path, supabase])
 
-  // Resume polling for any clip that was pending on page load
+  // Resume polling for pending renders on page load
   useEffect(() => {
     for (const clip of initialClips) {
       if (clip.render_status === 'pending') {
@@ -150,7 +148,6 @@ export default function ClipEditor({
             [clipId]: data.render_error ?? '렌더 실패',
           }))
         }
-        // 'pending' → keep polling
       } catch {
         // Network error — keep polling
       }
@@ -167,8 +164,19 @@ export default function ClipEditor({
     }
   }
 
+  // Throttle: only update state if time changed by > 250ms — avoids 60fps re-renders
   const handleTimeUpdate = useCallback(() => {
-    if (videoRef.current) setCurrentTime(videoRef.current.currentTime)
+    if (!videoRef.current) return
+    const t = videoRef.current.currentTime
+    if (Math.abs(t - lastTimeRef.current) < 0.25) return
+    lastTimeRef.current = t
+    setCurrentTime(t)
+  }, [])
+
+  const handleSeek = useCallback((sec: number) => {
+    if (!videoRef.current) return
+    videoRef.current.currentTime = sec
+    videoRef.current.play().catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -244,7 +252,6 @@ export default function ClipEditor({
       })
       const body = (await res.json()) as { queued?: boolean; error?: string }
       if (!res.ok) throw new Error(body.error ?? 'Render failed')
-      // 202 received — start polling
       startPolling(clipId)
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Render failed'
@@ -275,7 +282,7 @@ export default function ClipEditor({
 
   return (
     <div className="space-y-3">
-      {/* Video / fallback */}
+      {/* Video player */}
       <div className="overflow-hidden rounded-xl bg-black">
         {signedUrl ? (
           <video
@@ -364,13 +371,19 @@ export default function ClipEditor({
                   <span className="w-6 text-center text-[12px] text-[rgba(255,255,255,0.3)]">
                     {i + 1}
                   </span>
-                  <span className="font-mono text-[14px] text-white">
+                  <button
+                    onClick={() => handleSeek(Number(clip.start_sec))}
+                    className="font-mono text-[14px] text-white transition-opacity hover:opacity-70"
+                  >
                     {formatTime(Number(clip.start_sec))}
-                  </span>
+                  </button>
                   <span className="text-[rgba(255,255,255,0.24)]">→</span>
-                  <span className="font-mono text-[14px] text-white">
+                  <button
+                    onClick={() => handleSeek(Number(clip.end_sec))}
+                    className="font-mono text-[14px] text-white transition-opacity hover:opacity-70"
+                  >
                     {formatTime(Number(clip.end_sec))}
-                  </span>
+                  </button>
                   <span className="font-mono text-[12px] text-[rgba(255,255,255,0.4)]">
                     {(Number(clip.end_sec) - Number(clip.start_sec)).toFixed(1)}s
                   </span>
@@ -402,6 +415,8 @@ export default function ClipEditor({
                     key={`${clip.id}-${segments.length}`}
                     clipId={clip.id}
                     initialSegments={segments}
+                    currentTime={currentTime}
+                    onSeek={handleSeek}
                   />
                 )}
 

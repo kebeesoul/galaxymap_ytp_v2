@@ -2,7 +2,7 @@ services:
   ingest:
     build:
       context: ./workers/ingest
-    ports:
-      - "8001:8001"
     env_file:
       - .env.local
+    # Pull-based worker: connects outbound to Supabase only.
+    # No port binding needed — no HTTP server.
