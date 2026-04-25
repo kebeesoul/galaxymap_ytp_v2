@@ -110,11 +110,12 @@ export async function POST(request: NextRequest) {
     // 5. Replicate 호출 (60s timeout)
     const replicate = new Replicate({ auth: process.env.REPLICATE_API_TOKEN })
 
-    const replicatePromise = replicate.run('vaibhavs10/incredibly-fast-whisper', {
+    const replicatePromise = replicate.run('openai/whisper', {
       input: {
         audio: signed.signedUrl,
         language: 'korean',
         word_timestamps: true,
+        transcription: 'plain text',
         task: 'transcribe',
       },
     })

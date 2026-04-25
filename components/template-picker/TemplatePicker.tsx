@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import type { Json, Tables } from '@/lib/supabase/types'
+import type { Tables } from '@/lib/supabase/types'
+import { extractLayout } from '@/lib/utils/template'
 
 type Template = Tables<'templates'>
 
@@ -10,6 +11,7 @@ interface Props {
   clipId: string
   initialTemplateId: string | null
   templates: Template[]
+  onSelect?: (templateId: string) => void
 }
 
 const LAYOUT_META: Record<string, { icon: string; label: string; desc: string }> = {
@@ -18,23 +20,11 @@ const LAYOUT_META: Record<string, { icon: string; label: string; desc: string }>
   LAYOUT_C: { icon: '💬', label: '댓글만', desc: '댓글 카드만 표시' },
 }
 
-function getLayout(config: Json): string {
-  if (
-    config !== null &&
-    typeof config === 'object' &&
-    !Array.isArray(config) &&
-    typeof config.layout === 'string'
-  ) {
-    return config.layout
-  }
-  return ''
-}
-
-export default function TemplatePicker({ clipId, initialTemplateId, templates }: Props) {
+export default function TemplatePicker({ clipId, initialTemplateId, templates, onSelect }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(initialTemplateId)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
-  const supabase = createClient()
+  const supabase = useMemo(() => createClient(), [])
 
   async function handleSelect(templateId: string) {
     if (selectedId === templateId) return
@@ -42,6 +32,7 @@ export default function TemplatePicker({ clipId, initialTemplateId, templates }:
     setSaveError(null)
     const prev = selectedId
     setSelectedId(templateId)
+    onSelect?.(templateId)
     const { error } = await supabase.from('clips').update({ template_id: templateId }).eq('id', clipId)
     if (error) {
       setSaveError(error.message)
@@ -65,7 +56,7 @@ export default function TemplatePicker({ clipId, initialTemplateId, templates }:
       </div>
       <div className="grid grid-cols-3 gap-3">
         {templates.map(tmpl => {
-          const layout = getLayout(tmpl.config_json)
+          const layout = extractLayout(tmpl.config_json)
           const meta = LAYOUT_META[layout]
           const isSelected = selectedId === tmpl.id
           return (

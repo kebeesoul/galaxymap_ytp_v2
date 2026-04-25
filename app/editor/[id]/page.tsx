@@ -1,14 +1,10 @@
 import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
-import type { Tables } from '@/lib/supabase/types'
+import type { LyricsSegment, Comment } from '@/lib/types'
 import EditorClient from './EditorClient'
 
 export const dynamic = 'force-dynamic'
-
-type LyricsSegment = Tables<'lyrics_segments'>
-type Comment = Tables<'comments'>
-type Template = Tables<'templates'>
 
 interface Props {
   params: { id: string }

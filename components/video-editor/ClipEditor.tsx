@@ -1,17 +1,31 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import dynamic from 'next/dynamic'
 import { createClient } from '@/lib/supabase/client'
-import type { Tables } from '@/lib/supabase/types'
+import { formatTime } from '@/lib/utils/time'
+import { extractLayout } from '@/lib/utils/template'
+import type { Clip, LyricsSegment, Comment, Template } from '@/lib/types'
 import VideoPreview from './VideoPreview'
 import SubtitleEditor from '@/components/subtitle-editor/SubtitleEditor'
 import CommentCard from '@/components/comment-card/CommentCard'
 import TemplatePicker from '@/components/template-picker/TemplatePicker'
+import BgmEditor from '@/components/audio/BgmEditor'
 
-type Clip = Tables<'clips'>
-type LyricsSegment = Tables<'lyrics_segments'>
-type Comment = Tables<'comments'>
-type Template = Tables<'templates'>
+const CanvasPreview = dynamic(() => import('@/components/preview/CanvasPreview'), { ssr: false })
+const WaveformEditor = dynamic(() => import('./WaveformEditor'), { ssr: false })
+
+function getLayoutForClip(
+  templates: Template[],
+  templateId: string | null,
+): 'LAYOUT_A' | 'LAYOUT_B' | 'LAYOUT_C' {
+  if (!templateId) return 'LAYOUT_A'
+  const tmpl = templates.find(t => t.id === templateId)
+  if (!tmpl) return 'LAYOUT_A'
+  const l = extractLayout(tmpl.config_json)
+  if (l === 'LAYOUT_A' || l === 'LAYOUT_B' || l === 'LAYOUT_C') return l
+  return 'LAYOUT_A'
+}
 
 interface Props {
   project: {
@@ -37,13 +51,6 @@ interface StatusResponse {
   render_error?: string | null
 }
 
-function formatTime(sec: number): string {
-  const m = Math.floor(sec / 60)
-  const s = Math.floor(sec % 60)
-  const ms = Math.floor((sec % 1) * 10)
-  return `${m}:${s.toString().padStart(2, '0')}.${ms}`
-}
-
 export default function ClipEditor({
   project,
   initialClips,
@@ -51,15 +58,47 @@ export default function ClipEditor({
   initialCommentsByClip,
   templates,
 }: Props) {
-  const videoRef = useRef<HTMLVideoElement>(null)
+  const videoRef = useRef<HTMLVideoElement | null>(null)
   const lastTimeRef = useRef(0)
 
   const [signedUrl, setSignedUrl] = useState<string | null>(null)
+  const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null)
+
+  // Stable ref callback — prevents WaveSurfer from reinitialising on parent re-renders
+  const videoRefCallback = useCallback((el: HTMLVideoElement | null) => {
+    videoRef.current = el
+    setVideoEl(el)
+  }, [])
   const [currentTime, setCurrentTime] = useState(0)
   const [startSec, setStartSec] = useState<number | null>(null)
   const [endSec, setEndSec] = useState<number | null>(null)
   const [clips, setClips] = useState<Clip[]>(initialClips)
   const [saving, setSaving] = useState(false)
+
+  const [templateIdsByClip, setTemplateIdsByClip] = useState<Record<string, string | null>>(
+    Object.fromEntries(initialClips.map(c => [c.id, c.template_id]))
+  )
+
+  const [bgmByClip, setBgmByClip] = useState<Record<string, {
+    bgm_url: string | null
+    bgm_volume: number
+    original_volume: number
+  }>>(Object.fromEntries(initialClips.map(c => [c.id, {
+    bgm_url: c.bgm_url,
+    bgm_volume: c.bgm_volume,
+    original_volume: c.original_volume,
+  }])))
+
+  const [commentsByClip, setCommentsByClip] = useState<
+    Record<string, Array<{ username: string; body: string; likes_count: number }>>
+  >(Object.fromEntries(initialClips.map(c => [
+    c.id,
+    (initialCommentsByClip[c.id] ?? []).map(cm => ({
+      username: cm.username,
+      body: cm.body,
+      likes_count: cm.likes_count ?? 0,
+    })),
+  ])))
 
   const [transcribeStatuses, setTranscribeStatuses] = useState<Record<string, string | null>>(
     Object.fromEntries(initialClips.map(c => [c.id, c.transcribe_status]))
@@ -78,6 +117,10 @@ export default function ClipEditor({
     Object.fromEntries(initialClips.flatMap(c => (c.render_path ? [[c.id, c.render_path]] : [])))
   )
   const [downloading, setDownloading] = useState<Record<string, boolean>>({})
+
+  const [lyricsInput, setLyricsInput] = useState<Record<string, string>>({})
+  const [lyricsInputOpen, setLyricsInputOpen] = useState<Record<string, boolean>>({})
+  const [savingLyrics, setSavingLyrics] = useState<Record<string, boolean>>({})
 
   const pollingIntervalsRef = useRef<Record<string, ReturnType<typeof setInterval>>>({})
   const pollCountsRef = useRef<Record<string, number>>({})
@@ -179,6 +222,19 @@ export default function ClipEditor({
     videoRef.current.play().catch(() => {})
   }, [])
 
+  // Seek only — no auto-play (used for waveform click)
+  const handleSeekOnly = useCallback((sec: number) => {
+    if (!videoRef.current) return
+    videoRef.current.currentTime = sec
+  }, [])
+
+  function handleSetDuration(durationSec: number) {
+    const current = videoRef.current?.currentTime ?? 0
+    const maxDuration = videoRef.current?.duration ?? (project.yt_duration_sec ?? 99999)
+    setStartSec(current)
+    setEndSec(Math.min(current + durationSec, maxDuration))
+  }
+
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
@@ -188,6 +244,7 @@ export default function ClipEditor({
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [])
+
 
   async function saveClip() {
     if (startSec === null || endSec === null || endSec <= startSec) return
@@ -201,6 +258,12 @@ export default function ClipEditor({
       setClips(prev => [...prev, data])
       setTranscribeStatuses(prev => ({ ...prev, [data.id]: null }))
       setRenderStatuses(prev => ({ ...prev, [data.id]: null }))
+      setTemplateIdsByClip(prev => ({ ...prev, [data.id]: null }))
+      setBgmByClip(prev => ({ ...prev, [data.id]: { bgm_url: null, bgm_volume: 0.3, original_volume: 1.0 } }))
+      setCommentsByClip(prev => ({ ...prev, [data.id]: [] }))
+      setLyricsInput(prev => ({ ...prev, [data.id]: '' }))
+      setLyricsInputOpen(prev => ({ ...prev, [data.id]: false }))
+      setSavingLyrics(prev => ({ ...prev, [data.id]: false }))
       setStartSec(null)
       setEndSec(null)
     }
@@ -232,6 +295,35 @@ export default function ClipEditor({
     } finally {
       setTranscribing(prev => ({ ...prev, [clipId]: false }))
     }
+  }
+
+  async function handleSaveLyrics(clipId: string) {
+    const clip = clips.find(c => c.id === clipId)
+    if (!clip) return
+    const text = lyricsInput[clipId]?.trim() ?? ''
+    if (!text) return
+
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean)
+    const start = Number(clip.start_sec)
+    const end = Number(clip.end_sec)
+    const step = (end - start) / lines.length
+
+    const rows = lines.map((line, i) => ({
+      clip_id: clipId,
+      text: line,
+      start_sec: Math.round((start + step * i) * 100) / 100,
+      end_sec: Math.round((start + step * (i + 1)) * 100) / 100,
+    }))
+
+    setSavingLyrics(prev => ({ ...prev, [clipId]: true }))
+    await supabase.from('lyrics_segments').delete().eq('clip_id', clipId)
+    const { data } = await supabase.from('lyrics_segments').insert(rows).select()
+    if (data) {
+      setSegmentsByClip(prev => ({ ...prev, [clipId]: data }))
+      setTranscribeStatuses(prev => ({ ...prev, [clipId]: 'success' }))
+      setLyricsInputOpen(prev => ({ ...prev, [clipId]: false }))
+    }
+    setSavingLyrics(prev => ({ ...prev, [clipId]: false }))
   }
 
   async function handleRender(clipId: string) {
@@ -286,10 +378,11 @@ export default function ClipEditor({
       <div className="overflow-hidden rounded-xl bg-black">
         {signedUrl ? (
           <video
-            ref={videoRef}
+            ref={videoRefCallback}
             src={signedUrl}
             className="w-full"
             controls
+            preload="auto"
             onTimeUpdate={handleTimeUpdate}
           />
         ) : (
@@ -300,6 +393,21 @@ export default function ClipEditor({
           />
         )}
       </div>
+
+      {/* Waveform editor */}
+      {videoEl && (
+        <WaveformEditor
+          mediaEl={videoEl}
+          startSec={startSec}
+          endSec={endSec}
+          currentTime={currentTime}
+          onSeek={handleSeekOnly}
+          onRegionChange={(start, end) => {
+            setStartSec(start)
+            setEndSec(end)
+          }}
+        />
+      )}
 
       {/* Controls bar */}
       <div className="rounded-xl bg-[#1d1d1f] px-5 py-4">
@@ -335,6 +443,20 @@ export default function ClipEditor({
           </button>
 
           <button
+            onClick={() => handleSetDuration(30)}
+            className="rounded-lg bg-[#272729] px-3 py-1.5 text-[13px] text-white transition-colors hover:bg-[#2a2a2d]"
+          >
+            30 sec
+          </button>
+
+          <button
+            onClick={() => handleSetDuration(60)}
+            className="rounded-lg bg-[#272729] px-3 py-1.5 text-[13px] text-white transition-colors hover:bg-[#2a2a2d]"
+          >
+            1 min
+          </button>
+
+          <button
             onClick={saveClip}
             disabled={saving || !canSave}
             className="ml-auto rounded-lg bg-[#0071e3] px-4 py-1.5 text-[14px] text-white transition-colors hover:bg-[#0077ed] disabled:opacity-30"
@@ -366,7 +488,7 @@ export default function ClipEditor({
 
             return (
               <div key={clip.id} className="space-y-2">
-                {/* Clip header */}
+                {/* ── Clip header ── */}
                 <div className="flex items-center gap-3 rounded-xl bg-[#1d1d1f] px-5 py-3">
                   <span className="w-6 text-center text-[12px] text-[rgba(255,255,255,0.3)]">
                     {i + 1}
@@ -388,21 +510,59 @@ export default function ClipEditor({
                     {(Number(clip.end_sec) - Number(clip.start_sec)).toFixed(1)}s
                   </span>
 
-                  <button
-                    onClick={() => handleTranscribe(clip.id)}
-                    disabled={isTranscribing || transcribeStatus === 'pending'}
-                    className="ml-auto flex items-center gap-2 rounded-lg bg-[#272729] px-3 py-1.5 text-[13px] text-white transition-colors hover:bg-[#2a2a2d] disabled:opacity-40"
-                  >
-                    {isTranscribing || transcribeStatus === 'pending' ? (
-                      <>
-                        <span className="h-3 w-3 animate-spin rounded-full border border-white/30 border-t-white" />
-                        자막 추출 중…
-                      </>
-                    ) : (
-                      '자막 추출'
-                    )}
-                  </button>
+                  <div className="ml-auto flex items-center gap-2">
+                    <button
+                      onClick={() => handleTranscribe(clip.id)}
+                      disabled={isTranscribing || transcribeStatus === 'pending'}
+                      className="flex items-center gap-2 rounded-lg bg-[#272729] px-3 py-1.5 text-[13px] text-white transition-colors hover:bg-[#2a2a2d] disabled:opacity-40"
+                    >
+                      {isTranscribing || transcribeStatus === 'pending' ? (
+                        <>
+                          <span className="h-3 w-3 animate-spin rounded-full border border-white/30 border-t-white" />
+                          자막 추출 중…
+                        </>
+                      ) : (
+                        '① 자막 추출'
+                      )}
+                    </button>
+                    <button
+                      onClick={() => setLyricsInputOpen(prev => ({ ...prev, [clip.id]: !prev[clip.id] }))}
+                      className={`rounded-lg px-3 py-1.5 text-[13px] text-white transition-colors hover:bg-[#2a2a2d] ${lyricsInputOpen[clip.id] ? 'bg-[#0071e3]/20 ring-1 ring-[#0071e3]' : 'bg-[#272729]'}`}
+                    >
+                      가사 입력
+                    </button>
+                  </div>
                 </div>
+
+                {lyricsInputOpen[clip.id] && (
+                  <div className="rounded-xl bg-[#1d1d1f] px-5 py-4">
+                    <p className="mb-2 text-[12px] text-[rgba(255,255,255,0.4)]">
+                      가사를 한 줄씩 입력하세요. 줄마다 구간이 균등 배분됩니다.
+                    </p>
+                    <textarea
+                      value={lyricsInput[clip.id] ?? ''}
+                      onChange={e => setLyricsInput(prev => ({ ...prev, [clip.id]: e.target.value }))}
+                      rows={8}
+                      placeholder={'사랑했지만\n이젠 안녕\n...'}
+                      className="w-full resize-none rounded-lg bg-[#272729] px-3 py-2 text-[14px] text-white outline-none placeholder:text-[rgba(255,255,255,0.2)] focus:ring-1 focus:ring-[#0071e3]"
+                    />
+                    <div className="mt-3 flex justify-end gap-2">
+                      <button
+                        onClick={() => setLyricsInputOpen(prev => ({ ...prev, [clip.id]: false }))}
+                        className="rounded-lg bg-[#272729] px-3 py-1.5 text-[13px] text-white transition-colors hover:bg-[#2a2a2d]"
+                      >
+                        취소
+                      </button>
+                      <button
+                        onClick={() => handleSaveLyrics(clip.id)}
+                        disabled={savingLyrics[clip.id] || !(lyricsInput[clip.id]?.trim())}
+                        className="rounded-lg bg-[#0071e3] px-4 py-1.5 text-[13px] text-white transition-colors hover:bg-[#0077ed] disabled:opacity-30"
+                      >
+                        {savingLyrics[clip.id] ? '저장 중…' : '적용'}
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {transcribeStatus === 'failed' && (
                   <p className="px-1 text-[13px] text-red-400">
@@ -420,19 +580,47 @@ export default function ClipEditor({
                   />
                 )}
 
+                {/* ② 댓글 */}
                 <CommentCard
                   clipId={clip.id}
                   videoId={project.yt_video_id ?? ''}
                   initialComments={comments}
+                  onCommentsChange={(cmts) => setCommentsByClip(prev => ({ ...prev, [clip.id]: cmts }))}
                 />
 
+                {/* ③ 템플릿 */}
                 <TemplatePicker
                   clipId={clip.id}
                   initialTemplateId={clip.template_id}
                   templates={templates}
+                  onSelect={(id) => setTemplateIdsByClip(prev => ({ ...prev, [clip.id]: id }))}
                 />
 
-                {/* Render section */}
+                {/* ④ BGM */}
+                <BgmEditor
+                  clipId={clip.id}
+                  initialBgmUrl={clip.bgm_url}
+                  initialBgmVolume={clip.bgm_volume}
+                  initialOriginalVolume={clip.original_volume}
+                  onSave={(state) => setBgmByClip(prev => ({ ...prev, [clip.id]: state }))}
+                />
+
+                {/* ⑤ 미리보기 */}
+                <CanvasPreview
+                  clip={{
+                    start_sec: Number(clip.start_sec),
+                    end_sec: Number(clip.end_sec),
+                    bgm_url: bgmByClip[clip.id]?.bgm_url ?? null,
+                    bgm_volume: bgmByClip[clip.id]?.bgm_volume ?? clip.bgm_volume,
+                    original_volume: bgmByClip[clip.id]?.original_volume ?? clip.original_volume,
+                  }}
+                  segments={segments}
+                  comments={commentsByClip[clip.id] ?? []}
+                  layout={getLayoutForClip(templates, templateIdsByClip[clip.id] ?? null)}
+                  signedUrl={signedUrl}
+                />
+
+                {/* ⑥ 렌더 */}
                 <div className="rounded-xl bg-[#1d1d1f] px-5 py-4">
                   <div className="flex items-center gap-3">
                     <h3 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-[rgba(255,255,255,0.4)]">
