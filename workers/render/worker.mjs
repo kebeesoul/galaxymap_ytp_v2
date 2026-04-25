@@ -7,15 +7,12 @@
  * Requires: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY in .env
  */
 import { execFile } from 'child_process'
-import { config } from 'dotenv'
 import { promises as fs } from 'fs'
 import os from 'os'
 import path from 'path'
 import { promisify } from 'util'
 import { fileURLToPath } from 'url'
 import { createClient } from '@supabase/supabase-js'
-
-config()
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = path.resolve(__dirname, '../..')
