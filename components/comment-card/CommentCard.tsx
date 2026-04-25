@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { Tables } from '@/lib/supabase/types'
 
@@ -18,6 +18,7 @@ interface Props {
   clipId: string
   videoId: string
   initialComments: Comment[]
+  onCommentsChange?: (comments: Array<{ username: string; body: string; likes_count: number }>) => void
 }
 
 function toLocal(c: Comment): LocalComment {
@@ -30,9 +31,17 @@ function toLocal(c: Comment): LocalComment {
   }
 }
 
-export default function CommentCard({ clipId, videoId, initialComments }: Props) {
+export default function CommentCard({ clipId, videoId, initialComments, onCommentsChange }: Props) {
   const [comments, setComments] = useState<LocalComment[]>(initialComments.map(toLocal))
   const hasYoutubeComments = comments.some(c => c.source === 'youtube')
+
+  const onCommentsChangeRef = useRef(onCommentsChange)
+  onCommentsChangeRef.current = onCommentsChange
+  useEffect(() => {
+    onCommentsChangeRef.current?.(
+      comments.map(c => ({ username: c.username, body: c.body, likes_count: c.likes_count }))
+    )
+  }, [comments])
   const [fetching, setFetching] = useState(false)
   const [fetchError, setFetchError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)

@@ -88,6 +88,17 @@ export default function ClipEditor({
     original_volume: c.original_volume,
   }])))
 
+  const [commentsByClip, setCommentsByClip] = useState<
+    Record<string, Array<{ username: string; body: string; likes_count: number }>>
+  >(Object.fromEntries(initialClips.map(c => [
+    c.id,
+    (initialCommentsByClip[c.id] ?? []).map(cm => ({
+      username: cm.username,
+      body: cm.body,
+      likes_count: cm.likes_count ?? 0,
+    })),
+  ])))
+
   const [transcribeStatuses, setTranscribeStatuses] = useState<Record<string, string | null>>(
     Object.fromEntries(initialClips.map(c => [c.id, c.transcribe_status]))
   )
@@ -248,6 +259,9 @@ export default function ClipEditor({
       setClips(prev => [...prev, data])
       setTranscribeStatuses(prev => ({ ...prev, [data.id]: null }))
       setRenderStatuses(prev => ({ ...prev, [data.id]: null }))
+      setTemplateIdsByClip(prev => ({ ...prev, [data.id]: null }))
+      setBgmByClip(prev => ({ ...prev, [data.id]: { bgm_url: null, bgm_volume: 0.3, original_volume: 1.0 } }))
+      setCommentsByClip(prev => ({ ...prev, [data.id]: [] }))
       setStartSec(null)
       setEndSec(null)
     }
@@ -450,7 +464,7 @@ export default function ClipEditor({
 
             return (
               <div key={clip.id} className="space-y-2">
-                {/* Clip header */}
+                {/* ── Clip header ── */}
                 <div className="flex items-center gap-3 rounded-xl bg-[#1d1d1f] px-5 py-3">
                   <span className="w-6 text-center text-[12px] text-[rgba(255,255,255,0.3)]">
                     {i + 1}
@@ -483,7 +497,7 @@ export default function ClipEditor({
                         자막 추출 중…
                       </>
                     ) : (
-                      '자막 추출'
+                      '① 자막 추출'
                     )}
                   </button>
                 </div>
@@ -504,12 +518,15 @@ export default function ClipEditor({
                   />
                 )}
 
+                {/* ② 댓글 */}
                 <CommentCard
                   clipId={clip.id}
                   videoId={project.yt_video_id ?? ''}
                   initialComments={comments}
+                  onCommentsChange={(cmts) => setCommentsByClip(prev => ({ ...prev, [clip.id]: cmts }))}
                 />
 
+                {/* ③ 템플릿 */}
                 <TemplatePicker
                   clipId={clip.id}
                   initialTemplateId={clip.template_id}
@@ -517,6 +534,7 @@ export default function ClipEditor({
                   onSelect={(id) => setTemplateIdsByClip(prev => ({ ...prev, [clip.id]: id }))}
                 />
 
+                {/* ④ BGM */}
                 <BgmEditor
                   clipId={clip.id}
                   initialBgmUrl={clip.bgm_url}
@@ -525,6 +543,7 @@ export default function ClipEditor({
                   onSave={(state) => setBgmByClip(prev => ({ ...prev, [clip.id]: state }))}
                 />
 
+                {/* ⑤ 미리보기 */}
                 <CanvasPreview
                   clip={{
                     start_sec: Number(clip.start_sec),
@@ -534,16 +553,12 @@ export default function ClipEditor({
                     original_volume: bgmByClip[clip.id]?.original_volume ?? clip.original_volume,
                   }}
                   segments={segments}
-                  comments={(initialCommentsByClip[clip.id] ?? []).map(c => ({
-                    username: c.username,
-                    body: c.body,
-                    likes_count: c.likes_count ?? 0,
-                  }))}
+                  comments={commentsByClip[clip.id] ?? []}
                   layout={getLayoutForClip(templates, templateIdsByClip[clip.id] ?? null)}
                   signedUrl={signedUrl}
                 />
 
-                {/* Render section */}
+                {/* ⑥ 렌더 */}
                 <div className="rounded-xl bg-[#1d1d1f] px-5 py-4">
                   <div className="flex items-center gap-3">
                     <h3 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-[rgba(255,255,255,0.4)]">
