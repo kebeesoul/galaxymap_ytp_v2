@@ -1,13 +1,32 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import dynamic from 'next/dynamic'
 import { createClient } from '@/lib/supabase/client'
 import { formatTime } from '@/lib/utils/time'
 import type { Clip, LyricsSegment, Comment, Template } from '@/lib/types'
+import type { Json } from '@/lib/supabase/types'
 import VideoPreview from './VideoPreview'
 import SubtitleEditor from '@/components/subtitle-editor/SubtitleEditor'
 import CommentCard from '@/components/comment-card/CommentCard'
 import TemplatePicker from '@/components/template-picker/TemplatePicker'
+
+const CanvasPreview = dynamic(() => import('@/components/preview/CanvasPreview'), { ssr: false })
+
+function getLayoutForClip(
+  templates: Template[],
+  templateId: string | null,
+): 'LAYOUT_A' | 'LAYOUT_B' | 'LAYOUT_C' {
+  if (!templateId) return 'LAYOUT_A'
+  const tmpl = templates.find(t => t.id === templateId)
+  if (!tmpl) return 'LAYOUT_A'
+  const cfg = tmpl.config_json as Json
+  if (cfg !== null && typeof cfg === 'object' && !Array.isArray(cfg) && typeof (cfg as Record<string, unknown>).layout === 'string') {
+    const l = (cfg as Record<string, string>).layout
+    if (l === 'LAYOUT_A' || l === 'LAYOUT_B' || l === 'LAYOUT_C') return l
+  }
+  return 'LAYOUT_A'
+}
 
 interface Props {
   project: {
@@ -51,6 +70,10 @@ export default function ClipEditor({
   const [saving, setSaving] = useState(false)
   const [detectingSpeech, setDetectingSpeech] = useState(false)
   const [detectError, setDetectError] = useState<string | null>(null)
+
+  const [templateIdsByClip, setTemplateIdsByClip] = useState<Record<string, string | null>>(
+    Object.fromEntries(initialClips.map(c => [c.id, c.template_id]))
+  )
 
   const [transcribeStatuses, setTranscribeStatuses] = useState<Record<string, string | null>>(
     Object.fromEntries(initialClips.map(c => [c.id, c.transcribe_status]))
@@ -460,6 +483,19 @@ export default function ClipEditor({
                   clipId={clip.id}
                   initialTemplateId={clip.template_id}
                   templates={templates}
+                  onSelect={(id) => setTemplateIdsByClip(prev => ({ ...prev, [clip.id]: id }))}
+                />
+
+                <CanvasPreview
+                  clip={{ start_sec: Number(clip.start_sec), end_sec: Number(clip.end_sec) }}
+                  segments={segments}
+                  comments={(initialCommentsByClip[clip.id] ?? []).map(c => ({
+                    username: c.username,
+                    body: c.body,
+                    likes_count: c.likes_count ?? 0,
+                  }))}
+                  layout={getLayoutForClip(templates, templateIdsByClip[clip.id] ?? null)}
+                  signedUrl={signedUrl}
                 />
 
                 {/* Render section */}
