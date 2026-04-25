@@ -31,9 +31,20 @@ export default function EditorClient({
   // Auto-poll every 3s while worker is queued or running
   useEffect(() => {
     if (project.import_status !== 'pending' && project.import_status !== 'processing') return
-    const id = setInterval(() => routerRef.current.refresh(), 3_000)
+    const id = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/import/status?project_id=${project.id}`)
+        if (!res.ok) return
+        const data = (await res.json()) as { import_status?: string }
+        if (data.import_status === 'success' || data.import_status === 'failed') {
+          window.location.reload()
+        }
+      } catch {
+        // network error — keep polling
+      }
+    }, 3_000)
     return () => clearInterval(id)
-  }, [project.import_status])
+  }, [project.import_status, project.id])
 
   async function handleImport() {
     setImporting(true)
