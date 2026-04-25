@@ -6,3 +6,8 @@ services:
       - "8001:8001"
     env_file:
       - .env.local
+    # Cloudflare Tunnel은 이 compose 정의에서 불필요.
+    # - 로컬 개발(Mac Studio): workers/ingest/start.sh 로 uvicorn + cloudflared 동시 실행
+    # - Docker 환경: 컨테이너를 public 엔드포인트가 있는 호스트(Railway 등)에 직접 배포하는 경우 터널 불필요
+    # - 로컬에서 docker compose로 돌리고 Railway → 로컬로 터널링이 필요하면:
+    #     터미널에서 별도로 `cd workers/ingest && ./tunnel.sh` 실행
