@@ -33,6 +33,12 @@ function toLocal(c: Comment): LocalComment {
 
 export default function CommentCard({ clipId, videoId, initialComments, onCommentsChange }: Props) {
   const [comments, setComments] = useState<LocalComment[]>(initialComments.map(toLocal))
+  const [fetching, setFetching] = useState(false)
+  const [fetchError, setFetchError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const supabase = useMemo(() => createClient(), [])
+
   const hasYoutubeComments = comments.some(c => c.source === 'youtube')
 
   const onCommentsChangeRef = useRef(onCommentsChange)
@@ -42,11 +48,6 @@ export default function CommentCard({ clipId, videoId, initialComments, onCommen
       comments.map(c => ({ username: c.username, body: c.body, likes_count: c.likes_count }))
     )
   }, [comments])
-  const [fetching, setFetching] = useState(false)
-  const [fetchError, setFetchError] = useState<string | null>(null)
-  const [saving, setSaving] = useState(false)
-  const [saveError, setSaveError] = useState<string | null>(null)
-  const supabase = useMemo(() => createClient(), [])
 
   async function handleFetchYoutube() {
     setFetching(true)

@@ -1,5 +1,6 @@
 'use client'
 
+import { memo } from 'react'
 import { Player } from '@remotion/player'
 import LayoutA from '@/remotion/compositions/LayoutA'
 import LayoutB from '@/remotion/compositions/LayoutB'
@@ -22,7 +23,7 @@ function calcFrames(startSec: number, endSec: number): number {
   return Math.max(1, Math.round((endSec - startSec) * FPS))
 }
 
-export default function CanvasPreview({ clip, segments, comments, layout, signedUrl }: Props) {
+function CanvasPreview({ clip, segments, comments, layout, signedUrl }: Props) {
   if (!signedUrl) {
     return (
       <div className="rounded-xl bg-[#1d1d1f] px-5 py-8 text-center">
@@ -74,3 +75,5 @@ export default function CanvasPreview({ clip, segments, comments, layout, signed
     </div>
   )
 }
+
+export default memo(CanvasPreview)

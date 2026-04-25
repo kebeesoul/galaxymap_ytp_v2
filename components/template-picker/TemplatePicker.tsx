@@ -2,7 +2,8 @@
 
 import { useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import type { Json, Tables } from '@/lib/supabase/types'
+import type { Tables } from '@/lib/supabase/types'
+import { extractLayout } from '@/lib/utils/template'
 
 type Template = Tables<'templates'>
 
@@ -17,18 +18,6 @@ const LAYOUT_META: Record<string, { icon: string; label: string; desc: string }>
   LAYOUT_A: { icon: '⊟', label: '자막 + 댓글', desc: '상단 자막 / 하단 댓글 카드' },
   LAYOUT_B: { icon: '≡', label: '자막만', desc: '자막 텍스트만 표시' },
   LAYOUT_C: { icon: '💬', label: '댓글만', desc: '댓글 카드만 표시' },
-}
-
-function getLayout(config: Json): string {
-  if (
-    config !== null &&
-    typeof config === 'object' &&
-    !Array.isArray(config) &&
-    typeof config.layout === 'string'
-  ) {
-    return config.layout
-  }
-  return ''
 }
 
 export default function TemplatePicker({ clipId, initialTemplateId, templates, onSelect }: Props) {
@@ -67,7 +56,7 @@ export default function TemplatePicker({ clipId, initialTemplateId, templates, o
       </div>
       <div className="grid grid-cols-3 gap-3">
         {templates.map(tmpl => {
-          const layout = getLayout(tmpl.config_json)
+          const layout = extractLayout(tmpl.config_json)
           const meta = LAYOUT_META[layout]
           const isSelected = selectedId === tmpl.id
           return (

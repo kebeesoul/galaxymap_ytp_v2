@@ -4,8 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { createClient } from '@/lib/supabase/client'
 import { formatTime } from '@/lib/utils/time'
+import { extractLayout } from '@/lib/utils/template'
 import type { Clip, LyricsSegment, Comment, Template } from '@/lib/types'
-import type { Json } from '@/lib/supabase/types'
 import VideoPreview from './VideoPreview'
 import SubtitleEditor from '@/components/subtitle-editor/SubtitleEditor'
 import CommentCard from '@/components/comment-card/CommentCard'
@@ -22,11 +22,8 @@ function getLayoutForClip(
   if (!templateId) return 'LAYOUT_A'
   const tmpl = templates.find(t => t.id === templateId)
   if (!tmpl) return 'LAYOUT_A'
-  const cfg = tmpl.config_json as Json
-  if (cfg !== null && typeof cfg === 'object' && !Array.isArray(cfg) && typeof (cfg as Record<string, unknown>).layout === 'string') {
-    const l = (cfg as Record<string, string>).layout
-    if (l === 'LAYOUT_A' || l === 'LAYOUT_B' || l === 'LAYOUT_C') return l
-  }
+  const l = extractLayout(tmpl.config_json)
+  if (l === 'LAYOUT_A' || l === 'LAYOUT_B' || l === 'LAYOUT_C') return l
   return 'LAYOUT_A'
 }
 
@@ -66,6 +63,12 @@ export default function ClipEditor({
 
   const [signedUrl, setSignedUrl] = useState<string | null>(null)
   const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null)
+
+  // Stable ref callback — prevents WaveSurfer from reinitialising on parent re-renders
+  const videoRefCallback = useCallback((el: HTMLVideoElement | null) => {
+    videoRef.current = el
+    setVideoEl(el)
+  }, [])
   const [currentTime, setCurrentTime] = useState(0)
   const [startSec, setStartSec] = useState<number | null>(null)
   const [endSec, setEndSec] = useState<number | null>(null)
@@ -347,10 +350,7 @@ export default function ClipEditor({
       <div className="overflow-hidden rounded-xl bg-black">
         {signedUrl ? (
           <video
-            ref={(el) => {
-              videoRef.current = el
-              setVideoEl(el)
-            }}
+            ref={videoRefCallback}
             src={signedUrl}
             className="w-full"
             controls
