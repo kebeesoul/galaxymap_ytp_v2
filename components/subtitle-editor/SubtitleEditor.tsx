@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { Tables } from '@/lib/supabase/types'
 
@@ -17,6 +17,8 @@ interface LocalSegment {
 interface Props {
   clipId: string
   initialSegments: Segment[]
+  currentTime?: number
+  onSeek?: (sec: number) => void
 }
 
 let _localIdCounter = 0
@@ -28,7 +30,7 @@ function formatTime(sec: number): string {
   return `${m}:${s.toString().padStart(2, '0')}.${ms}`
 }
 
-export default function SubtitleEditor({ clipId, initialSegments }: Props) {
+export default function SubtitleEditor({ clipId, initialSegments, currentTime, onSeek }: Props) {
   const [segments, setSegments] = useState<LocalSegment[]>(() =>
     initialSegments.map(seg => ({
       localId: _localIdCounter++,
@@ -42,7 +44,16 @@ export default function SubtitleEditor({ clipId, initialSegments }: Props) {
   const [saveError, setSaveError] = useState<string | null>(null)
   const [insertFailed, setInsertFailed] = useState(false)
   const inputRefs = useRef<Map<number, HTMLTextAreaElement>>(new Map())
-  const supabase = createClient()
+
+  const supabase = useMemo(() => createClient(), [])
+
+  const activeIdx = useMemo(() => {
+    if (currentTime === undefined) return -1
+    return segments.reduce<number>((found, s, i) => {
+      if (currentTime >= s.start_sec && currentTime < s.end_sec) return i
+      return found
+    }, -1)
+  }, [currentTime, segments])
 
   function handleTextChange(idx: number, value: string) {
     setSegments(prev => prev.map((s, i) => (i === idx ? { ...s, text: value } : s)))
@@ -184,25 +195,47 @@ export default function SubtitleEditor({ clipId, initialSegments }: Props) {
         </div>
       )}
 
+      {onSeek && (
+        <p className="mb-2 text-[11px] text-[rgba(255,255,255,0.2)]">
+          타임코드 클릭 → 해당 위치로 이동
+        </p>
+      )}
+
       <div className="space-y-1">
-        {segments.map((seg, idx) => (
-          <div key={seg.localId} className="flex items-start gap-3">
-            <span className="mt-2 w-16 shrink-0 font-mono text-[11px] text-[rgba(255,255,255,0.2)]">
-              {formatTime(seg.start_sec)}
-            </span>
-            <textarea
-              ref={el => {
-                if (el) inputRefs.current.set(seg.localId, el)
-                else inputRefs.current.delete(seg.localId)
-              }}
-              value={seg.text}
-              rows={1}
-              onChange={e => handleTextChange(idx, e.target.value)}
-              onKeyDown={e => handleKeyDown(idx, e)}
-              className="flex-1 resize-none rounded-lg bg-[#272729] px-3 py-2 text-[14px] text-white outline-none focus:ring-1 focus:ring-[#0071e3]"
-            />
-          </div>
-        ))}
+        {segments.map((seg, idx) => {
+          const isActive = idx === activeIdx
+          return (
+            <div
+              key={seg.localId}
+              className={`flex items-start gap-3 rounded-lg px-2 py-1 transition-colors ${isActive ? 'bg-[#0071e3]/20' : ''}`}
+            >
+              <button
+                type="button"
+                onClick={() => onSeek?.(seg.start_sec)}
+                className={`mt-2 w-16 shrink-0 text-left font-mono text-[11px] transition-colors ${
+                  isActive
+                    ? 'text-[#2997ff]'
+                    : onSeek
+                      ? 'text-[rgba(255,255,255,0.3)] hover:text-[#2997ff]'
+                      : 'text-[rgba(255,255,255,0.2)] cursor-default'
+                }`}
+              >
+                {formatTime(seg.start_sec)}
+              </button>
+              <textarea
+                ref={el => {
+                  if (el) inputRefs.current.set(seg.localId, el)
+                  else inputRefs.current.delete(seg.localId)
+                }}
+                value={seg.text}
+                rows={1}
+                onChange={e => handleTextChange(idx, e.target.value)}
+                onKeyDown={e => handleKeyDown(idx, e)}
+                className="flex-1 resize-none rounded-lg bg-[#272729] px-3 py-2 text-[14px] text-white outline-none focus:ring-1 focus:ring-[#0071e3]"
+              />
+            </div>
+          )
+        })}
       </div>
     </div>
   )
