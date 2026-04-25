@@ -113,7 +113,7 @@ async function processClip(supabase, clipId) {
         '--log=verbose',
         '--overwrite',
       ],
-      { cwd: REPO_ROOT, timeout: 300_000 }
+      { cwd: REPO_ROOT, timeout: 300_000, maxBuffer: 100 * 1024 * 1024 }
     )
 
     const mp4 = await fs.readFile(outputPath)
