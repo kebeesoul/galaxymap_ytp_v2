@@ -13,7 +13,7 @@ import urllib.request
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 from supabase import create_client
 
@@ -38,6 +38,28 @@ def _get_signed_url(supabase, storage_path: str) -> str:
         else ""
     )
     return url
+
+
+@app.post("/upload-bgm")
+async def upload_bgm(clip_id: str = Form(...), file: UploadFile = File(...)):
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        raise HTTPException(status_code=500, detail="Supabase env vars not set")
+
+    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+    content = await file.read()
+    storage_path = f"bgm/{clip_id}.mp3"
+
+    supabase.storage.from_("sources").upload(
+        path=storage_path,
+        file=content,
+        file_options={"content-type": "audio/mpeg", "upsert": "true"},
+    )
+
+    # Generate a long-lived signed URL (1 year) so Remotion can access the file at render time
+    signed_url = _get_signed_url(supabase, storage_path)
+
+    return {"path": storage_path, "url": signed_url}
 
 
 @app.post("/detect-speech")

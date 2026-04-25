@@ -10,6 +10,7 @@ import VideoPreview from './VideoPreview'
 import SubtitleEditor from '@/components/subtitle-editor/SubtitleEditor'
 import CommentCard from '@/components/comment-card/CommentCard'
 import TemplatePicker from '@/components/template-picker/TemplatePicker'
+import BgmEditor from '@/components/audio/BgmEditor'
 
 const CanvasPreview = dynamic(() => import('@/components/preview/CanvasPreview'), { ssr: false })
 
@@ -74,6 +75,16 @@ export default function ClipEditor({
   const [templateIdsByClip, setTemplateIdsByClip] = useState<Record<string, string | null>>(
     Object.fromEntries(initialClips.map(c => [c.id, c.template_id]))
   )
+
+  const [bgmByClip, setBgmByClip] = useState<Record<string, {
+    bgm_url: string | null
+    bgm_volume: number
+    original_volume: number
+  }>>(Object.fromEntries(initialClips.map(c => [c.id, {
+    bgm_url: c.bgm_url,
+    bgm_volume: c.bgm_volume,
+    original_volume: c.original_volume,
+  }])))
 
   const [transcribeStatuses, setTranscribeStatuses] = useState<Record<string, string | null>>(
     Object.fromEntries(initialClips.map(c => [c.id, c.transcribe_status]))
@@ -486,8 +497,22 @@ export default function ClipEditor({
                   onSelect={(id) => setTemplateIdsByClip(prev => ({ ...prev, [clip.id]: id }))}
                 />
 
+                <BgmEditor
+                  clipId={clip.id}
+                  initialBgmUrl={clip.bgm_url}
+                  initialBgmVolume={clip.bgm_volume}
+                  initialOriginalVolume={clip.original_volume}
+                  onSave={(state) => setBgmByClip(prev => ({ ...prev, [clip.id]: state }))}
+                />
+
                 <CanvasPreview
-                  clip={{ start_sec: Number(clip.start_sec), end_sec: Number(clip.end_sec) }}
+                  clip={{
+                    start_sec: Number(clip.start_sec),
+                    end_sec: Number(clip.end_sec),
+                    bgm_url: bgmByClip[clip.id]?.bgm_url ?? null,
+                    bgm_volume: bgmByClip[clip.id]?.bgm_volume ?? clip.bgm_volume,
+                    original_volume: bgmByClip[clip.id]?.original_volume ?? clip.original_volume,
+                  }}
                   segments={segments}
                   comments={(initialCommentsByClip[clip.id] ?? []).map(c => ({
                     username: c.username,

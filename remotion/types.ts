@@ -10,8 +10,16 @@ export interface Comment {
   likes_count: number
 }
 
+export interface ClipInput {
+  start_sec: number
+  end_sec: number
+  bgm_url?: string | null
+  bgm_volume?: number
+  original_volume?: number
+}
+
 export interface RenderInput {
-  clip: { start_sec: number; end_sec: number }
+  clip: ClipInput
   layout: 'LAYOUT_A' | 'LAYOUT_B' | 'LAYOUT_C'
   segments: Segment[]
   comments: Comment[]

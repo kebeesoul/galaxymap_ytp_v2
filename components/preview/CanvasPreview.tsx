@@ -4,14 +4,14 @@ import { Player } from '@remotion/player'
 import LayoutA from '@/remotion/compositions/LayoutA'
 import LayoutB from '@/remotion/compositions/LayoutB'
 import LayoutC from '@/remotion/compositions/LayoutC'
-import type { Segment, Comment } from '@/remotion/types'
+import type { ClipInput, Segment, Comment } from '@/remotion/types'
 
 const FPS = 30
 const COMP_WIDTH = 1080
 const COMP_HEIGHT = 1920
 
 interface Props {
-  clip: { start_sec: number; end_sec: number }
+  clip: ClipInput
   segments: Segment[]
   comments: Comment[]
   layout: 'LAYOUT_A' | 'LAYOUT_B' | 'LAYOUT_C'
