@@ -13,6 +13,7 @@ import TemplatePicker from '@/components/template-picker/TemplatePicker'
 import BgmEditor from '@/components/audio/BgmEditor'
 
 const CanvasPreview = dynamic(() => import('@/components/preview/CanvasPreview'), { ssr: false })
+const WaveformEditor = dynamic(() => import('./WaveformEditor'), { ssr: false })
 
 function getLayoutForClip(
   templates: Template[],
@@ -60,10 +61,11 @@ export default function ClipEditor({
   initialCommentsByClip,
   templates,
 }: Props) {
-  const videoRef = useRef<HTMLVideoElement>(null)
+  const videoRef = useRef<HTMLVideoElement | null>(null)
   const lastTimeRef = useRef(0)
 
   const [signedUrl, setSignedUrl] = useState<string | null>(null)
+  const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null)
   const [currentTime, setCurrentTime] = useState(0)
   const [startSec, setStartSec] = useState<number | null>(null)
   const [endSec, setEndSec] = useState<number | null>(null)
@@ -331,7 +333,10 @@ export default function ClipEditor({
       <div className="overflow-hidden rounded-xl bg-black">
         {signedUrl ? (
           <video
-            ref={videoRef}
+            ref={(el) => {
+              videoRef.current = el
+              setVideoEl(el)
+            }}
             src={signedUrl}
             className="w-full"
             controls
@@ -345,6 +350,21 @@ export default function ClipEditor({
           />
         )}
       </div>
+
+      {/* Waveform editor */}
+      {videoEl && (
+        <WaveformEditor
+          mediaEl={videoEl}
+          startSec={startSec}
+          endSec={endSec}
+          currentTime={currentTime}
+          onSeek={handleSeek}
+          onRegionChange={(start, end) => {
+            setStartSec(start)
+            setEndSec(end)
+          }}
+        />
+      )}
 
       {/* Controls bar */}
       <div className="rounded-xl bg-[#1d1d1f] px-5 py-4">
