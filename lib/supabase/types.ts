@@ -5,9 +5,12 @@ export type Database = {
     Tables: {
       clips: {
         Row: {
+          bgm_url: string | null
+          bgm_volume: number
           created_at: string | null
           end_sec: number
           id: string
+          original_volume: number
           project_id: string | null
           render_error: string | null
           render_path: string | null
@@ -17,9 +20,12 @@ export type Database = {
           transcribe_status: string | null
         }
         Insert: {
+          bgm_url?: string | null
+          bgm_volume?: number
           created_at?: string | null
           end_sec: number
           id?: string
+          original_volume?: number
           project_id?: string | null
           render_error?: string | null
           render_path?: string | null
@@ -29,9 +35,12 @@ export type Database = {
           transcribe_status?: string | null
         }
         Update: {
+          bgm_url?: string | null
+          bgm_volume?: number
           created_at?: string | null
           end_sec?: number
           id?: string
+          original_volume?: number
           project_id?: string | null
           render_error?: string | null
           render_path?: string | null
