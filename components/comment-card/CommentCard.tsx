@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { Tables } from '@/lib/supabase/types'
 
@@ -37,7 +37,7 @@ export default function CommentCard({ clipId, videoId, initialComments }: Props)
   const [fetchError, setFetchError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
-  const supabase = createClient()
+  const supabase = useMemo(() => createClient(), [])
 
   async function handleFetchYoutube() {
     setFetching(true)

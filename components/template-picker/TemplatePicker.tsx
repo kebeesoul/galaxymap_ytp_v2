@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { Json, Tables } from '@/lib/supabase/types'
 
@@ -34,7 +34,7 @@ export default function TemplatePicker({ clipId, initialTemplateId, templates }:
   const [selectedId, setSelectedId] = useState<string | null>(initialTemplateId)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
-  const supabase = createClient()
+  const supabase = useMemo(() => createClient(), [])
 
   async function handleSelect(templateId: string) {
     if (selectedId === templateId) return
