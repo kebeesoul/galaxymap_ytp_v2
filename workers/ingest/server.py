@@ -30,7 +30,7 @@ class DetectSpeechBody(BaseModel):
 
 
 def _get_signed_url(supabase, storage_path: str) -> str:
-    resp = supabase.storage.from_("sources").create_signed_url(storage_path, 3600)
+    resp = supabase.storage.from_("sources").create_signed_url(storage_path, 31_536_000)
     # supabase-py 2.x returns a dataclass with signed_url, or a dict with signedURL
     url: str = getattr(resp, "signed_url", None) or (
         resp.get("signedURL") or resp.get("signed_url", "")

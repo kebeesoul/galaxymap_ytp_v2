@@ -37,8 +37,6 @@ export default function CanvasPreview({ clip, segments, comments, layout, signed
     fps: FPS,
     compositionWidth: COMP_WIDTH,
     compositionHeight: COMP_HEIGHT,
-    // key resets the player to frame 0 when the layout changes
-    key: layout,
     style: { width: '100%', borderRadius: 8 } as React.CSSProperties,
     controls: true,
     loop: true,
@@ -52,18 +50,21 @@ export default function CanvasPreview({ clip, segments, comments, layout, signed
       <div className="mx-auto max-w-[300px]">
         {layout === 'LAYOUT_A' ? (
           <Player
+            key={layout}
             {...commonPlayerProps}
             component={LayoutA}
             inputProps={{ clip, segments, comments, preview_path: signedUrl }}
           />
         ) : layout === 'LAYOUT_B' ? (
           <Player
+            key={layout}
             {...commonPlayerProps}
             component={LayoutB}
             inputProps={{ clip, segments, preview_path: signedUrl }}
           />
         ) : (
           <Player
+            key={layout}
             {...commonPlayerProps}
             component={LayoutC}
             inputProps={{ clip, comments, preview_path: signedUrl }}

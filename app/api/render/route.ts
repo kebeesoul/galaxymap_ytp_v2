@@ -81,7 +81,13 @@ export async function POST(request: NextRequest) {
 
   // 6. Build RenderInput
   const renderInput: RenderInput = {
-    clip: { start_sec: Number(clip.start_sec), end_sec: Number(clip.end_sec) },
+    clip: {
+      start_sec: Number(clip.start_sec),
+      end_sec: Number(clip.end_sec),
+      bgm_url: clip.bgm_url,
+      bgm_volume: clip.bgm_volume,
+      original_volume: clip.original_volume,
+    },
     layout,
     segments: (segments ?? []).map(s => ({
       text: s.text,
