@@ -49,6 +49,8 @@ export default function ClipEditor({
   const [endSec, setEndSec] = useState<number | null>(null)
   const [clips, setClips] = useState<Clip[]>(initialClips)
   const [saving, setSaving] = useState(false)
+  const [detectingSpeech, setDetectingSpeech] = useState(false)
+  const [detectError, setDetectError] = useState<string | null>(null)
 
   const [transcribeStatuses, setTranscribeStatuses] = useState<Record<string, string | null>>(
     Object.fromEntries(initialClips.map(c => [c.id, c.transcribe_status]))
@@ -177,6 +179,26 @@ export default function ClipEditor({
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [])
+
+  async function handleDetectSpeech() {
+    setDetectingSpeech(true)
+    setDetectError(null)
+    try {
+      const res = await fetch('/api/detect-speech', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_id: project.id }),
+      })
+      const data = (await res.json()) as { start_sec?: number; end_sec?: number; error?: string }
+      if (!res.ok) throw new Error(data.error ?? '감지 실패')
+      if (data.start_sec !== undefined) setStartSec(data.start_sec)
+      if (data.end_sec !== undefined) setEndSec(data.end_sec)
+    } catch (err) {
+      setDetectError(err instanceof Error ? err.message : '감지 실패')
+    } finally {
+      setDetectingSpeech(false)
+    }
+  }
 
   async function saveClip() {
     if (startSec === null || endSec === null || endSec <= startSec) return
@@ -324,6 +346,22 @@ export default function ClipEditor({
           </button>
 
           <button
+            onClick={handleDetectSpeech}
+            disabled={detectingSpeech || !signedUrl}
+            title={!signedUrl ? '비디오 로드 후 사용 가능' : undefined}
+            className="flex items-center gap-1.5 rounded-lg bg-[#272729] px-3 py-1.5 text-[13px] text-white transition-colors hover:bg-[#2a2a2d] disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {detectingSpeech ? (
+              <>
+                <span className="h-3 w-3 animate-spin rounded-full border border-white/30 border-t-white" />
+                감지 중…
+              </>
+            ) : (
+              '자동 구간 추천'
+            )}
+          </button>
+
+          <button
             onClick={saveClip}
             disabled={saving || !canSave}
             className="ml-auto rounded-lg bg-[#0071e3] px-4 py-1.5 text-[14px] text-white transition-colors hover:bg-[#0077ed] disabled:opacity-30"
@@ -335,6 +373,9 @@ export default function ClipEditor({
           Press <kbd className="rounded bg-[#272729] px-1.5 py-0.5 font-mono">I</kbd> mark in ·{' '}
           <kbd className="rounded bg-[#272729] px-1.5 py-0.5 font-mono">O</kbd> mark out
         </p>
+        {detectError && (
+          <p className="mt-1.5 text-[12px] text-red-400">{detectError}</p>
+        )}
       </div>
 
       {/* Clips list */}
