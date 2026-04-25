@@ -23,6 +23,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'project_id and url are required' }, { status: 400 })
   }
 
+  const workerUrl = process.env.PYTHON_WORKER_URL
+  if (!workerUrl) {
+    return NextResponse.json({ error: 'PYTHON_WORKER_URL is not configured' }, { status: 500 })
+  }
+
   const supabase = createClient()
 
   await supabase
@@ -31,7 +36,6 @@ export async function POST(request: NextRequest) {
     .eq('id', project_id)
 
   try {
-    const workerUrl = process.env.PYTHON_WORKER_URL ?? 'http://localhost:8001'
     const { data } = await axios.post<WorkerResponse>(
       `${workerUrl}/ingest`,
       { url },

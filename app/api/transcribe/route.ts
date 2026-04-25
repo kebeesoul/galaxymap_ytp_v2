@@ -67,6 +67,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'clip_id is required' }, { status: 400 })
   }
 
+  if (!process.env.REPLICATE_API_TOKEN) {
+    return NextResponse.json({ error: 'REPLICATE_API_TOKEN is not configured' }, { status: 500 })
+  }
+
   const supabase = createClient()
 
   // 1. clips 조회

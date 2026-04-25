@@ -1,10 +1,10 @@
 import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
+import Link from 'next/link'
+import type { Tables } from '@/lib/supabase/types'
+import EditorClient from './EditorClient'
 
 export const dynamic = 'force-dynamic'
-import Link from 'next/link'
-import EditorClient from './EditorClient'
-import type { Tables } from '@/lib/supabase/types'
 
 type LyricsSegment = Tables<'lyrics_segments'>
 type Comment = Tables<'comments'>
@@ -15,7 +15,23 @@ interface Props {
 }
 
 export default async function EditorPage({ params }: Props) {
-  const supabase = createClient()
+  let supabase: ReturnType<typeof createClient>
+  try {
+    supabase = createClient()
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Database connection failed'
+    return (
+      <div className="min-h-screen bg-black px-6 py-16">
+        <div className="mx-auto max-w-[980px] rounded-xl bg-red-950/40 px-8 py-10">
+          <p className="text-[21px] font-semibold text-red-400">서비스 연결 오류</p>
+          <p className="mt-2 font-mono text-[13px] text-red-300/70">{message}</p>
+          <p className="mt-4 text-[14px] text-[rgba(255,255,255,0.4)]">
+            Railway → Service → Variables에서 환경변수를 확인하세요.
+          </p>
+        </div>
+      </div>
+    )
+  }
 
   const { data: project, error } = await supabase
     .from('projects')
