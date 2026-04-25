@@ -120,6 +120,10 @@ export default function ClipEditor({
   )
   const [downloading, setDownloading] = useState<Record<string, boolean>>({})
 
+  const [lyricsInput, setLyricsInput] = useState<Record<string, string>>({})
+  const [lyricsInputOpen, setLyricsInputOpen] = useState<Record<string, boolean>>({})
+  const [savingLyrics, setSavingLyrics] = useState<Record<string, boolean>>({})
+
   const pollingIntervalsRef = useRef<Record<string, ReturnType<typeof setInterval>>>({})
   const pollCountsRef = useRef<Record<string, number>>({})
 
@@ -265,6 +269,9 @@ export default function ClipEditor({
       setTemplateIdsByClip(prev => ({ ...prev, [data.id]: null }))
       setBgmByClip(prev => ({ ...prev, [data.id]: { bgm_url: null, bgm_volume: 0.3, original_volume: 1.0 } }))
       setCommentsByClip(prev => ({ ...prev, [data.id]: [] }))
+      setLyricsInput(prev => ({ ...prev, [data.id]: '' }))
+      setLyricsInputOpen(prev => ({ ...prev, [data.id]: false }))
+      setSavingLyrics(prev => ({ ...prev, [data.id]: false }))
       setStartSec(null)
       setEndSec(null)
     }
@@ -296,6 +303,35 @@ export default function ClipEditor({
     } finally {
       setTranscribing(prev => ({ ...prev, [clipId]: false }))
     }
+  }
+
+  async function handleSaveLyrics(clipId: string) {
+    const clip = clips.find(c => c.id === clipId)
+    if (!clip) return
+    const text = lyricsInput[clipId]?.trim() ?? ''
+    if (!text) return
+
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean)
+    const start = Number(clip.start_sec)
+    const end = Number(clip.end_sec)
+    const step = (end - start) / lines.length
+
+    const rows = lines.map((line, i) => ({
+      clip_id: clipId,
+      text: line,
+      start_sec: Math.round((start + step * i) * 100) / 100,
+      end_sec: Math.round((start + step * (i + 1)) * 100) / 100,
+    }))
+
+    setSavingLyrics(prev => ({ ...prev, [clipId]: true }))
+    await supabase.from('lyrics_segments').delete().eq('clip_id', clipId)
+    const { data } = await supabase.from('lyrics_segments').insert(rows).select()
+    if (data) {
+      setSegmentsByClip(prev => ({ ...prev, [clipId]: data }))
+      setTranscribeStatuses(prev => ({ ...prev, [clipId]: 'success' }))
+      setLyricsInputOpen(prev => ({ ...prev, [clipId]: false }))
+    }
+    setSavingLyrics(prev => ({ ...prev, [clipId]: false }))
   }
 
   async function handleRender(clipId: string) {
@@ -486,21 +522,59 @@ export default function ClipEditor({
                     {(Number(clip.end_sec) - Number(clip.start_sec)).toFixed(1)}s
                   </span>
 
-                  <button
-                    onClick={() => handleTranscribe(clip.id)}
-                    disabled={isTranscribing || transcribeStatus === 'pending'}
-                    className="ml-auto flex items-center gap-2 rounded-lg bg-[#272729] px-3 py-1.5 text-[13px] text-white transition-colors hover:bg-[#2a2a2d] disabled:opacity-40"
-                  >
-                    {isTranscribing || transcribeStatus === 'pending' ? (
-                      <>
-                        <span className="h-3 w-3 animate-spin rounded-full border border-white/30 border-t-white" />
-                        자막 추출 중…
-                      </>
-                    ) : (
-                      '① 자막 추출'
-                    )}
-                  </button>
+                  <div className="ml-auto flex items-center gap-2">
+                    <button
+                      onClick={() => handleTranscribe(clip.id)}
+                      disabled={isTranscribing || transcribeStatus === 'pending'}
+                      className="flex items-center gap-2 rounded-lg bg-[#272729] px-3 py-1.5 text-[13px] text-white transition-colors hover:bg-[#2a2a2d] disabled:opacity-40"
+                    >
+                      {isTranscribing || transcribeStatus === 'pending' ? (
+                        <>
+                          <span className="h-3 w-3 animate-spin rounded-full border border-white/30 border-t-white" />
+                          자막 추출 중…
+                        </>
+                      ) : (
+                        '① 자막 추출'
+                      )}
+                    </button>
+                    <button
+                      onClick={() => setLyricsInputOpen(prev => ({ ...prev, [clip.id]: !prev[clip.id] }))}
+                      className={`rounded-lg px-3 py-1.5 text-[13px] text-white transition-colors hover:bg-[#2a2a2d] ${lyricsInputOpen[clip.id] ? 'bg-[#0071e3]/20 ring-1 ring-[#0071e3]' : 'bg-[#272729]'}`}
+                    >
+                      가사 입력
+                    </button>
+                  </div>
                 </div>
+
+                {lyricsInputOpen[clip.id] && (
+                  <div className="rounded-xl bg-[#1d1d1f] px-5 py-4">
+                    <p className="mb-2 text-[12px] text-[rgba(255,255,255,0.4)]">
+                      가사를 한 줄씩 입력하세요. 줄마다 구간이 균등 배분됩니다.
+                    </p>
+                    <textarea
+                      value={lyricsInput[clip.id] ?? ''}
+                      onChange={e => setLyricsInput(prev => ({ ...prev, [clip.id]: e.target.value }))}
+                      rows={8}
+                      placeholder={'사랑했지만\n이젠 안녕\n...'}
+                      className="w-full resize-none rounded-lg bg-[#272729] px-3 py-2 text-[14px] text-white outline-none placeholder:text-[rgba(255,255,255,0.2)] focus:ring-1 focus:ring-[#0071e3]"
+                    />
+                    <div className="mt-3 flex justify-end gap-2">
+                      <button
+                        onClick={() => setLyricsInputOpen(prev => ({ ...prev, [clip.id]: false }))}
+                        className="rounded-lg bg-[#272729] px-3 py-1.5 text-[13px] text-white transition-colors hover:bg-[#2a2a2d]"
+                      >
+                        취소
+                      </button>
+                      <button
+                        onClick={() => handleSaveLyrics(clip.id)}
+                        disabled={savingLyrics[clip.id] || !(lyricsInput[clip.id]?.trim())}
+                        className="rounded-lg bg-[#0071e3] px-4 py-1.5 text-[13px] text-white transition-colors hover:bg-[#0077ed] disabled:opacity-30"
+                      >
+                        {savingLyrics[clip.id] ? '저장 중…' : '적용'}
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {transcribeStatus === 'failed' && (
                   <p className="px-1 text-[13px] text-red-400">
