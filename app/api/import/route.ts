@@ -1,18 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import axios, { isAxiosError } from 'axios'
 import { createClient } from '@/lib/supabase/server'
 
 interface ImportBody {
   project_id: string
   url: string
-}
-
-interface WorkerResponse {
-  video_id: string
-  title: string
-  duration_sec: number
-  thumbnail_url: string
-  preview_path: string
 }
 
 export async function POST(request: NextRequest) {
@@ -23,53 +14,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'project_id and url are required' }, { status: 400 })
   }
 
-  const workerUrl = process.env.PYTHON_WORKER_URL
-  if (!workerUrl) {
-    return NextResponse.json({ error: 'PYTHON_WORKER_URL is not configured' }, { status: 500 })
-  }
-
   const supabase = createClient()
 
   await supabase
     .from('projects')
     .update({ import_status: 'pending', import_error: null })
     .eq('id', project_id)
-
-  // Fire-and-forget: return 202 immediately so Railway doesn't timeout
-  void (async () => {
-    const bg = createClient()
-    try {
-      const { data } = await axios.post<WorkerResponse>(
-        `${workerUrl}/ingest`,
-        { url },
-        { timeout: 120_000 }
-      )
-      await bg
-        .from('projects')
-        .update({
-          import_status: 'success',
-          yt_video_id: data.video_id,
-          yt_title: data.title,
-          yt_duration_sec: data.duration_sec,
-          yt_thumbnail_url: data.thumbnail_url,
-          yt_source_path: data.preview_path,
-          import_error: null,
-        })
-        .eq('id', project_id)
-    } catch (err: unknown) {
-      let message = 'Import failed'
-      if (isAxiosError(err)) {
-        const detail = (err.response?.data as { detail?: string } | undefined)?.detail
-        message = detail ?? err.message
-      } else if (err instanceof Error) {
-        message = err.message
-      }
-      await bg
-        .from('projects')
-        .update({ import_status: 'failed', import_error: message })
-        .eq('id', project_id)
-    }
-  })()
 
   return NextResponse.json({ queued: true }, { status: 202 })
 }

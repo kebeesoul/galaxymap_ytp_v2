@@ -34,9 +34,9 @@ export default function EditorClient({
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState('')
 
-  // Auto-poll every 3s while import is pending
+  // Auto-poll every 3s while worker is queued or running
   useEffect(() => {
-    if (project.import_status !== 'pending') return
+    if (project.import_status !== 'pending' && project.import_status !== 'processing') return
     const id = setInterval(() => routerRef.current.refresh(), 3_000)
     return () => clearInterval(id)
   }, [project.import_status])
@@ -121,14 +121,15 @@ export default function EditorClient({
     )
   }
 
-  if (project.import_status === 'pending') {
+  if (project.import_status === 'pending' || project.import_status === 'processing') {
+    const label = project.import_status === 'processing' ? 'Downloading…' : 'Queued…'
     return (
       <div className="space-y-4">
         <ProjectHeader project={project} />
         <div className="rounded-xl bg-[#1d1d1f] p-6">
           <div className="flex items-center gap-4">
             <div className="h-6 w-6 animate-spin rounded-full border-2 border-white/20 border-t-white" />
-            <span className="text-[17px] text-white">Importing…</span>
+            <span className="text-[17px] text-white">{label}</span>
           </div>
           <p className="mt-3 text-[13px] text-[rgba(255,255,255,0.35)]">
             동영상을 다운로드하고 있습니다. 잠시 기다려 주세요.

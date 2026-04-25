@@ -1,16 +1,21 @@
 #!/bin/bash
-# Start the ingest worker + Cloudflare Tunnel together.
-# Worker binds to localhost:8001, tunnel exposes it as a public HTTPS URL.
+# Manual test run — load .env.local and start the pull worker directly.
 set -euo pipefail
 
-# Launch FastAPI worker in background
-uvicorn server:app --host 0.0.0.0 --port 8001 &
-WORKER_PID=$!
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
-# Ensure worker is killed when this script exits
-trap "kill $WORKER_PID 2>/dev/null || true" EXIT
+export PYENV_ROOT="${HOME}/.pyenv"
+[[ -d "${PYENV_ROOT}/bin" ]] && export PATH="${PYENV_ROOT}/bin:${PATH}"
+command -v pyenv &>/dev/null && eval "$(pyenv init -)"
 
-# Run Cloudflare Tunnel in foreground (prints public URL to stdout)
-cloudflared tunnel --url http://localhost:8001
+ENV_FILE="${PROJECT_ROOT}/.env.local"
+if [[ -f "${ENV_FILE}" ]]; then
+  set -a
+  # shellcheck source=/dev/null
+  source "${ENV_FILE}"
+  set +a
+fi
 
-wait
+cd "${SCRIPT_DIR}"
+exec python worker.py

@@ -1,5 +1,5 @@
 #!/bin/bash
-# uvicorn wrapper — reads .env.local, loads pyenv, starts ingest server.
+# Pull-worker wrapper — reads .env.local, loads pyenv, starts polling worker.
 # Invoked by launchd LaunchAgent: auto-starts on login, auto-restarts on crash.
 set -euo pipefail
 
@@ -21,4 +21,4 @@ if [[ -f "${ENV_FILE}" ]]; then
 fi
 
 cd "${SCRIPT_DIR}"
-exec uvicorn server:app --host 0.0.0.0 --port 8001
+exec python worker.py
