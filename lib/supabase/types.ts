@@ -10,6 +10,7 @@ export type Database = {
           created_at: string | null
           end_sec: number
           id: string
+          label: string | null
           original_volume: number
           project_id: string | null
           render_error: string | null
@@ -25,6 +26,7 @@ export type Database = {
           created_at?: string | null
           end_sec: number
           id?: string
+          label?: string | null
           original_volume?: number
           project_id?: string | null
           render_error?: string | null
@@ -40,6 +42,7 @@ export type Database = {
           created_at?: string | null
           end_sec?: number
           id?: string
+          label?: string | null
           original_volume?: number
           project_id?: string | null
           render_error?: string | null
@@ -99,6 +102,7 @@ export type Database = {
           clip_id: string | null
           end_sec: number
           id: string
+          order: number
           start_sec: number
           text: string
         }
@@ -106,6 +110,7 @@ export type Database = {
           clip_id?: string | null
           end_sec: number
           id?: string
+          order?: number
           start_sec: number
           text: string
         }
@@ -113,6 +118,7 @@ export type Database = {
           clip_id?: string | null
           end_sec?: number
           id?: string
+          order?: number
           start_sec?: number
           text?: string
         }

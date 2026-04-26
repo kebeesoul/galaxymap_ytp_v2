@@ -36,9 +36,16 @@ export default function SubtitleEditor({ clipId, initialSegments, currentTime, o
   )
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
-  const [insertFailed, setInsertFailed] = useState(false)
   const [syncMode, setSyncMode] = useState(false)
+  // B4: index of the next line to tap in sync mode
+  const [syncTapIdx, setSyncTapIdx] = useState(0)
+
+  // B5: track IDs that existed at mount so we can DELETE removed ones without a full wipe
+  const originalIdsRef = useRef<Set<string>>(
+    new Set(initialSegments.map(s => s.id).filter(Boolean) as string[])
+  )
   const inputRefs = useRef<Map<number, HTMLTextAreaElement>>(new Map())
+  const tapButtonRefs = useRef<Map<number, HTMLButtonElement>>(new Map())
 
   const supabase = useMemo(() => createClient(), [])
 
@@ -50,7 +57,7 @@ export default function SubtitleEditor({ clipId, initialSegments, currentTime, o
     }, -1)
   }, [currentTime, segments])
 
-  // Tap-to-sync: set this line's start_sec to currentTime and close the gap with the previous line
+  // B4: Tap-to-sync — set start_sec, close gap with previous, then advance to next line
   function handleTapSync(idx: number) {
     if (currentTime === undefined) return
     setSegments(prev => {
@@ -61,6 +68,12 @@ export default function SubtitleEditor({ clipId, initialSegments, currentTime, o
       updated[idx] = { ...updated[idx], start_sec: currentTime }
       return updated
     })
+    const nextIdx = Math.min(segments.length - 1, idx + 1)
+    setSyncTapIdx(nextIdx)
+    // Auto-scroll next tap button into view
+    setTimeout(() => {
+      tapButtonRefs.current.get(nextIdx)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    }, 0)
   }
 
   function handleTextChange(idx: number, value: string) {
@@ -135,37 +148,71 @@ export default function SubtitleEditor({ clipId, initialSegments, currentTime, o
     }
   }
 
+  // B5: Safer save — INSERT new rows first, then UPDATE existing, then DELETE removed.
+  // Never lose data: we only delete after the new data is safely in the DB.
   async function handleSave() {
     setSaving(true)
     setSaveError(null)
-    setInsertFailed(false)
 
-    const { error: deleteError } = await supabase
-      .from('lyrics_segments')
-      .delete()
-      .eq('clip_id', clipId)
+    const valid = segments.filter(s => s.text.trim())
 
-    if (deleteError) {
-      setSaveError(deleteError.message)
-      setSaving(false)
-      return
+    // Rows without a DB id need to be inserted
+    const toInsert = valid
+      .filter(s => s.id === null)
+      .map((s, _) => {
+        const order = valid.findIndex(v => v.localId === s.localId)
+        return {
+          clip_id: clipId,
+          text: s.text.trim(),
+          start_sec: s.start_sec,
+          end_sec: s.end_sec,
+          order,
+        }
+      })
+
+    // Rows with a DB id need to be updated
+    const toUpdate = valid.filter(s => s.id !== null)
+
+    // IDs that were in the DB at mount but are no longer in valid segments → delete them
+    const currentIds = new Set(toUpdate.map(s => s.id!))
+    const toDelete = Array.from(originalIdsRef.current).filter(id => !currentIds.has(id))
+
+    // Step 1: Insert new segments
+    let insertedIds: string[] = []
+    if (toInsert.length > 0) {
+      const { data, error } = await supabase.from('lyrics_segments').insert(toInsert).select('id')
+      if (error) {
+        setSaveError(error.message)
+        setSaving(false)
+        return
+      }
+      insertedIds = data?.map(r => r.id) ?? []
     }
 
-    const rows = segments
-      .filter(s => s.text.trim())
-      .map(s => ({
-        clip_id: clipId,
+    // Step 2: Update existing segments (B1: include order)
+    for (let i = 0; i < toUpdate.length; i++) {
+      const s = toUpdate[i]
+      const order = valid.findIndex(v => v.id === s.id)
+      await supabase.from('lyrics_segments').update({
         text: s.text.trim(),
         start_sec: s.start_sec,
         end_sec: s.end_sec,
-      }))
-
-    const { error: insertError } = await supabase.from('lyrics_segments').insert(rows)
-
-    if (insertError) {
-      setSaveError(insertError.message)
-      setInsertFailed(true)
+        order,
+      }).eq('id', s.id!)
     }
+
+    // Step 3: Delete rows that were removed by the user
+    if (toDelete.length > 0) {
+      const { error } = await supabase.from('lyrics_segments').delete().in('id', toDelete)
+      if (error) {
+        setSaveError(error.message)
+        setSaving(false)
+        return
+      }
+    }
+
+    // Update the known-ID set for future saves
+    originalIdsRef.current = new Set(Array.from(currentIds).concat(insertedIds))
 
     setSaving(false)
   }
@@ -179,7 +226,13 @@ export default function SubtitleEditor({ clipId, initialSegments, currentTime, o
         <div className="flex items-center gap-2">
           {onSeek && (
             <button
-              onClick={() => setSyncMode(prev => !prev)}
+              onClick={() => {
+                setSyncMode(prev => {
+                  const next = !prev
+                  if (next) setSyncTapIdx(0)
+                  return next
+                })
+              }}
               className={`rounded-lg px-3 py-1.5 text-[13px] text-white transition-colors ${
                 syncMode
                   ? 'bg-red-500/80 ring-1 ring-red-400 hover:bg-red-400/80'
@@ -201,25 +254,14 @@ export default function SubtitleEditor({ clipId, initialSegments, currentTime, o
 
       {saveError && (
         <div className="mb-3 rounded-lg border border-red-500/40 bg-red-950/40 px-4 py-3">
-          <p className="text-[13px] font-semibold text-red-400">
-            {insertFailed ? '저장 실패 — 자막 데이터가 삭제됐습니다. 지금 바로 재시도하세요.' : '저장 실패'}
-          </p>
+          <p className="text-[13px] font-semibold text-red-400">저장 실패</p>
           <p className="mt-1 font-mono text-[11px] text-red-300/70">{saveError}</p>
-          {insertFailed && (
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="mt-3 rounded-lg bg-red-600 px-4 py-1.5 text-[13px] text-white transition-colors hover:bg-red-500 disabled:opacity-40"
-            >
-              {saving ? '재시도 중…' : '재시도'}
-            </button>
-          )}
         </div>
       )}
 
       {syncMode ? (
         <p className="mb-2 text-[11px] text-red-400/80">
-          ▶ 음악 재생 후, 각 줄이 시작되는 순간 ● 버튼을 누르면 싱크가 설정됩니다
+          ▶ 음악 재생 후, 각 줄이 시작되는 순간 ● 버튼을 누르면 싱크가 설정됩니다 — 강조된 줄이 다음 차례
         </p>
       ) : onSeek ? (
         <p className="mb-2 text-[11px] text-[rgba(255,255,255,0.2)]">
@@ -230,16 +272,27 @@ export default function SubtitleEditor({ clipId, initialSegments, currentTime, o
       <div className="space-y-1">
         {segments.map((seg, idx) => {
           const isActive = idx === activeIdx
+          const isNextTap = syncMode && idx === syncTapIdx
           return (
             <div
               key={seg.localId}
-              className={`flex items-start gap-2 rounded-lg px-2 py-1 transition-colors ${isActive ? 'bg-[#0071e3]/20' : ''}`}
+              className={`flex items-start gap-2 rounded-lg px-2 py-1 transition-colors ${
+                isActive ? 'bg-[#0071e3]/20' : isNextTap ? 'bg-red-500/10' : ''
+              }`}
             >
               {syncMode ? (
                 <button
+                  ref={el => {
+                    if (el) tapButtonRefs.current.set(idx, el)
+                    else tapButtonRefs.current.delete(idx)
+                  }}
                   type="button"
                   onClick={() => handleTapSync(idx)}
-                  className="mt-1.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-red-500 text-white transition-transform hover:scale-110 hover:bg-red-400 active:scale-95"
+                  className={`mt-1.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-white transition-all hover:scale-110 active:scale-95 ${
+                    isNextTap
+                      ? 'scale-110 bg-red-500 ring-2 ring-red-400 ring-offset-1 ring-offset-[#1d1d1f]'
+                      : 'bg-red-900/50 hover:bg-red-500'
+                  }`}
                   title="지금 재생 위치로 싱크"
                 >
                   <span className="text-[9px] leading-none">●</span>
@@ -253,7 +306,7 @@ export default function SubtitleEditor({ clipId, initialSegments, currentTime, o
                       ? 'text-[#2997ff]'
                       : onSeek
                         ? 'text-[rgba(255,255,255,0.3)] hover:text-[#2997ff]'
-                        : 'text-[rgba(255,255,255,0.2)] cursor-default'
+                        : 'cursor-default text-[rgba(255,255,255,0.2)]'
                   }`}
                 >
                   {formatTime(seg.start_sec)}

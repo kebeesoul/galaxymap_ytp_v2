@@ -18,6 +18,9 @@ interface Props {
   clipId: string
   videoId: string
   initialComments: Comment[]
+  // A8: indices of comments selected for preview/render (empty = all)
+  selectedIndices?: number[]
+  onSelectionChange?: (indices: number[]) => void
   onCommentsChange?: (comments: Array<{ username: string; body: string; likes_count: number }>) => void
 }
 
@@ -31,7 +34,14 @@ function toLocal(c: Comment): LocalComment {
   }
 }
 
-export default function CommentCard({ clipId, videoId, initialComments, onCommentsChange }: Props) {
+export default function CommentCard({
+  clipId,
+  videoId,
+  initialComments,
+  selectedIndices,
+  onSelectionChange,
+  onCommentsChange,
+}: Props) {
   const [comments, setComments] = useState<LocalComment[]>(initialComments.map(toLocal))
   const [fetching, setFetching] = useState(false)
   const [fetchError, setFetchError] = useState<string | null>(null)
@@ -40,6 +50,7 @@ export default function CommentCard({ clipId, videoId, initialComments, onCommen
   const supabase = useMemo(() => createClient(), [])
 
   const hasYoutubeComments = comments.some(c => c.source === 'youtube')
+  const selected = selectedIndices ?? []
 
   const onCommentsChangeRef = useRef(onCommentsChange)
   onCommentsChangeRef.current = onCommentsChange
@@ -48,6 +59,15 @@ export default function CommentCard({ clipId, videoId, initialComments, onCommen
       comments.map(c => ({ username: c.username, body: c.body, likes_count: c.likes_count }))
     )
   }, [comments])
+
+  function toggleSelection(idx: number) {
+    if (!onSelectionChange) return
+    if (selected.includes(idx)) {
+      onSelectionChange(selected.filter(i => i !== idx))
+    } else {
+      onSelectionChange([...selected, idx])
+    }
+  }
 
   async function handleFetchYoutube() {
     setFetching(true)
@@ -77,6 +97,12 @@ export default function CommentCard({ clipId, videoId, initialComments, onCommen
 
   function deleteComment(idx: number) {
     setComments(prev => prev.filter((_, i) => i !== idx))
+    // Fix selection indices after deletion
+    if (onSelectionChange && selected.length > 0) {
+      onSelectionChange(
+        selected.filter(i => i !== idx).map(i => (i > idx ? i - 1 : i))
+      )
+    }
   }
 
   function updateField<K extends keyof LocalComment>(idx: number, key: K, value: LocalComment[K]) {
@@ -125,12 +151,15 @@ export default function CommentCard({ clipId, videoId, initialComments, onCommen
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <h3 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-[rgba(255,255,255,0.4)]">
           댓글 ({comments.length})
+          {selected.length > 0 && (
+            <span className="ml-2 text-[#2997ff]">{selected.length}개 선택</span>
+          )}
         </h3>
         <button
           onClick={handleFetchYoutube}
           disabled={fetching || hasYoutubeComments}
           title={hasYoutubeComments ? '이미 YouTube 댓글을 불러왔습니다' : undefined}
-          className="flex items-center gap-1.5 rounded-lg bg-[#272729] px-3 py-1.5 text-[13px] text-white transition-colors hover:bg-[#2a2a2d] disabled:opacity-40 disabled:cursor-not-allowed"
+          className="flex items-center gap-1.5 rounded-lg bg-[#272729] px-3 py-1.5 text-[13px] text-white transition-colors hover:bg-[#2a2a2d] disabled:cursor-not-allowed disabled:opacity-40"
         >
           {fetching ? (
             <>
@@ -161,6 +190,12 @@ export default function CommentCard({ clipId, videoId, initialComments, onCommen
       {fetchError && <p className="mb-3 text-[12px] text-red-400">{fetchError}</p>}
       {saveError && <p className="mb-3 text-[12px] text-red-400">{saveError}</p>}
 
+      {selected.length > 0 && (
+        <p className="mb-2 text-[11px] text-[#2997ff]">
+          체크된 댓글만 미리보기·렌더에 사용됩니다
+        </p>
+      )}
+
       {comments.length === 0 ? (
         <p className="py-4 text-center text-[13px] text-[rgba(255,255,255,0.24)]">
           댓글 없음 — YouTube에서 불러오거나 직접 추가하세요.
@@ -168,8 +203,27 @@ export default function CommentCard({ clipId, videoId, initialComments, onCommen
       ) : (
         <div className="space-y-2">
           {comments.map((comment, idx) => (
-            <div key={idx} className="rounded-lg bg-[#272729] px-4 py-3">
+            <div
+              key={idx}
+              className={`rounded-lg px-4 py-3 transition-colors ${
+                selected.length > 0
+                  ? selected.includes(idx)
+                    ? 'bg-[#0071e3]/20 ring-1 ring-[#0071e3]/40'
+                    : 'bg-[#272729] opacity-50'
+                  : 'bg-[#272729]'
+              }`}
+            >
               <div className="flex items-center gap-2">
+                {/* A8: selection checkbox */}
+                {onSelectionChange && (
+                  <input
+                    type="checkbox"
+                    checked={selected.includes(idx)}
+                    onChange={() => toggleSelection(idx)}
+                    className="h-4 w-4 shrink-0 cursor-pointer accent-[#0071e3]"
+                    title="렌더에 포함"
+                  />
+                )}
                 <input
                   value={comment.username}
                   onChange={e => updateField(idx, 'username', e.target.value)}
