@@ -5,7 +5,9 @@ import dynamic from 'next/dynamic'
 import { createClient } from '@/lib/supabase/client'
 import { formatTime } from '@/lib/utils/time'
 import { extractLayout } from '@/lib/utils/template'
+import type { Json } from '@/lib/supabase/types'
 import type { Clip, LyricsSegment, Comment, Template } from '@/lib/types'
+import type { SubtitleStyle } from '@/remotion/types'
 import VideoPreview from './VideoPreview'
 import SubtitleEditor from '@/components/subtitle-editor/SubtitleEditor'
 import CommentCard from '@/components/comment-card/CommentCard'
@@ -14,6 +16,20 @@ import BgmEditor from '@/components/audio/BgmEditor'
 
 const CanvasPreview = dynamic(() => import('@/components/preview/CanvasPreview'), { ssr: false })
 const WaveformEditor = dynamic(() => import('./WaveformEditor'), { ssr: false })
+
+const DEFAULT_SUBTITLE_STYLE: SubtitleStyle = { position: 'bottom', fontSize: 42, bgOpacity: 0.72 }
+
+function parseSubtitleStyle(raw: unknown): SubtitleStyle {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return DEFAULT_SUBTITLE_STYLE
+  const obj = raw as Record<string, unknown>
+  return {
+    position: (['top', 'center', 'bottom'] as const).includes(obj.position as 'top')
+      ? (obj.position as SubtitleStyle['position'])
+      : DEFAULT_SUBTITLE_STYLE.position,
+    fontSize: typeof obj.fontSize === 'number' ? obj.fontSize : DEFAULT_SUBTITLE_STYLE.fontSize,
+    bgOpacity: typeof obj.bgOpacity === 'number' ? obj.bgOpacity : DEFAULT_SUBTITLE_STYLE.bgOpacity,
+  }
+}
 
 function getLayoutForClip(
   templates: Template[],
@@ -50,6 +66,7 @@ interface StatusResponse {
   render_status?: string | null
   render_path?: string | null
   render_error?: string | null
+  render_progress?: number
 }
 
 export default function ClipEditor({
@@ -129,6 +146,19 @@ export default function ClipEditor({
   )
   const [downloading, setDownloading] = useState<Record<string, boolean>>({})
 
+  // C1: subtitle style per clip
+  const [subtitleStylesByClip, setSubtitleStylesByClip] = useState<Record<string, SubtitleStyle>>(
+    Object.fromEntries(initialClips.map(c => [c.id, parseSubtitleStyle(c.subtitle_style)]))
+  )
+
+  // C5: render progress 0–100 per clip
+  const [renderProgressByClip, setRenderProgressByClip] = useState<Record<string, number>>(
+    Object.fromEntries(initialClips.map(c => [c.id, c.render_progress ?? 0]))
+  )
+
+  // C7: multi-select for batch operations
+  const [selectedClipIds, setSelectedClipIds] = useState<Set<string>>(new Set())
+
   // B8: full Comment rows for CommentCard (lazy-loaded on mount)
   const [rawCommentsByClip, setRawCommentsByClip] = useState<Record<string, Comment[]>>(
     initialCommentsByClip
@@ -195,6 +225,39 @@ export default function ClipEditor({
     return () => clearInterval(id)
   }, [project.yt_source_path, supabase])
 
+  // C6: Realtime render_status for all clips in this project
+  useEffect(() => {
+    const channel = supabase
+      .channel(`project-${project.id}-clips-render`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'clips', filter: `project_id=eq.${project.id}` },
+        (payload) => {
+          const row = payload.new as {
+            id: string
+            render_status: string | null
+            render_path: string | null
+            render_error: string | null
+            render_progress: number
+          }
+          setRenderStatuses(prev => ({ ...prev, [row.id]: row.render_status }))
+          setRenderProgressByClip(prev => ({ ...prev, [row.id]: row.render_progress ?? 0 }))
+          if (row.render_status === 'success') {
+            stopPolling(row.id)
+            setRendering(prev => ({ ...prev, [row.id]: false }))
+            if (row.render_path) setRenderPaths(prev => ({ ...prev, [row.id]: row.render_path! }))
+          } else if (row.render_status === 'failed') {
+            stopPolling(row.id)
+            setRendering(prev => ({ ...prev, [row.id]: false }))
+            setRenderErrors(prev => ({ ...prev, [row.id]: row.render_error ?? '렌더 실패' }))
+          }
+        }
+      )
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project.id, supabase])
+
   // B8: lazy-load segments + comments client-side (page.tsx skips these SSR queries)
   useEffect(() => {
     const clipIds = initialClips.map(c => c.id)
@@ -222,15 +285,23 @@ export default function ClipEditor({
       if (cmts) {
         const rawByClip: Record<string, Comment[]> = {}
         const simplByClip: Record<string, Array<{ username: string; body: string; likes_count: number }>> = {}
+        const selByClip: Record<string, number[]> = {}
         for (const c of cmts) {
           if (!c.clip_id) continue
           if (!rawByClip[c.clip_id]) rawByClip[c.clip_id] = []
           if (!simplByClip[c.clip_id]) simplByClip[c.clip_id] = []
+          const idx = rawByClip[c.clip_id].length
           rawByClip[c.clip_id].push(c)
           simplByClip[c.clip_id].push({ username: c.username, body: c.body, likes_count: c.likes_count ?? 0 })
+          // C3: restore persisted selection
+          if (c.is_selected) {
+            if (!selByClip[c.clip_id]) selByClip[c.clip_id] = []
+            selByClip[c.clip_id].push(idx)
+          }
         }
         setRawCommentsByClip(rawByClip)
         setCommentsByClip(simplByClip)
+        setSelectedCommentIdxByClip(prev => ({ ...prev, ...selByClip }))
       }
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -272,6 +343,9 @@ export default function ClipEditor({
         if (!res.ok) return
         const data = (await res.json()) as StatusResponse
 
+        if (data.render_progress !== undefined) {
+          setRenderProgressByClip(prev => ({ ...prev, [clipId]: data.render_progress! }))
+        }
         if (data.render_status === 'success') {
           stopPolling(clipId)
           setRendering(prev => ({ ...prev, [clipId]: false }))
@@ -459,7 +533,10 @@ export default function ClipEditor({
       setTemplateIdsByClip(prev => ({ ...prev, [data.id]: null }))
       setBgmByClip(prev => ({ ...prev, [data.id]: { bgm_url: null, bgm_volume: 0.3, original_volume: 1.0 } }))
       setCommentsByClip(prev => ({ ...prev, [data.id]: [] }))
+      setRawCommentsByClip(prev => ({ ...prev, [data.id]: [] }))
       setSelectedCommentIdxByClip(prev => ({ ...prev, [data.id]: [] }))
+      setSubtitleStylesByClip(prev => ({ ...prev, [data.id]: DEFAULT_SUBTITLE_STYLE }))
+      setRenderProgressByClip(prev => ({ ...prev, [data.id]: 0 }))
       setRegionLineFrom(null)
       setRegionLineTo(null)
       setStartSec(null)
@@ -470,6 +547,57 @@ export default function ClipEditor({
       }, 100)
     }
     setSaving(false)
+  }
+
+  // C1: save subtitle style immediately on change
+  async function handleSaveSubtitleStyle(clipId: string, style: SubtitleStyle) {
+    setSubtitleStylesByClip(prev => ({ ...prev, [clipId]: style }))
+    await supabase.from('clips').update({ subtitle_style: style as unknown as Json }).eq('id', clipId)
+  }
+
+  // C2: duplicate a clip (same region + segments, blank comments)
+  async function handleDuplicateClip(clipId: string) {
+    const clip = clips.find(c => c.id === clipId)
+    if (!clip) return
+    const { data: newClip, error } = await supabase
+      .from('clips')
+      .insert({
+        project_id: clip.project_id,
+        start_sec: Number(clip.start_sec),
+        end_sec: Number(clip.end_sec),
+        template_id: clip.template_id,
+        label: clip.label ? `${clip.label} (복사본)` : '복사본',
+        subtitle_style: clip.subtitle_style,
+      })
+      .select()
+      .single()
+    if (error || !newClip) return
+    const segs = segmentsByClip[clipId] ?? []
+    if (segs.length > 0) {
+      const rows = segs.map(s => ({
+        clip_id: newClip.id,
+        text: s.text,
+        start_sec: s.start_sec,
+        end_sec: s.end_sec,
+        order: s.order,
+      }))
+      const { data: newSegs } = await supabase.from('lyrics_segments').insert(rows).select()
+      if (newSegs) setSegmentsByClip(prev => ({ ...prev, [newClip.id]: newSegs }))
+    }
+    setClips(prev => [...prev, newClip])
+    setLabelsByClip(prev => ({ ...prev, [newClip.id]: newClip.label ?? '' }))
+    setTranscribeStatuses(prev => ({ ...prev, [newClip.id]: segs.length > 0 ? 'success' : null }))
+    setRenderStatuses(prev => ({ ...prev, [newClip.id]: null }))
+    setTemplateIdsByClip(prev => ({ ...prev, [newClip.id]: newClip.template_id }))
+    setBgmByClip(prev => ({ ...prev, [newClip.id]: { bgm_url: null, bgm_volume: 0.3, original_volume: 1.0 } }))
+    setCommentsByClip(prev => ({ ...prev, [newClip.id]: [] }))
+    setRawCommentsByClip(prev => ({ ...prev, [newClip.id]: [] }))
+    setSelectedCommentIdxByClip(prev => ({ ...prev, [newClip.id]: [] }))
+    setSubtitleStylesByClip(prev => ({ ...prev, [newClip.id]: parseSubtitleStyle(newClip.subtitle_style) }))
+    setRenderProgressByClip(prev => ({ ...prev, [newClip.id]: 0 }))
+    setTimeout(() => {
+      clipContainerRefs.current.get(newClip.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 100)
   }
 
   // A10: save clip label on blur
@@ -513,9 +641,46 @@ export default function ClipEditor({
     setCommentsByClip(cleanup)
     setRawCommentsByClip(cleanup)
     setSelectedCommentIdxByClip(cleanup)
+    setSubtitleStylesByClip(cleanup)
+    setRenderProgressByClip(cleanup)
+    setSelectedClipIds(prev => { const n = new Set(prev); n.delete(clipId); return n })
     if (loopingClipRef.current?.clipId === clipId) {
       loopingClipRef.current = null
       setLoopingClipId(null)
+    }
+  }
+
+  // C7: batch operations
+  async function handleBatchRender() {
+    for (const clipId of Array.from(selectedClipIds)) {
+      await handleRender(clipId)
+    }
+  }
+
+  async function handleBatchDelete() {
+    if (!window.confirm(`선택된 ${selectedClipIds.size}개 클립을 모두 삭제하시겠습니까?`)) return
+    for (const clipId of Array.from(selectedClipIds)) {
+      await supabase.from('clips').delete().eq('id', clipId)
+      stopPolling(clipId)
+    }
+    const ids = Array.from(selectedClipIds)
+    setClips(prev => prev.filter(c => !ids.includes(c.id)))
+    const cleanup = <T,>(rec: Record<string, T>) => {
+      const n = { ...rec }
+      for (const id of ids) delete n[id]
+      return n
+    }
+    setSegmentsByClip(cleanup); setTranscribeStatuses(cleanup); setRenderStatuses(cleanup)
+    setTemplateIdsByClip(cleanup); setBgmByClip(cleanup); setCommentsByClip(cleanup)
+    setRawCommentsByClip(cleanup); setSelectedCommentIdxByClip(cleanup)
+    setSubtitleStylesByClip(cleanup); setRenderProgressByClip(cleanup)
+    setSelectedClipIds(new Set())
+  }
+
+  async function handleBatchApplyTemplate(templateId: string) {
+    for (const clipId of Array.from(selectedClipIds)) {
+      await supabase.from('clips').update({ template_id: templateId }).eq('id', clipId)
+      setTemplateIdsByClip(prev => ({ ...prev, [clipId]: templateId }))
     }
   }
 
@@ -826,9 +991,44 @@ export default function ClipEditor({
       {/* Clips list */}
       {clips.length > 0 && (
         <div className="space-y-3">
-          <h3 className="px-1 text-[12px] font-semibold uppercase tracking-[0.08em] text-[rgba(255,255,255,0.4)]">
-            Clips ({clips.length})
-          </h3>
+          <div className="flex items-center justify-between px-1">
+            <h3 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-[rgba(255,255,255,0.4)]">
+              Clips ({clips.length})
+            </h3>
+          </div>
+
+          {/* C7: batch action bar */}
+          {selectedClipIds.size > 0 && (
+            <div className="flex flex-wrap items-center gap-2 rounded-xl bg-[#272729] px-4 py-3">
+              <span className="text-[13px] text-white">{selectedClipIds.size}개 선택</span>
+              <button
+                onClick={handleBatchRender}
+                className="rounded-lg bg-[#0071e3] px-3 py-1.5 text-[13px] text-white hover:bg-[#0077ed]"
+              >
+                일괄 렌더
+              </button>
+              <select
+                defaultValue=""
+                onChange={e => { if (e.target.value) handleBatchApplyTemplate(e.target.value) }}
+                className="rounded-lg bg-[#1d1d1f] px-3 py-1.5 text-[13px] text-white outline-none"
+              >
+                <option value="" disabled>템플릿 일괄 적용</option>
+                {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+              <button
+                onClick={handleBatchDelete}
+                className="rounded-lg bg-red-950/60 px-3 py-1.5 text-[13px] text-red-400 hover:bg-red-900/60"
+              >
+                일괄 삭제
+              </button>
+              <button
+                onClick={() => setSelectedClipIds(new Set())}
+                className="ml-auto text-[13px] text-[rgba(255,255,255,0.4)] hover:text-white"
+              >
+                선택 해제
+              </button>
+            </div>
+          )}
           {clips.map((clip, i) => {
             const transcribeStatus = transcribeStatuses[clip.id]
             const isTranscribing = transcribing[clip.id] ?? false
@@ -855,9 +1055,19 @@ export default function ClipEditor({
               >
                 {/* ── Clip header ── */}
                 <div className="rounded-xl bg-[#1d1d1f] px-5 py-3">
-                {/* A10: label input row */}
+                {/* A10: label input row / C7: checkbox */}
                 <div className="mb-2 flex items-center gap-2">
-                  <span className="w-6 text-center text-[12px] text-[rgba(255,255,255,0.3)]">{i + 1}</span>
+                  <input
+                    type="checkbox"
+                    checked={selectedClipIds.has(clip.id)}
+                    onChange={e => setSelectedClipIds(prev => {
+                      const n = new Set(prev)
+                      if (e.target.checked) n.add(clip.id); else n.delete(clip.id)
+                      return n
+                    })}
+                    className="h-4 w-4 shrink-0 cursor-pointer accent-[#0071e3]"
+                  />
+                  <span className="w-5 text-center text-[12px] text-[rgba(255,255,255,0.3)]">{i + 1}</span>
                   <input
                     value={labelsByClip[clip.id] ?? ''}
                     onChange={e => setLabelsByClip(prev => ({ ...prev, [clip.id]: e.target.value }))}
@@ -963,6 +1173,13 @@ export default function ClipEditor({
                       )}
                     </button>
                     <button
+                      onClick={() => handleDuplicateClip(clip.id)}
+                      className="rounded-lg bg-[#272729] px-2.5 py-1.5 text-[13px] text-[rgba(255,255,255,0.4)] transition-colors hover:bg-[#2a2a2d] hover:text-white"
+                      title="클립 복제"
+                    >
+                      ⊕
+                    </button>
+                    <button
                       onClick={() => handleDeleteClip(clip.id)}
                       className="rounded-lg bg-[#272729] px-3 py-1.5 text-[13px] text-[rgba(255,255,255,0.4)] transition-colors hover:bg-red-950/60 hover:text-red-400"
                       title="클립 삭제"
@@ -974,6 +1191,66 @@ export default function ClipEditor({
                   )}
                 </div>
                 </div>
+
+                {/* C1: subtitle style */}
+                <details className="rounded-xl bg-[#1d1d1f]">
+                  <summary className="flex cursor-pointer list-none items-center justify-between px-5 py-3 text-[12px] text-[rgba(255,255,255,0.4)] hover:text-[rgba(255,255,255,0.6)]">
+                    <span>자막 스타일</span>
+                    <span>▾</span>
+                  </summary>
+                  <div className="space-y-3 px-5 pb-4">
+                    <div>
+                      <p className="mb-1.5 text-[11px] text-[rgba(255,255,255,0.3)]">위치</p>
+                      <div className="flex gap-1">
+                        {(['top', 'center', 'bottom'] as const).map(pos => (
+                          <button
+                            key={pos}
+                            onClick={() => handleSaveSubtitleStyle(clip.id, { ...subtitleStylesByClip[clip.id], position: pos })}
+                            className={`flex-1 rounded-md py-1.5 text-[12px] transition-colors ${
+                              (subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE).position === pos
+                                ? 'bg-[#0071e3] text-white'
+                                : 'bg-[#272729] text-[rgba(255,255,255,0.5)] hover:bg-[#2a2a2d]'
+                            }`}
+                          >
+                            {pos === 'top' ? '상단' : pos === 'center' ? '중앙' : '하단'}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <p className="mb-1.5 text-[11px] text-[rgba(255,255,255,0.3)]">
+                        폰트 크기{' '}
+                        <span className="text-white">{(subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE).fontSize}px</span>
+                      </p>
+                      <input
+                        type="range" min={24} max={72} step={2}
+                        value={(subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE).fontSize}
+                        onChange={e => setSubtitleStylesByClip(prev => ({
+                          ...prev,
+                          [clip.id]: { ...(prev[clip.id] ?? DEFAULT_SUBTITLE_STYLE), fontSize: Number(e.target.value) },
+                        }))}
+                        onMouseUp={() => handleSaveSubtitleStyle(clip.id, subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE)}
+                        className="w-full accent-[#0071e3]"
+                      />
+                    </div>
+                    <div>
+                      <p className="mb-1.5 text-[11px] text-[rgba(255,255,255,0.3)]">
+                        배경 불투명도{' '}
+                        <span className="text-white">{Math.round((subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE).bgOpacity * 100)}%</span>
+                      </p>
+                      <input
+                        type="range" min={0} max={1} step={0.05}
+                        value={(subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE).bgOpacity}
+                        onChange={e => setSubtitleStylesByClip(prev => ({
+                          ...prev,
+                          [clip.id]: { ...(prev[clip.id] ?? DEFAULT_SUBTITLE_STYLE), bgOpacity: Number(e.target.value) },
+                        }))}
+                        onMouseUp={() => handleSaveSubtitleStyle(clip.id, subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE)}
+                        className="w-full accent-[#0071e3]"
+                      />
+                    </div>
+                  </div>
+                </details>
 
                 {transcribeStatus === 'failed' && (
                   <p className="px-1 text-[13px] text-red-400">
@@ -1027,6 +1304,7 @@ export default function ClipEditor({
                     bgm_url: bgmByClip[clip.id]?.bgm_url ?? null,
                     bgm_volume: bgmByClip[clip.id]?.bgm_volume ?? clip.bgm_volume,
                     original_volume: bgmByClip[clip.id]?.original_volume ?? clip.original_volume,
+                    subtitle_style: subtitleStylesByClip[clip.id] ?? null,
                   }}
                   segments={segments}
                   comments={filteredComments}
@@ -1062,6 +1340,23 @@ export default function ClipEditor({
                       )}
                     </button>
                   </div>
+
+                  {/* C5: render progress bar */}
+                  {(isRendering || renderStatus === 'pending') && (
+                    <div className="mt-3">
+                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#272729]">
+                        <div
+                          className="h-full rounded-full bg-[#0071e3] transition-all duration-500"
+                          style={{ width: `${renderProgressByClip[clip.id] ?? 0}%` }}
+                        />
+                      </div>
+                      {(renderProgressByClip[clip.id] ?? 0) > 0 && (
+                        <p className="mt-1 text-right font-mono text-[11px] text-[rgba(255,255,255,0.4)]">
+                          {Math.round(renderProgressByClip[clip.id] ?? 0)}%
+                        </p>
+                      )}
+                    </div>
+                  )}
 
                   {renderStatus === 'success' && hasRenderPath && (
                     <button

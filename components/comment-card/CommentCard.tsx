@@ -12,6 +12,7 @@ interface LocalComment {
   body: string
   likes_count: number
   source: string
+  is_selected: boolean
 }
 
 interface Props {
@@ -31,6 +32,7 @@ function toLocal(c: Comment): LocalComment {
     body: c.body,
     likes_count: c.likes_count ?? 0,
     source: c.source ?? 'manual',
+    is_selected: c.is_selected ?? false,
   }
 }
 
@@ -62,10 +64,15 @@ export default function CommentCard({
 
   function toggleSelection(idx: number) {
     if (!onSelectionChange) return
-    if (selected.includes(idx)) {
-      onSelectionChange(selected.filter(i => i !== idx))
-    } else {
-      onSelectionChange([...selected, idx])
+    const isNowSelected = !selected.includes(idx)
+    const newSelected = isNowSelected
+      ? [...selected, idx]
+      : selected.filter(i => i !== idx)
+    onSelectionChange(newSelected)
+    // C3: persist is_selected immediately for existing DB rows
+    const comment = comments[idx]
+    if (comment.id) {
+      supabase.from('comments').update({ is_selected: isNowSelected }).eq('id', comment.id)
     }
   }
 
@@ -91,7 +98,7 @@ export default function CommentCard({
   function addComment() {
     setComments(prev => [
       ...prev,
-      { id: null, username: '', body: '', likes_count: 0, source: 'manual' },
+      { id: null, username: '', body: '', likes_count: 0, source: 'manual', is_selected: false },
     ])
   }
 
@@ -125,13 +132,15 @@ export default function CommentCard({
     }
 
     const rows = comments
-      .filter(c => c.username.trim() || c.body.trim())
-      .map(c => ({
+      .map((c, origIdx) => ({ c, origIdx }))
+      .filter(({ c }) => c.username.trim() || c.body.trim())
+      .map(({ c, origIdx }) => ({
         clip_id: clipId,
         username: c.username.trim() || '(익명)',
         body: c.body.trim(),
         likes_count: c.likes_count,
         source: c.source,
+        is_selected: selected.includes(origIdx),
       }))
 
     if (rows.length > 0) {

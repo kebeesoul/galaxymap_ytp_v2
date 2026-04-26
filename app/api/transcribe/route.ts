@@ -107,7 +107,52 @@ export async function POST(request: NextRequest) {
     .update({ transcribe_status: 'pending' })
     .eq('id', clip_id)
 
-  // A6: try Python worker first — it trims audio to clip range before calling Replicate
+  // C4: try local WhisperX worker first (no API cost, better accuracy)
+  const whisperWorkerUrl = process.env.WHISPER_WORKER_URL
+  if (whisperWorkerUrl) {
+    try {
+      const workerRes = await fetch(`${whisperWorkerUrl}/transcribe`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clip_id,
+          source_url: signed.signedUrl,
+          start_sec: Number(clip.start_sec),
+          end_sec: Number(clip.end_sec),
+          language: 'ko',
+        }),
+        signal: AbortSignal.timeout(300_000),
+      })
+      if (workerRes.ok) {
+        const body = (await workerRes.json()) as {
+          segments?: Array<{ text: string; start_sec: number; end_sec: number }>
+        }
+        const segs = body.segments ?? []
+        if (segs.length > 0) {
+          await supabase.from('lyrics_segments').delete().eq('clip_id', clip_id)
+          const rows: LyricsRow[] = segs.map((s, idx) => ({
+            clip_id,
+            text: s.text,
+            start_sec: s.start_sec,
+            end_sec: s.end_sec,
+            order: idx,
+          }))
+          const { data: segments, error: insertError } = await supabase
+            .from('lyrics_segments')
+            .insert(rows)
+            .select()
+          if (!insertError) {
+            await supabase.from('clips').update({ transcribe_status: 'success' }).eq('id', clip_id)
+            return NextResponse.json({ segments })
+          }
+        }
+      }
+    } catch {
+      // WhisperX worker unavailable — fall through to ingest worker / Replicate
+    }
+  }
+
+  // A6: try Python ingest worker — it trims audio to clip range before calling Replicate
   const workerUrl = process.env.INGEST_WORKER_URL ?? process.env.PYTHON_WORKER_URL
   if (workerUrl) {
     try {

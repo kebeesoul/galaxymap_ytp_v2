@@ -15,8 +15,10 @@ export type Database = {
           project_id: string | null
           render_error: string | null
           render_path: string | null
+          render_progress: number
           render_status: string | null
           start_sec: number
+          subtitle_style: Json | null
           template_id: string | null
           transcribe_status: string | null
         }
@@ -31,8 +33,10 @@ export type Database = {
           project_id?: string | null
           render_error?: string | null
           render_path?: string | null
+          render_progress?: number
           render_status?: string | null
           start_sec: number
+          subtitle_style?: Json | null
           template_id?: string | null
           transcribe_status?: string | null
         }
@@ -47,8 +51,10 @@ export type Database = {
           project_id?: string | null
           render_error?: string | null
           render_path?: string | null
+          render_progress?: number
           render_status?: string | null
           start_sec?: number
+          subtitle_style?: Json | null
           template_id?: string | null
           transcribe_status?: string | null
         }
@@ -67,6 +73,7 @@ export type Database = {
           body: string
           clip_id: string | null
           id: string
+          is_selected: boolean
           likes_count: number | null
           source: string | null
           username: string
@@ -75,6 +82,7 @@ export type Database = {
           body: string
           clip_id?: string | null
           id?: string
+          is_selected?: boolean
           likes_count?: number | null
           source?: string | null
           username: string
@@ -83,6 +91,7 @@ export type Database = {
           body?: string
           clip_id?: string | null
           id?: string
+          is_selected?: boolean
           likes_count?: number | null
           source?: string | null
           username?: string
