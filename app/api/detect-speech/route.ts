@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getIngestWorkerUrlWithFallback } from '@/lib/utils/worker'
 
 interface DetectSpeechResult {
   start_sec: number
@@ -6,7 +7,7 @@ interface DetectSpeechResult {
   confidence: number
 }
 
-const WORKER_URL = process.env.INGEST_WORKER_URL ?? process.env.PYTHON_WORKER_URL ?? 'http://localhost:8001'
+const WORKER_URL = getIngestWorkerUrlWithFallback()
 
 export async function POST(request: NextRequest) {
   const body = (await request.json()) as { project_id?: string }
