@@ -16,10 +16,16 @@ export async function POST(request: NextRequest) {
 
   const supabase = createClient()
 
-  await supabase
+  const { data: updated } = await supabase
     .from('projects')
     .update({ import_status: 'pending', import_error: null })
     .eq('id', project_id)
+    .not('import_status', 'eq', 'processing')
+    .select('id')
+
+  if (!updated?.length) {
+    return NextResponse.json({ error: 'already processing' }, { status: 409 })
+  }
 
   return NextResponse.json({ queued: true }, { status: 202 })
 }
