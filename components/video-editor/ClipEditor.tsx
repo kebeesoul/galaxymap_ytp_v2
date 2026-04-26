@@ -254,7 +254,7 @@ export default function ClipEditor({
         }
       )
       .subscribe()
-    return () => { supabase.removeChannel(channel) }
+    return () => { channel.unsubscribe(); supabase.removeChannel(channel) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.id, supabase])
 

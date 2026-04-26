@@ -68,12 +68,17 @@ export default function SubtitleEditor({ clipId, initialSegments, currentTime, o
       updated[idx] = { ...updated[idx], start_sec: currentTime }
       return updated
     })
-    const nextIdx = Math.min(segments.length - 1, idx + 1)
-    setSyncTapIdx(nextIdx)
-    // Auto-scroll next tap button into view
-    setTimeout(() => {
-      tapButtonRefs.current.get(nextIdx)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-    }, 0)
+    if (idx === segments.length - 1) {
+      // Last segment tapped — auto-exit sync mode
+      setSyncMode(false)
+      setSyncTapIdx(0)
+    } else {
+      const nextIdx = idx + 1
+      setSyncTapIdx(nextIdx)
+      setTimeout(() => {
+        tapButtonRefs.current.get(nextIdx)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+      }, 0)
+    }
   }
 
   function handleTextChange(idx: number, value: string) {
@@ -193,12 +198,13 @@ export default function SubtitleEditor({ clipId, initialSegments, currentTime, o
     for (let i = 0; i < toUpdate.length; i++) {
       const s = toUpdate[i]
       const order = valid.findIndex(v => v.id === s.id)
-      await supabase.from('lyrics_segments').update({
+      const { error } = await supabase.from('lyrics_segments').update({
         text: s.text.trim(),
         start_sec: s.start_sec,
         end_sec: s.end_sec,
         order,
       }).eq('id', s.id!)
+      if (error) { setSaveError(error.message); setSaving(false); return }
     }
 
     // Step 3: Delete rows that were removed by the user
