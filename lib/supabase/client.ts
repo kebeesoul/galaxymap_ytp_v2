@@ -9,5 +9,11 @@ export function createClient() {
       'Supabase env vars not set. Configure NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.'
     )
   }
-  return _createClient<Database>(url, key)
+  return _createClient<Database>(url, key, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+      detectSessionInUrl: false,
+    },
+  })
 }
