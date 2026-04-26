@@ -181,6 +181,7 @@ export default function ClipEditor({
   const [songLyrics, setSongLyrics] = useState(project.song_lyrics ?? '')
   const [lyricsEditOpen, setLyricsEditOpen] = useState(!(project.song_lyrics?.trim()))
   const [savingProjectLyrics, setSavingProjectLyrics] = useState(false)
+  const [lyricsError, setLyricsError] = useState<string | null>(null)
   const savedLyricsRef = useRef(project.song_lyrics ?? '')
   // Lyrics scroll container ref for auto-scroll to highlighted region
   const lyricsScrollRef = useRef<HTMLDivElement>(null)
@@ -277,7 +278,8 @@ export default function ClipEditor({
         setTranscribeStatuses(prev => {
           const updated = { ...prev }
           for (const clipId of Object.keys(byClip)) {
-            if (!updated[clipId]) updated[clipId] = 'success'
+            // Override any stale status (pending/failed) when segments actually exist in DB
+            updated[clipId] = 'success'
           }
           return updated
         })
@@ -475,10 +477,13 @@ export default function ClipEditor({
 
   async function handleSaveProjectLyrics() {
     setSavingProjectLyrics(true)
+    setLyricsError(null)
     const { error } = await supabase.from('projects').update({ song_lyrics: songLyrics }).eq('id', project.id)
     if (!error) {
       savedLyricsRef.current = songLyrics
       setLyricsEditOpen(false)
+    } else {
+      setLyricsError(error.message)
     }
     setSavingProjectLyrics(false)
   }
@@ -627,7 +632,11 @@ export default function ClipEditor({
 
   async function handleDeleteClip(clipId: string) {
     if (!window.confirm('이 클립을 삭제하시겠습니까?')) return
-    await supabase.from('clips').delete().eq('id', clipId)
+    const { error } = await supabase.from('clips').delete().eq('id', clipId)
+    if (error) {
+      alert(`클립 삭제 실패: ${error.message}`)
+      return
+    }
     stopPolling(clipId)
     setClips(prev => prev.filter(c => c.id !== clipId))
     const cleanup = <T,>(rec: Record<string, T>) => {
@@ -819,12 +828,15 @@ export default function ClipEditor({
               placeholder={'첫 번째 줄\n두 번째 줄\n...'}
               className="w-full resize-none rounded-lg bg-[#272729] px-3 py-2 font-mono text-[13px] text-white outline-none placeholder:text-[rgba(255,255,255,0.2)] focus:ring-1 focus:ring-[#0071e3]"
             />
+            {lyricsError && (
+              <p className="mb-2 text-[12px] text-red-400">{lyricsError}</p>
+            )}
             <div className="mt-3 flex items-center justify-between">
               <span className="text-[12px] text-[rgba(255,255,255,0.3)]">{allLines.length}줄</span>
               <div className="flex gap-2">
                 {savedLyricsRef.current && (
                   <button
-                    onClick={() => { setSongLyrics(savedLyricsRef.current); setLyricsEditOpen(false) }}
+                    onClick={() => { setSongLyrics(savedLyricsRef.current); setLyricsEditOpen(false); setLyricsError(null) }}
                     className="rounded-lg bg-[#272729] px-3 py-1.5 text-[13px] text-white transition-colors hover:bg-[#2a2a2d]"
                   >
                     취소

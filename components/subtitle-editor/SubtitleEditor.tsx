@@ -192,6 +192,15 @@ export default function SubtitleEditor({ clipId, initialSegments, currentTime, o
         return
       }
       insertedIds = data?.map(r => r.id) ?? []
+      // Assign returned DB IDs to local state so subsequent saves don't re-insert the same rows
+      if (data) {
+        let insertedIdx = 0
+        setSegments(prev => prev.map(s => {
+          if (s.id !== null) return s
+          const row = data[insertedIdx++]
+          return row ? { ...s, id: row.id } : s
+        }))
+      }
     }
 
     // Step 2: Update existing segments (B1: include order)
