@@ -147,6 +147,10 @@ export default function WaveformEditor({
       })
       region.on('update-end', () => {
         onRegionChangeRef.current(region.start, region.end)
+        // After dragging, jump to the new In and play from there.
+        mediaEl.currentTime = region.start
+        mediaEl.playbackRate = 1
+        mediaEl.play().catch(() => {})
         // Allow the parent state update to settle before clearing the guard.
         requestAnimationFrame(() => {
           isDraggingRef.current = false

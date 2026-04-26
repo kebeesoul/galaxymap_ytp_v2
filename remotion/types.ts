@@ -34,6 +34,10 @@ export interface SubtitleStyle {
 export interface CommentStyle {
   theme: StyleTheme
   fontFamily: string
+  /** Font size multiplier (0.8 – 1.2) — base sizes get scaled in CommentLayer */
+  fontScale: number
+  /** Seconds each comment stays on screen before cycling to the next (3 – 8) */
+  durationSec: number
 }
 
 export interface ClipInput {

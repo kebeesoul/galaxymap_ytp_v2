@@ -21,9 +21,16 @@ interface ReplicateSegment {
   words?: ReplicateWord[]
 }
 
+interface ReplicateChunk {
+  text: string
+  timestamp: [number, number] | [number, null]
+}
+
 interface ReplicateOutput {
   text?: string
   segments?: ReplicateSegment[]
+  // vaibhavs10/incredibly-fast-whisper output shape
+  chunks?: ReplicateChunk[]
 }
 
 interface LyricsRow {
@@ -81,6 +88,17 @@ function parseSegments(
 ): LyricsRow[] {
   const rows: LyricsRow[] = []
 
+  // vaibhavs10/incredibly-fast-whisper format: { chunks: [{ text, timestamp: [start, end] }] }
+  for (const chunk of output.chunks ?? []) {
+    const text = chunk.text.trim()
+    if (!text) continue
+    const start = chunk.timestamp[0]
+    const end = chunk.timestamp[1] ?? start
+    if (start < clipStart || end > clipEnd) continue
+    rows.push({ clip_id: clipId, text, start_sec: start, end_sec: end })
+  }
+
+  // openai/whisper format: { segments: [{ text, start, end, words: [...] }] }
   for (const seg of output.segments ?? []) {
     if (seg.words && seg.words.length > 0) {
       for (const w of seg.words) {
@@ -232,15 +250,20 @@ export async function POST(request: NextRequest) {
     }
     const replicate = new Replicate({ auth: replicateToken })
 
-    const replicatePromise = replicate.run('openai/whisper', {
-      input: {
-        audio: signed.signedUrl,
-        language: 'korean',
-        word_timestamps: true,
-        transcription: 'plain text',
-        task: 'transcribe',
+    // Use vaibhavs10/incredibly-fast-whisper — openai/whisper's official endpoint
+    // started returning 404 because the model has no public version.
+    const replicatePromise = replicate.run(
+      'vaibhavs10/incredibly-fast-whisper:3ab86df6c8f54c11309d4d1f930ac292bad43ace52d10c80d87eb258b3c9f79c',
+      {
+        input: {
+          audio: signed.signedUrl,
+          language: 'korean',
+          task: 'transcribe',
+          timestamp: 'chunk',
+          batch_size: 24,
+        },
       },
-    })
+    )
 
     const timeoutPromise = new Promise<never>((_, reject) =>
       setTimeout(() => reject(new Error('Replicate timeout (180s)')), 180_000)

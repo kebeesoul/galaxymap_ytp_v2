@@ -51,12 +51,16 @@ async def process(supabase, project_id: str, source_url: str) -> None:
         duration_sec: int = int(info.get("duration") or 0)
         thumbnail_url: str = info.get("thumbnail", "")
 
-        # Download lowest-quality mp4 for preview
+        # Download a small, browser-friendly mp4 for preview.
+        # Cap at 360p and prefer pre-muxed mp4 (H.264 + AAC) so the browser can
+        # decode it without re-encoding — required for smooth 1× playback while
+        # WaveSurfer is reading the same media element.
         with tempfile.TemporaryDirectory() as tmpdir:
             out_tmpl = str(Path(tmpdir) / "%(id)s.%(ext)s")
             rc2, _, stderr2 = await _run(
                 300,
-                "-f", "worst[ext=mp4]/worst",
+                "-f",
+                "best[height<=360][ext=mp4]/best[height<=480][ext=mp4]/worst[ext=mp4]/worst",
                 "--no-playlist",
                 "-o", out_tmpl,
                 source_url,
