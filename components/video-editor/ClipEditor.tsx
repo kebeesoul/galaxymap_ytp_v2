@@ -76,6 +76,16 @@ export default function ClipEditor({
   const [clips, setClips] = useState<Clip[]>(initialClips)
   const [saving, setSaving] = useState(false)
 
+  // A2: inline clip-region editing
+  const [editingClipId, setEditingClipId] = useState<string | null>(null)
+  const [editStartSec, setEditStartSec] = useState('')
+  const [editEndSec, setEditEndSec] = useState('')
+
+  // A10: per-clip label (note/title)
+  const [labelsByClip, setLabelsByClip] = useState<Record<string, string>>(
+    Object.fromEntries(initialClips.map(c => [c.id, c.label ?? '']))
+  )
+
   const [templateIdsByClip, setTemplateIdsByClip] = useState<Record<string, string | null>>(
     Object.fromEntries(initialClips.map(c => [c.id, c.template_id]))
   )
@@ -151,6 +161,20 @@ export default function ClipEditor({
       .then(({ data }) => {
         if (data?.signedUrl) setSignedUrl(data.signedUrl)
       })
+  }, [project.yt_source_path, supabase])
+
+  // A3: auto-refresh signed URL 10 min before the 1-hour expiry
+  useEffect(() => {
+    if (!project.yt_source_path) return
+    const id = setInterval(() => {
+      supabase.storage
+        .from('sources')
+        .createSignedUrl(project.yt_source_path!, 3600)
+        .then(({ data }) => {
+          if (data?.signedUrl) setSignedUrl(data.signedUrl)
+        })
+    }, 50 * 60 * 1000)
+    return () => clearInterval(id)
   }, [project.yt_source_path, supabase])
 
   // Resume polling for pending renders on page load
@@ -252,6 +276,14 @@ export default function ClipEditor({
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      // A9: spacebar play/pause
+      if (e.key === ' ') {
+        e.preventDefault()
+        const v = videoRef.current
+        if (!v) return
+        v.paused ? v.play().catch(() => {}) : v.pause()
+        return
+      }
       if (e.key === 'i' || e.key === 'I') setStartSec(videoRef.current?.currentTime ?? 0)
       if (e.key === 'o' || e.key === 'O') setEndSec(videoRef.current?.currentTime ?? 0)
     }
@@ -340,6 +372,7 @@ export default function ClipEditor({
       }
 
       setClips(prev => [...prev, data])
+      setLabelsByClip(prev => ({ ...prev, [data.id]: '' }))
       setTranscribeStatuses(prev => ({ ...prev, [data.id]: prev[data.id] ?? null }))
       setRenderStatuses(prev => ({ ...prev, [data.id]: null }))
       setTemplateIdsByClip(prev => ({ ...prev, [data.id]: null }))
@@ -351,6 +384,29 @@ export default function ClipEditor({
       setEndSec(null)
     }
     setSaving(false)
+  }
+
+  // A10: save clip label on blur
+  async function handleSaveLabel(clipId: string) {
+    const label = labelsByClip[clipId] ?? ''
+    await supabase.from('clips').update({ label }).eq('id', clipId)
+  }
+
+  // A2: save edited clip region
+  async function handleSaveClipEdit(clipId: string) {
+    const start = parseFloat(editStartSec)
+    const end = parseFloat(editEndSec)
+    if (isNaN(start) || isNaN(end) || end <= start) return
+    const { error } = await supabase
+      .from('clips')
+      .update({ start_sec: start, end_sec: end })
+      .eq('id', clipId)
+    if (!error) {
+      setClips(prev => prev.map(c =>
+        c.id === clipId ? { ...c, start_sec: start, end_sec: end } : c
+      ))
+      setEditingClipId(null)
+    }
   }
 
   async function handleDeleteClip(clipId: string) {
@@ -640,7 +696,8 @@ export default function ClipEditor({
           </button>
         </div>
         <p className="mt-2.5 text-[12px] text-[rgba(255,255,255,0.24)]">
-          Press <kbd className="rounded bg-[#272729] px-1.5 py-0.5 font-mono">I</kbd> mark in ·{' '}
+          <kbd className="rounded bg-[#272729] px-1.5 py-0.5 font-mono">Space</kbd> play/pause ·{' '}
+          <kbd className="rounded bg-[#272729] px-1.5 py-0.5 font-mono">I</kbd> mark in ·{' '}
           <kbd className="rounded bg-[#272729] px-1.5 py-0.5 font-mono">O</kbd> mark out
         </p>
       </div>
@@ -664,38 +721,98 @@ export default function ClipEditor({
             return (
               <div key={clip.id} className="space-y-2">
                 {/* ── Clip header ── */}
-                <div className="flex items-center gap-3 rounded-xl bg-[#1d1d1f] px-5 py-3">
-                  <span className="w-6 text-center text-[12px] text-[rgba(255,255,255,0.3)]">
-                    {i + 1}
-                  </span>
-                  <button
-                    onClick={() => handleSeek(Number(clip.start_sec))}
-                    className="font-mono text-[14px] text-white transition-opacity hover:opacity-70"
-                  >
-                    {formatTime(Number(clip.start_sec))}
-                  </button>
-                  <span className="text-[rgba(255,255,255,0.24)]">→</span>
-                  <button
-                    onClick={() => handleSeek(Number(clip.end_sec))}
-                    className="font-mono text-[14px] text-white transition-opacity hover:opacity-70"
-                  >
-                    {formatTime(Number(clip.end_sec))}
-                  </button>
-                  <span className="font-mono text-[12px] text-[rgba(255,255,255,0.4)]">
-                    {(Number(clip.end_sec) - Number(clip.start_sec)).toFixed(1)}s
-                  </span>
+                <div className="rounded-xl bg-[#1d1d1f] px-5 py-3">
+                {/* A10: label input row */}
+                <div className="mb-2 flex items-center gap-2">
+                  <span className="w-6 text-center text-[12px] text-[rgba(255,255,255,0.3)]">{i + 1}</span>
+                  <input
+                    value={labelsByClip[clip.id] ?? ''}
+                    onChange={e => setLabelsByClip(prev => ({ ...prev, [clip.id]: e.target.value }))}
+                    onBlur={() => handleSaveLabel(clip.id)}
+                    placeholder="노트 추가…"
+                    className="flex-1 rounded-md bg-transparent px-1 py-0.5 text-[13px] text-[rgba(255,255,255,0.6)] outline-none placeholder:text-[rgba(255,255,255,0.2)] hover:bg-[#272729] focus:bg-[#272729] focus:ring-1 focus:ring-[#0071e3]"
+                  />
+                </div>
+                <div className="flex items-center gap-3">
+                  {/* A2: edit mode or normal timecode display */}
+                  {editingClipId === clip.id ? (
+                    <>
+                      <input
+                        type="number"
+                        step="0.1"
+                        value={editStartSec}
+                        onChange={e => setEditStartSec(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && handleSaveClipEdit(clip.id)}
+                        className="w-20 rounded-md bg-[#272729] px-2 py-1 font-mono text-[13px] text-white outline-none focus:ring-1 focus:ring-[#0071e3]"
+                      />
+                      <span className="text-[rgba(255,255,255,0.3)]">→</span>
+                      <input
+                        type="number"
+                        step="0.1"
+                        value={editEndSec}
+                        onChange={e => setEditEndSec(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && handleSaveClipEdit(clip.id)}
+                        className="w-20 rounded-md bg-[#272729] px-2 py-1 font-mono text-[13px] text-white outline-none focus:ring-1 focus:ring-[#0071e3]"
+                      />
+                      <div className="ml-auto flex items-center gap-2">
+                        <button
+                          onClick={() => handleSaveClipEdit(clip.id)}
+                          className="rounded-lg bg-[#0071e3] px-3 py-1 text-[13px] text-white hover:bg-[#0077ed]"
+                        >
+                          저장
+                        </button>
+                        <button
+                          onClick={() => setEditingClipId(null)}
+                          className="rounded-lg bg-[#272729] px-3 py-1 text-[13px] text-white hover:bg-[#2a2a2d]"
+                        >
+                          취소
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => handleSeek(Number(clip.start_sec))}
+                        className="font-mono text-[14px] text-white transition-opacity hover:opacity-70"
+                      >
+                        {formatTime(Number(clip.start_sec))}
+                      </button>
+                      <span className="text-[rgba(255,255,255,0.24)]">→</span>
+                      <button
+                        onClick={() => handleSeek(Number(clip.end_sec))}
+                        className="font-mono text-[14px] text-white transition-opacity hover:opacity-70"
+                      >
+                        {formatTime(Number(clip.end_sec))}
+                      </button>
+                      <span className="font-mono text-[12px] text-[rgba(255,255,255,0.4)]">
+                        {(Number(clip.end_sec) - Number(clip.start_sec)).toFixed(1)}s
+                      </span>
 
-                  <div className="ml-auto flex items-center gap-2">
+                      <div className="ml-auto flex items-center gap-2">
+                        <button
+                          onClick={() => {
+                            setEditStartSec(String(Number(clip.start_sec)))
+                            setEditEndSec(String(Number(clip.end_sec)))
+                            setEditingClipId(clip.id)
+                          }}
+                          className="rounded-lg bg-[#272729] px-2.5 py-1.5 text-[13px] text-[rgba(255,255,255,0.4)] transition-colors hover:bg-[#2a2a2d] hover:text-white"
+                          title="구간 수정"
+                        >
+                          ✏︎
+                        </button>
+                    {/* A7: show spinner only when actively transcribing; allow retry on stale pending */}
                     <button
                       onClick={() => handleTranscribe(clip.id)}
-                      disabled={isTranscribing || transcribeStatus === 'pending'}
+                      disabled={isTranscribing}
                       className="flex items-center gap-2 rounded-lg bg-[#272729] px-3 py-1.5 text-[13px] text-white transition-colors hover:bg-[#2a2a2d] disabled:opacity-40"
                     >
-                      {isTranscribing || transcribeStatus === 'pending' ? (
+                      {isTranscribing ? (
                         <>
                           <span className="h-3 w-3 animate-spin rounded-full border border-white/30 border-t-white" />
                           자막 추출 중…
                         </>
+                      ) : transcribeStatus === 'pending' ? (
+                        '재시도'
                       ) : (
                         'Whisper 자막 추출'
                       )}
@@ -707,7 +824,10 @@ export default function ClipEditor({
                     >
                       ✕
                     </button>
-                  </div>
+                      </div>
+                    </>
+                  )}
+                </div>
                 </div>
 
                 {transcribeStatus === 'failed' && (

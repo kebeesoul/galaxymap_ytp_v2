@@ -1,7 +1,9 @@
 """
-Detect-speech FastAPI server — port 8001.
-Provides POST /detect-speech: finds the first speech segment in a preview mp4
-using ffmpeg silencedetect. Runs alongside worker.py as a separate process.
+Ingest FastAPI server — port 8001.
+Endpoints:
+  POST /upload-bgm      — upload BGM file to Supabase Storage
+  POST /detect-speech   — find first speech onset in preview mp4 via ffmpeg
+  POST /transcribe      — extract clip-range audio, send to Replicate Whisper
 
 Start: uvicorn server:app --host 0.0.0.0 --port 8001
 """
@@ -11,7 +13,9 @@ import subprocess
 import tempfile
 import urllib.request
 from pathlib import Path
+from typing import List
 
+import replicate
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
@@ -134,3 +138,110 @@ def detect_speech(body: DetectSpeechBody):
 
     finally:
         Path(tmp_path).unlink(missing_ok=True)
+
+
+class TranscribeBody(BaseModel):
+    clip_id: str
+    source_url: str
+    start_sec: float
+    end_sec: float
+    language: str = "ko"
+
+
+@app.post("/transcribe")
+def transcribe_clip(body: TranscribeBody):
+    """
+    A6: extract only the clip's audio range, send to Replicate Whisper.
+    Returns segments with timestamps adjusted to absolute video time.
+    """
+    replicate_token = os.environ.get("REPLICATE_API_TOKEN", "")
+    if not replicate_token:
+        raise HTTPException(status_code=500, detail="REPLICATE_API_TOKEN not set")
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        raise HTTPException(status_code=500, detail="Supabase env vars not set")
+
+    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+    with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f:
+        tmp_video = f.name
+    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
+        tmp_audio = f.name
+
+    audio_storage_path = f"temp/transcribe-{body.clip_id}.mp3"
+
+    try:
+        # 1. Download full preview video
+        urllib.request.urlretrieve(body.source_url, tmp_video)
+
+        # 2. Extract clip-range audio with ffmpeg
+        subprocess.run(
+            [
+                "ffmpeg", "-y",
+                "-i", tmp_video,
+                "-ss", str(body.start_sec),
+                "-to", str(body.end_sec),
+                "-vn", "-ar", "16000", "-ac", "1",
+                tmp_audio,
+            ],
+            check=True,
+            capture_output=True,
+            timeout=120,
+        )
+
+        # 3. Upload trimmed audio to Supabase Storage (temp slot, overwrite)
+        with open(tmp_audio, "rb") as f:
+            supabase.storage.from_("sources").upload(
+                path=audio_storage_path,
+                file=f.read(),
+                file_options={"content-type": "audio/mpeg", "upsert": "true"},
+            )
+
+        # 4. Create short-lived signed URL (5 min) for Replicate to fetch
+        signed = _get_signed_url(supabase, audio_storage_path)
+        if not signed:
+            raise HTTPException(status_code=500, detail="Failed to sign trimmed audio URL")
+
+        # 5. Run Replicate Whisper on the trimmed audio
+        output = replicate.run(
+            "openai/whisper",
+            input={
+                "audio": signed,
+                "language": body.language,
+                "word_timestamps": True,
+                "transcription": "plain text",
+                "task": "transcribe",
+            },
+        )
+
+        # 6. Parse and adjust timestamps to absolute video time
+        segments: List[dict] = []
+        for seg in (output.get("segments") or []):
+            words = seg.get("words") or []
+            if words:
+                for w in words:
+                    text = (w.get("word") or "").strip()
+                    if not text:
+                        continue
+                    segments.append({
+                        "text": text,
+                        "start_sec": round(body.start_sec + float(w.get("start", 0)), 3),
+                        "end_sec": round(body.start_sec + float(w.get("end", 0)), 3),
+                    })
+            else:
+                text = (seg.get("text") or "").strip()
+                if text:
+                    segments.append({
+                        "text": text,
+                        "start_sec": round(body.start_sec + float(seg.get("start", 0)), 3),
+                        "end_sec": round(body.start_sec + float(seg.get("end", 0)), 3),
+                    })
+
+        return {"segments": segments}
+
+    finally:
+        Path(tmp_video).unlink(missing_ok=True)
+        Path(tmp_audio).unlink(missing_ok=True)
+        try:
+            supabase.storage.from_("sources").remove([audio_storage_path])
+        except Exception:
+            pass
