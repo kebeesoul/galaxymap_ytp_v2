@@ -164,7 +164,7 @@ export default function SubtitleEditor({ clipId, initialSegments, currentTime, o
     // Rows without a DB id need to be inserted
     const toInsert = valid
       .filter(s => s.id === null)
-      .map((s, _) => {
+      .map(s => {
         const order = valid.findIndex(v => v.localId === s.localId)
         return {
           clip_id: clipId,

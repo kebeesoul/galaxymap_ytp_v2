@@ -129,16 +129,17 @@ export default function CommentCard({
     const toUpdate = valid.filter(c => c.id !== null)
     const currentIds = new Set(toUpdate.map(c => c.id!))
     const toDelete = Array.from(originalIdsRef.current).filter(id => !currentIds.has(id))
+    const commentToIdx = new Map(comments.map((c, i) => [c, i] as const))
 
     // Step 1: INSERT new rows first — if this fails, existing data is untouched
     if (toInsert.length > 0) {
-      const insertRows = toInsert.map((c, i) => ({
+      const insertRows = toInsert.map(c => ({
         clip_id: clipId,
         username: c.username.trim() || '(익명)',
         body: c.body.trim(),
         likes_count: c.likes_count,
         source: c.source,
-        is_selected: selected.includes(comments.indexOf(c)),
+        is_selected: selected.includes(commentToIdx.get(c) ?? -1),
       }))
       const { data: inserted, error: insertError } = await supabase
         .from('comments').insert(insertRows).select()
@@ -157,7 +158,7 @@ export default function CommentCard({
 
     // Step 2: UPDATE existing rows
     for (const c of toUpdate) {
-      const idx = comments.findIndex(cm => cm.id === c.id)
+      const idx = commentToIdx.get(c) ?? -1
       const { error } = await supabase.from('comments').update({
         username: c.username.trim() || '(익명)',
         body: c.body.trim(),
