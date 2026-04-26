@@ -15,9 +15,10 @@ function ImportStatusBadge({ status }: { status: string | null }) {
         Ready
       </span>
     )
-  if (status === 'pending')
+  if (status === 'pending' || status === 'processing')
     return (
-      <span className="shrink-0 rounded-full bg-yellow-100 px-3 py-1 text-[12px] font-medium text-yellow-700">
+      <span className="shrink-0 flex items-center gap-1.5 rounded-full bg-yellow-100 px-3 py-1 text-[12px] font-medium text-yellow-700">
+        <span className="h-2.5 w-2.5 animate-spin rounded-full border-2 border-yellow-300 border-t-yellow-600" />
         Importing…
       </span>
     )
