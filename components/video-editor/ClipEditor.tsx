@@ -7,7 +7,8 @@ import { formatTime } from '@/lib/utils/time'
 import { extractLayout } from '@/lib/utils/template'
 import type { Json } from '@/lib/supabase/types'
 import type { Clip, LyricsSegment, Comment, Template } from '@/lib/types'
-import type { SubtitleStyle } from '@/remotion/types'
+import type { SubtitleStyle, CommentStyle, FontFamily } from '@/remotion/types'
+import { FONT_FAMILIES as FONT_LIST } from '@/remotion/types'
 import VideoPreview from './VideoPreview'
 import SubtitleEditor from '@/components/subtitle-editor/SubtitleEditor'
 import CommentCard from '@/components/comment-card/CommentCard'
@@ -17,7 +18,27 @@ import BgmEditor from '@/components/audio/BgmEditor'
 const CanvasPreview = dynamic(() => import('@/components/preview/CanvasPreview'), { ssr: false })
 const WaveformEditor = dynamic(() => import('./WaveformEditor'), { ssr: false })
 
-const DEFAULT_SUBTITLE_STYLE: SubtitleStyle = { position: 'bottom', fontSize: 42, bgOpacity: 0.72 }
+const DEFAULT_SUBTITLE_STYLE: SubtitleStyle = {
+  position: 'bottom',
+  fontSize: 42,
+  bgOpacity: 0.72,
+  theme: 'white-on-black',
+  fontFamily: 'Noto Sans KR',
+}
+
+const DEFAULT_COMMENT_STYLE: CommentStyle = {
+  theme: 'white-on-black',
+  fontFamily: 'Noto Sans KR',
+}
+
+const FONT_LABELS: Record<string, string> = {
+  'Noto Sans KR': '노토 산스',
+  'Black Han Sans': '블랙 한 산스',
+  'Nanum Gothic': '나눔고딕',
+  'Gothic A1': '고딕 A1',
+  'Noto Serif KR': '노토 세리프',
+  'Gowun Dodum': '고운돋움',
+}
 
 function parseSubtitleStyle(raw: unknown): SubtitleStyle {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return DEFAULT_SUBTITLE_STYLE
@@ -28,6 +49,17 @@ function parseSubtitleStyle(raw: unknown): SubtitleStyle {
       : DEFAULT_SUBTITLE_STYLE.position,
     fontSize: typeof obj.fontSize === 'number' ? obj.fontSize : DEFAULT_SUBTITLE_STYLE.fontSize,
     bgOpacity: typeof obj.bgOpacity === 'number' ? obj.bgOpacity : DEFAULT_SUBTITLE_STYLE.bgOpacity,
+    theme: obj.theme === 'black-on-white' ? 'black-on-white' : 'white-on-black',
+    fontFamily: typeof obj.fontFamily === 'string' && obj.fontFamily ? obj.fontFamily : DEFAULT_SUBTITLE_STYLE.fontFamily,
+  }
+}
+
+function parseCommentStyle(raw: unknown): CommentStyle {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return DEFAULT_COMMENT_STYLE
+  const obj = raw as Record<string, unknown>
+  return {
+    theme: obj.theme === 'black-on-white' ? 'black-on-white' : 'white-on-black',
+    fontFamily: typeof obj.fontFamily === 'string' && obj.fontFamily ? obj.fontFamily : DEFAULT_COMMENT_STYLE.fontFamily,
   }
 }
 
@@ -149,6 +181,11 @@ export default function ClipEditor({
   // C1: subtitle style per clip
   const [subtitleStylesByClip, setSubtitleStylesByClip] = useState<Record<string, SubtitleStyle>>(
     Object.fromEntries(initialClips.map(c => [c.id, parseSubtitleStyle(c.subtitle_style)]))
+  )
+
+  // comment style per clip
+  const [commentStylesByClip, setCommentStylesByClip] = useState<Record<string, CommentStyle>>(
+    Object.fromEntries(initialClips.map(c => [c.id, parseCommentStyle(c.comment_style)]))
   )
 
   // C5: render progress 0–100 per clip
@@ -548,6 +585,7 @@ export default function ClipEditor({
       setRawCommentsByClip(prev => ({ ...prev, [data.id]: [] }))
       setSelectedCommentIdxByClip(prev => ({ ...prev, [data.id]: [] }))
       setSubtitleStylesByClip(prev => ({ ...prev, [data.id]: DEFAULT_SUBTITLE_STYLE }))
+      setCommentStylesByClip(prev => ({ ...prev, [data.id]: DEFAULT_COMMENT_STYLE }))
       setRenderProgressByClip(prev => ({ ...prev, [data.id]: 0 }))
       setRegionLineFrom(null)
       setRegionLineTo(null)
@@ -567,6 +605,11 @@ export default function ClipEditor({
     await supabase.from('clips').update({ subtitle_style: style as unknown as Json }).eq('id', clipId)
   }
 
+  async function handleSaveCommentStyle(clipId: string, style: CommentStyle) {
+    setCommentStylesByClip(prev => ({ ...prev, [clipId]: style }))
+    await supabase.from('clips').update({ comment_style: style as unknown as Json }).eq('id', clipId)
+  }
+
   // C2: duplicate a clip (same region + segments, blank comments)
   async function handleDuplicateClip(clipId: string) {
     const clip = clips.find(c => c.id === clipId)
@@ -580,6 +623,7 @@ export default function ClipEditor({
         template_id: clip.template_id,
         label: clip.label ? `${clip.label} (복사본)` : '복사본',
         subtitle_style: clip.subtitle_style,
+        comment_style: clip.comment_style,
       })
       .select()
       .single()
@@ -606,6 +650,7 @@ export default function ClipEditor({
     setRawCommentsByClip(prev => ({ ...prev, [newClip.id]: [] }))
     setSelectedCommentIdxByClip(prev => ({ ...prev, [newClip.id]: [] }))
     setSubtitleStylesByClip(prev => ({ ...prev, [newClip.id]: parseSubtitleStyle(newClip.subtitle_style) }))
+    setCommentStylesByClip(prev => ({ ...prev, [newClip.id]: parseCommentStyle(newClip.comment_style) }))
     setRenderProgressByClip(prev => ({ ...prev, [newClip.id]: 0 }))
     setTimeout(() => {
       clipContainerRefs.current.get(newClip.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -665,6 +710,7 @@ export default function ClipEditor({
     setRawCommentsByClip(cleanup)
     setSelectedCommentIdxByClip(cleanup)
     setSubtitleStylesByClip(cleanup)
+    setCommentStylesByClip(cleanup)
     setRenderProgressByClip(cleanup)
     setSelectedClipIds(prev => { const n = new Set(prev); n.delete(clipId); return n })
     if (loopingClipRef.current?.clipId === clipId) {
@@ -700,7 +746,7 @@ export default function ClipEditor({
     setLabelsByClip(cleanup); setTemplateIdsByClip(cleanup); setBgmByClip(cleanup)
     setCommentsByClip(cleanup); setRawCommentsByClip(cleanup)
     setSelectedCommentIdxByClip(cleanup)
-    setSubtitleStylesByClip(cleanup); setRenderProgressByClip(cleanup)
+    setSubtitleStylesByClip(cleanup); setCommentStylesByClip(cleanup); setRenderProgressByClip(cleanup)
     setSelectedClipIds(new Set())
     if (loopingClipRef.current && ids.includes(loopingClipRef.current.clipId)) {
       loopingClipRef.current = null
@@ -1226,92 +1272,201 @@ export default function ClipEditor({
                 </div>
                 </div>
 
-                {/* C1: subtitle style */}
-                <details className="rounded-xl bg-[#1d1d1f]">
+                {/* C1: subtitle style + editor (merged) */}
+                <details className="group rounded-xl bg-[#1d1d1f]" open>
                   <summary className="flex cursor-pointer list-none items-center justify-between px-5 py-3 text-[12px] text-[rgba(255,255,255,0.4)] hover:text-[rgba(255,255,255,0.6)]">
-                    <span>자막 스타일</span>
-                    <span>▾</span>
+                    <span className="font-semibold uppercase tracking-[0.08em]">
+                      자막{segments.length > 0 ? ` (${segments.length})` : ''}
+                    </span>
+                    <span className="transition-transform duration-200 group-open:rotate-180">▾</span>
                   </summary>
-                  <div className="space-y-3 px-5 pb-4">
-                    <div>
-                      <p className="mb-1.5 text-[11px] text-[rgba(255,255,255,0.3)]">위치</p>
-                      <div className="flex gap-1">
-                        {(['top', 'center', 'bottom'] as const).map(pos => (
-                          <button
-                            key={pos}
-                            onClick={() => handleSaveSubtitleStyle(clip.id, { ...subtitleStylesByClip[clip.id], position: pos })}
-                            className={`flex-1 rounded-md py-1.5 text-[12px] transition-colors ${
-                              (subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE).position === pos
-                                ? 'bg-[#0071e3] text-white'
-                                : 'bg-[#272729] text-[rgba(255,255,255,0.5)] hover:bg-[#2a2a2d]'
-                            }`}
-                          >
-                            {pos === 'top' ? '상단' : pos === 'center' ? '중앙' : '하단'}
-                          </button>
-                        ))}
+                  <div className="px-5 pb-4">
+                    {/* Style controls */}
+                    <div className="mb-4 space-y-3">
+                      {/* Position */}
+                      <div>
+                        <p className="mb-1.5 text-[11px] text-[rgba(255,255,255,0.3)]">위치</p>
+                        <div className="flex gap-1">
+                          {(['top', 'center', 'bottom'] as const).map(pos => (
+                            <button
+                              key={pos}
+                              onClick={() => handleSaveSubtitleStyle(clip.id, { ...(subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE), position: pos })}
+                              className={`flex-1 rounded-md py-1.5 text-[12px] transition-colors ${
+                                (subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE).position === pos
+                                  ? 'bg-[#0071e3] text-white'
+                                  : 'bg-[#272729] text-[rgba(255,255,255,0.5)] hover:bg-[#2a2a2d]'
+                              }`}
+                            >
+                              {pos === 'top' ? '상단' : pos === 'center' ? '중앙' : '하단'}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      {/* Font size */}
+                      <div>
+                        <p className="mb-1.5 text-[11px] text-[rgba(255,255,255,0.3)]">
+                          폰트 크기{' '}
+                          <span className="text-white">{(subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE).fontSize}px</span>
+                        </p>
+                        <input
+                          type="range" min={24} max={72} step={2}
+                          value={(subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE).fontSize}
+                          onChange={e => setSubtitleStylesByClip(prev => ({
+                            ...prev,
+                            [clip.id]: { ...(prev[clip.id] ?? DEFAULT_SUBTITLE_STYLE), fontSize: Number(e.target.value) },
+                          }))}
+                          onMouseUp={() => handleSaveSubtitleStyle(clip.id, subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE)}
+                          className="w-full accent-[#0071e3]"
+                        />
+                      </div>
+                      {/* Background opacity */}
+                      <div>
+                        <p className="mb-1.5 text-[11px] text-[rgba(255,255,255,0.3)]">
+                          배경 불투명도{' '}
+                          <span className="text-white">{Math.round((subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE).bgOpacity * 100)}%</span>
+                        </p>
+                        <input
+                          type="range" min={0} max={1} step={0.05}
+                          value={(subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE).bgOpacity}
+                          onChange={e => setSubtitleStylesByClip(prev => ({
+                            ...prev,
+                            [clip.id]: { ...(prev[clip.id] ?? DEFAULT_SUBTITLE_STYLE), bgOpacity: Number(e.target.value) },
+                          }))}
+                          onMouseUp={() => handleSaveSubtitleStyle(clip.id, subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE)}
+                          className="w-full accent-[#0071e3]"
+                        />
+                      </div>
+                      {/* Text theme */}
+                      <div>
+                        <p className="mb-1.5 text-[11px] text-[rgba(255,255,255,0.3)]">텍스트 스타일</p>
+                        <div className="flex gap-1">
+                          {([
+                            { value: 'white-on-black', label: '흰글씨+검정배경' },
+                            { value: 'black-on-white', label: '검정글씨+흰배경' },
+                          ] as const).map(opt => (
+                            <button
+                              key={opt.value}
+                              onClick={() => handleSaveSubtitleStyle(clip.id, { ...(subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE), theme: opt.value })}
+                              className={`flex-1 rounded-md py-1.5 text-[12px] transition-colors ${
+                                (subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE).theme === opt.value
+                                  ? 'bg-[#0071e3] text-white'
+                                  : 'bg-[#272729] text-[rgba(255,255,255,0.5)] hover:bg-[#2a2a2d]'
+                              }`}
+                            >
+                              {opt.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      {/* Font family */}
+                      <div>
+                        <p className="mb-1.5 text-[11px] text-[rgba(255,255,255,0.3)]">폰트</p>
+                        <div className="grid grid-cols-3 gap-1.5">
+                          {(FONT_LIST as readonly FontFamily[]).map(font => (
+                            <button
+                              key={font}
+                              onClick={() => handleSaveSubtitleStyle(clip.id, { ...(subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE), fontFamily: font })}
+                              style={{ fontFamily: `'${font}', sans-serif` }}
+                              className={`rounded-md py-2 text-[12px] transition-colors ${
+                                (subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE).fontFamily === font
+                                  ? 'bg-[#0071e3] text-white'
+                                  : 'bg-[#272729] text-[rgba(255,255,255,0.6)] hover:bg-[#2a2a2d]'
+                              }`}
+                            >
+                              {FONT_LABELS[font] ?? font}
+                            </button>
+                          ))}
+                        </div>
                       </div>
                     </div>
-                    <div>
-                      <p className="mb-1.5 text-[11px] text-[rgba(255,255,255,0.3)]">
-                        폰트 크기{' '}
-                        <span className="text-white">{(subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE).fontSize}px</span>
+
+                    {transcribeStatus === 'failed' && (
+                      <p className="mb-3 text-[13px] text-red-400">
+                        {transcribeErrors[clip.id] ?? '자막 추출 실패'}
                       </p>
-                      <input
-                        type="range" min={24} max={72} step={2}
-                        value={(subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE).fontSize}
-                        onChange={e => setSubtitleStylesByClip(prev => ({
-                          ...prev,
-                          [clip.id]: { ...(prev[clip.id] ?? DEFAULT_SUBTITLE_STYLE), fontSize: Number(e.target.value) },
-                        }))}
-                        onMouseUp={() => handleSaveSubtitleStyle(clip.id, subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE)}
-                        className="w-full accent-[#0071e3]"
-                      />
+                    )}
+
+                    {transcribeStatus === 'success' && segments.length > 0 && (
+                      <div className="border-t border-[rgba(255,255,255,0.06)] pt-4">
+                        <SubtitleEditor
+                          key={`${clip.id}-${segments.length}`}
+                          clipId={clip.id}
+                          initialSegments={segments}
+                          currentTime={currentTime}
+                          onSeek={handleSeek}
+                          noWrapper
+                        />
+                      </div>
+                    )}
+                  </div>
+                </details>
+
+                {/* ② 댓글 */}
+                <details className="group rounded-xl bg-[#1d1d1f]" open>
+                  <summary className="flex cursor-pointer list-none items-center justify-between px-5 py-3 text-[12px] text-[rgba(255,255,255,0.4)] hover:text-[rgba(255,255,255,0.6)]">
+                    <span className="font-semibold uppercase tracking-[0.08em]">
+                      댓글 ({comments.length})
+                    </span>
+                    <span className="transition-transform duration-200 group-open:rotate-180">▾</span>
+                  </summary>
+                  <div className="px-5 pb-4">
+                    {/* Comment style controls */}
+                    <div className="mb-4 space-y-3">
+                      <div>
+                        <p className="mb-1.5 text-[11px] text-[rgba(255,255,255,0.3)]">텍스트 스타일</p>
+                        <div className="flex gap-1">
+                          {([
+                            { value: 'white-on-black', label: '흰글씨+검정배경' },
+                            { value: 'black-on-white', label: '검정글씨+흰배경' },
+                          ] as const).map(opt => (
+                            <button
+                              key={opt.value}
+                              onClick={() => handleSaveCommentStyle(clip.id, { ...(commentStylesByClip[clip.id] ?? DEFAULT_COMMENT_STYLE), theme: opt.value })}
+                              className={`flex-1 rounded-md py-1.5 text-[12px] transition-colors ${
+                                (commentStylesByClip[clip.id] ?? DEFAULT_COMMENT_STYLE).theme === opt.value
+                                  ? 'bg-[#0071e3] text-white'
+                                  : 'bg-[#272729] text-[rgba(255,255,255,0.5)] hover:bg-[#2a2a2d]'
+                              }`}
+                            >
+                              {opt.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <p className="mb-1.5 text-[11px] text-[rgba(255,255,255,0.3)]">폰트</p>
+                        <div className="grid grid-cols-3 gap-1.5">
+                          {(FONT_LIST as readonly FontFamily[]).map(font => (
+                            <button
+                              key={font}
+                              onClick={() => handleSaveCommentStyle(clip.id, { ...(commentStylesByClip[clip.id] ?? DEFAULT_COMMENT_STYLE), fontFamily: font })}
+                              style={{ fontFamily: `'${font}', sans-serif` }}
+                              className={`rounded-md py-2 text-[12px] transition-colors ${
+                                (commentStylesByClip[clip.id] ?? DEFAULT_COMMENT_STYLE).fontFamily === font
+                                  ? 'bg-[#0071e3] text-white'
+                                  : 'bg-[#272729] text-[rgba(255,255,255,0.6)] hover:bg-[#2a2a2d]'
+                              }`}
+                            >
+                              {FONT_LABELS[font] ?? font}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                     </div>
-                    <div>
-                      <p className="mb-1.5 text-[11px] text-[rgba(255,255,255,0.3)]">
-                        배경 불투명도{' '}
-                        <span className="text-white">{Math.round((subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE).bgOpacity * 100)}%</span>
-                      </p>
-                      <input
-                        type="range" min={0} max={1} step={0.05}
-                        value={(subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE).bgOpacity}
-                        onChange={e => setSubtitleStylesByClip(prev => ({
-                          ...prev,
-                          [clip.id]: { ...(prev[clip.id] ?? DEFAULT_SUBTITLE_STYLE), bgOpacity: Number(e.target.value) },
-                        }))}
-                        onMouseUp={() => handleSaveSubtitleStyle(clip.id, subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE)}
-                        className="w-full accent-[#0071e3]"
+                    <div className="border-t border-[rgba(255,255,255,0.06)] pt-4">
+                      <CommentCard
+                        key={`${clip.id}-comments-${comments.length}`}
+                        clipId={clip.id}
+                        videoId={project.yt_video_id ?? ''}
+                        initialComments={comments}
+                        selectedIndices={selectedCommentIdx}
+                        onSelectionChange={(indices) => setSelectedCommentIdxByClip(prev => ({ ...prev, [clip.id]: indices }))}
+                        onCommentsChange={(cmts) => setCommentsByClip(prev => ({ ...prev, [clip.id]: cmts }))}
+                        noWrapper
                       />
                     </div>
                   </div>
                 </details>
-
-                {transcribeStatus === 'failed' && (
-                  <p className="px-1 text-[13px] text-red-400">
-                    {transcribeErrors[clip.id] ?? '자막 추출 실패'}
-                  </p>
-                )}
-
-                {transcribeStatus === 'success' && segments.length > 0 && (
-                  <SubtitleEditor
-                    key={`${clip.id}-${segments.length}`}
-                    clipId={clip.id}
-                    initialSegments={segments}
-                    currentTime={currentTime}
-                    onSeek={handleSeek}
-                  />
-                )}
-
-                {/* ② 댓글 */}
-                <CommentCard
-                  key={`${clip.id}-comments-${comments.length}`}
-                  clipId={clip.id}
-                  videoId={project.yt_video_id ?? ''}
-                  initialComments={comments}
-                  selectedIndices={selectedCommentIdx}
-                  onSelectionChange={(indices) => setSelectedCommentIdxByClip(prev => ({ ...prev, [clip.id]: indices }))}
-                  onCommentsChange={(cmts) => setCommentsByClip(prev => ({ ...prev, [clip.id]: cmts }))}
-                />
 
                 {/* ③ 템플릿 */}
                 <TemplatePicker
@@ -1339,6 +1494,7 @@ export default function ClipEditor({
                     bgm_volume: bgmByClip[clip.id]?.bgm_volume ?? clip.bgm_volume,
                     original_volume: bgmByClip[clip.id]?.original_volume ?? clip.original_volume,
                     subtitle_style: subtitleStylesByClip[clip.id] ?? null,
+                    comment_style: commentStylesByClip[clip.id] ?? null,
                   }}
                   segments={segments}
                   comments={filteredComments}
@@ -1347,74 +1503,81 @@ export default function ClipEditor({
                 />
 
                 {/* ⑥ 렌더 */}
-                <div className="rounded-xl bg-[#1d1d1f] px-5 py-4">
-                  <div className="flex items-center gap-3">
-                    <h3 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-[rgba(255,255,255,0.4)]">
+                <details className="group rounded-xl bg-[#1d1d1f]" open>
+                  <summary className="flex cursor-pointer list-none items-center justify-between px-5 py-3 text-[12px] text-[rgba(255,255,255,0.4)] hover:text-[rgba(255,255,255,0.6)]">
+                    <span className="flex items-center gap-2 font-semibold uppercase tracking-[0.08em]">
                       렌더
-                    </h3>
+                      {renderStatus === 'success' && (
+                        <span className="text-emerald-400">완료</span>
+                      )}
+                      {(isRendering || renderStatus === 'pending') && (
+                        <span className="h-3 w-3 animate-spin rounded-full border border-white/30 border-t-white" />
+                      )}
+                    </span>
+                    <span className="transition-transform duration-200 group-open:rotate-180">▾</span>
+                  </summary>
 
-                    {renderStatus === 'success' && (
-                      <span className="text-[12px] text-emerald-400">완료</span>
+                  <div className="px-5 pb-4">
+                    <div className="flex items-center">
+                      <button
+                        onClick={() => handleRender(clip.id)}
+                        disabled={isRendering || renderStatus === 'pending'}
+                        className="ml-auto flex items-center gap-2 rounded-lg bg-[#0071e3] px-4 py-1.5 text-[13px] text-white transition-colors hover:bg-[#0077ed] disabled:opacity-40"
+                      >
+                        {isRendering || renderStatus === 'pending' ? (
+                          <>
+                            <span className="h-3 w-3 animate-spin rounded-full border border-white/30 border-t-white" />
+                            렌더 중…
+                          </>
+                        ) : renderStatus === 'success' ? (
+                          '재렌더'
+                        ) : (
+                          '렌더 시작'
+                        )}
+                      </button>
+                    </div>
+
+                    {/* C5: render progress bar */}
+                    {(isRendering || renderStatus === 'pending') && (
+                      <div className="mt-3">
+                        <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#272729]">
+                          <div
+                            className="h-full rounded-full bg-[#0071e3] transition-all duration-500"
+                            style={{ width: `${renderProgressByClip[clip.id] ?? 0}%` }}
+                          />
+                        </div>
+                        {(renderProgressByClip[clip.id] ?? 0) > 0 && (
+                          <p className="mt-1 text-right font-mono text-[11px] text-[rgba(255,255,255,0.4)]">
+                            {Math.round(renderProgressByClip[clip.id] ?? 0)}%
+                          </p>
+                        )}
+                      </div>
                     )}
 
-                    <button
-                      onClick={() => handleRender(clip.id)}
-                      disabled={isRendering || renderStatus === 'pending'}
-                      className="ml-auto flex items-center gap-2 rounded-lg bg-[#0071e3] px-4 py-1.5 text-[13px] text-white transition-colors hover:bg-[#0077ed] disabled:opacity-40"
-                    >
-                      {isRendering || renderStatus === 'pending' ? (
-                        <>
-                          <span className="h-3 w-3 animate-spin rounded-full border border-white/30 border-t-white" />
-                          렌더 중…
-                        </>
-                      ) : renderStatus === 'success' ? (
-                        '재렌더'
-                      ) : (
-                        '렌더 시작'
-                      )}
-                    </button>
+                    {renderStatus === 'success' && hasRenderPath && (
+                      <button
+                        onClick={() => handleDownload(clip.id, `clip-${i + 1}.mp4`)}
+                        disabled={isDownloading}
+                        className="mt-3 flex items-center gap-1.5 text-[14px] text-[#2997ff] transition-opacity hover:underline disabled:opacity-40"
+                      >
+                        {isDownloading ? (
+                          <>
+                            <span className="h-3 w-3 animate-spin rounded-full border border-[#2997ff]/40 border-t-[#2997ff]" />
+                            준비 중…
+                          </>
+                        ) : (
+                          <>↓ clip-{i + 1}.mp4 다운로드</>
+                        )}
+                      </button>
+                    )}
+
+                    {renderStatus === 'failed' && (
+                      <p className="mt-3 text-[12px] text-red-400">
+                        {renderErrors[clip.id] ?? '렌더 실패'}
+                      </p>
+                    )}
                   </div>
-
-                  {/* C5: render progress bar */}
-                  {(isRendering || renderStatus === 'pending') && (
-                    <div className="mt-3">
-                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#272729]">
-                        <div
-                          className="h-full rounded-full bg-[#0071e3] transition-all duration-500"
-                          style={{ width: `${renderProgressByClip[clip.id] ?? 0}%` }}
-                        />
-                      </div>
-                      {(renderProgressByClip[clip.id] ?? 0) > 0 && (
-                        <p className="mt-1 text-right font-mono text-[11px] text-[rgba(255,255,255,0.4)]">
-                          {Math.round(renderProgressByClip[clip.id] ?? 0)}%
-                        </p>
-                      )}
-                    </div>
-                  )}
-
-                  {renderStatus === 'success' && hasRenderPath && (
-                    <button
-                      onClick={() => handleDownload(clip.id, `clip-${i + 1}.mp4`)}
-                      disabled={isDownloading}
-                      className="mt-3 flex items-center gap-1.5 text-[14px] text-[#2997ff] transition-opacity hover:underline disabled:opacity-40"
-                    >
-                      {isDownloading ? (
-                        <>
-                          <span className="h-3 w-3 animate-spin rounded-full border border-[#2997ff]/40 border-t-[#2997ff]" />
-                          준비 중…
-                        </>
-                      ) : (
-                        <>↓ clip-{i + 1}.mp4 다운로드</>
-                      )}
-                    </button>
-                  )}
-
-                  {renderStatus === 'failed' && (
-                    <p className="mt-3 text-[12px] text-red-400">
-                      {renderErrors[clip.id] ?? '렌더 실패'}
-                    </p>
-                  )}
-                </div>
+                </details>
               </div>
             )
           })}

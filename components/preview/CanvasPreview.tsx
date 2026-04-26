@@ -26,9 +26,15 @@ function calcFrames(startSec: number, endSec: number): number {
 function CanvasPreview({ clip, segments, comments, layout, signedUrl }: Props) {
   if (!signedUrl) {
     return (
-      <div className="rounded-xl bg-[#1d1d1f] px-5 py-8 text-center">
-        <p className="text-[13px] text-[rgba(255,255,255,0.24)]">비디오 로드 후 미리보기 가능</p>
-      </div>
+      <details className="group rounded-xl bg-[#1d1d1f]" open>
+        <summary className="flex cursor-pointer list-none items-center justify-between px-5 py-3 text-[12px] text-[rgba(255,255,255,0.4)] hover:text-[rgba(255,255,255,0.6)]">
+          <span className="font-semibold uppercase tracking-[0.08em]">미리보기</span>
+          <span className="transition-transform duration-200 group-open:rotate-180">▾</span>
+        </summary>
+        <div className="px-5 pb-8 pt-2 text-center">
+          <p className="text-[13px] text-[rgba(255,255,255,0.24)]">비디오 로드 후 미리보기 가능</p>
+        </div>
+      </details>
     )
   }
 
@@ -44,35 +50,38 @@ function CanvasPreview({ clip, segments, comments, layout, signedUrl }: Props) {
   }
 
   return (
-    <div className="rounded-xl bg-[#1d1d1f] px-5 py-4">
-      <h3 className="mb-3 text-[12px] font-semibold uppercase tracking-[0.08em] text-[rgba(255,255,255,0.4)]">
-        미리보기
-      </h3>
-      <div className="mx-auto max-w-[300px]">
-        {layout === 'LAYOUT_A' ? (
-          <Player
-            key={layout}
-            {...commonPlayerProps}
-            component={LayoutA}
-            inputProps={{ clip, segments, comments, preview_path: signedUrl }}
-          />
-        ) : layout === 'LAYOUT_B' ? (
-          <Player
-            key={layout}
-            {...commonPlayerProps}
-            component={LayoutB}
-            inputProps={{ clip, segments, preview_path: signedUrl }}
-          />
-        ) : (
-          <Player
-            key={layout}
-            {...commonPlayerProps}
-            component={LayoutC}
-            inputProps={{ clip, comments, preview_path: signedUrl }}
-          />
-        )}
+    <details className="group rounded-xl bg-[#1d1d1f]" open>
+      <summary className="flex cursor-pointer list-none items-center justify-between px-5 py-3 text-[12px] text-[rgba(255,255,255,0.4)] hover:text-[rgba(255,255,255,0.6)]">
+        <span className="font-semibold uppercase tracking-[0.08em]">미리보기</span>
+        <span className="transition-transform duration-200 group-open:rotate-180">▾</span>
+      </summary>
+      <div className="px-5 pb-4">
+        <div className="mx-auto max-w-[300px]">
+          {layout === 'LAYOUT_A' ? (
+            <Player
+              key={layout}
+              {...commonPlayerProps}
+              component={LayoutA}
+              inputProps={{ clip, segments, comments, preview_path: signedUrl }}
+            />
+          ) : layout === 'LAYOUT_B' ? (
+            <Player
+              key={layout}
+              {...commonPlayerProps}
+              component={LayoutB}
+              inputProps={{ clip, segments, preview_path: signedUrl }}
+            />
+          ) : (
+            <Player
+              key={layout}
+              {...commonPlayerProps}
+              component={LayoutC}
+              inputProps={{ clip, comments, preview_path: signedUrl }}
+            />
+          )}
+        </div>
       </div>
-    </div>
+    </details>
   )
 }
 

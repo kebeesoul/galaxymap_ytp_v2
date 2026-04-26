@@ -42,42 +42,45 @@ export default function TemplatePicker({ clipId, initialTemplateId, templates, o
   }
 
   return (
-    <div className="rounded-xl bg-[#1d1d1f] px-5 py-4">
-      <div className="mb-3 flex items-center gap-2">
-        <h3 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-[rgba(255,255,255,0.4)]">
+    <details className="group rounded-xl bg-[#1d1d1f]" open>
+      <summary className="flex cursor-pointer list-none items-center justify-between px-5 py-3 text-[12px] text-[rgba(255,255,255,0.4)] hover:text-[rgba(255,255,255,0.6)]">
+        <span className="flex items-center gap-2 font-semibold uppercase tracking-[0.08em]">
           템플릿
-        </h3>
-        {saving && (
-          <span className="h-3 w-3 animate-spin rounded-full border border-white/30 border-t-white" />
-        )}
-        {saveError && (
-          <span className="text-[12px] text-red-400">{saveError}</span>
-        )}
+          {saving && (
+            <span className="h-3 w-3 animate-spin rounded-full border border-white/30 border-t-white" />
+          )}
+          {saveError && (
+            <span className="text-[12px] text-red-400">{saveError}</span>
+          )}
+        </span>
+        <span className="transition-transform duration-200 group-open:rotate-180">▾</span>
+      </summary>
+      <div className="px-5 pb-4">
+        <div className="grid grid-cols-3 gap-3">
+          {templates.map(tmpl => {
+            const layout = extractLayout(tmpl.config_json)
+            const meta = LAYOUT_META[layout]
+            const isSelected = selectedId === tmpl.id
+            return (
+              <button
+                key={tmpl.id}
+                onClick={() => handleSelect(tmpl.id)}
+                className={`rounded-xl border px-4 py-5 text-left transition-all ${
+                  isSelected
+                    ? 'border-[#0071e3] bg-[#0071e3]/10'
+                    : 'border-transparent bg-[#272729] hover:bg-[#2a2a2d]'
+                }`}
+              >
+                <div className="mb-2 text-[22px] leading-none">{meta?.icon ?? '□'}</div>
+                <p className="text-[13px] font-semibold text-white">{meta?.label ?? tmpl.name}</p>
+                <p className="mt-0.5 text-[11px] text-[rgba(255,255,255,0.4)]">
+                  {meta?.desc ?? ''}
+                </p>
+              </button>
+            )
+          })}
+        </div>
       </div>
-      <div className="grid grid-cols-3 gap-3">
-        {templates.map(tmpl => {
-          const layout = extractLayout(tmpl.config_json)
-          const meta = LAYOUT_META[layout]
-          const isSelected = selectedId === tmpl.id
-          return (
-            <button
-              key={tmpl.id}
-              onClick={() => handleSelect(tmpl.id)}
-              className={`rounded-xl border px-4 py-5 text-left transition-all ${
-                isSelected
-                  ? 'border-[#0071e3] bg-[#0071e3]/10'
-                  : 'border-transparent bg-[#272729] hover:bg-[#2a2a2d]'
-              }`}
-            >
-              <div className="mb-2 text-[22px] leading-none">{meta?.icon ?? '□'}</div>
-              <p className="text-[13px] font-semibold text-white">{meta?.label ?? tmpl.name}</p>
-              <p className="mt-0.5 text-[11px] text-[rgba(255,255,255,0.4)]">
-                {meta?.desc ?? ''}
-              </p>
-            </button>
-          )
-        })}
-      </div>
-    </div>
+    </details>
   )
 }

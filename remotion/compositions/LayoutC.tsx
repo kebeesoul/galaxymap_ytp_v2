@@ -20,7 +20,7 @@ export default function LayoutC({ clip, comments, preview_path }: LayoutCProps) 
         bgmVolume={clip.bgm_volume}
         originalVolume={clip.original_volume}
       />
-      <CommentLayer comments={comments} />
+      <CommentLayer comments={comments} style={clip.comment_style} />
     </AbsoluteFill>
   )
 }

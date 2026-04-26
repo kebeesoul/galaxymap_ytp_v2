@@ -19,6 +19,7 @@ export type Database = {
           render_status: string | null
           start_sec: number
           subtitle_style: Json | null
+          comment_style: Json | null
           template_id: string | null
           transcribe_status: string | null
         }
@@ -37,6 +38,7 @@ export type Database = {
           render_status?: string | null
           start_sec: number
           subtitle_style?: Json | null
+          comment_style?: Json | null
           template_id?: string | null
           transcribe_status?: string | null
         }
@@ -55,6 +57,7 @@ export type Database = {
           render_status?: string | null
           start_sec?: number
           subtitle_style?: Json | null
+          comment_style?: Json | null
           template_id?: string | null
           transcribe_status?: string | null
         }

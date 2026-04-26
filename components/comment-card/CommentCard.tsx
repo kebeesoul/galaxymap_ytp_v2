@@ -23,6 +23,8 @@ interface Props {
   selectedIndices?: number[]
   onSelectionChange?: (indices: number[]) => void
   onCommentsChange?: (comments: Array<{ username: string; body: string; likes_count: number }>) => void
+  /** When true, skips the outer <details> wrapper (used inside a parent <details> in ClipEditor) */
+  noWrapper?: boolean
 }
 
 function toLocal(c: Comment): LocalComment {
@@ -43,6 +45,7 @@ export default function CommentCard({
   selectedIndices,
   onSelectionChange,
   onCommentsChange,
+  noWrapper,
 }: Props) {
   const [comments, setComments] = useState<LocalComment[]>(initialComments.map(toLocal))
   const [fetching, setFetching] = useState(false)
@@ -178,15 +181,10 @@ export default function CommentCard({
     setSaving(false)
   }
 
-  return (
-    <div className="rounded-xl bg-[#1d1d1f] px-5 py-4">
+  const commentBody = (
+    <>
+      {/* Action toolbar */}
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <h3 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-[rgba(255,255,255,0.4)]">
-          댓글 ({comments.length})
-          {selected.length > 0 && (
-            <span className="ml-2 text-[#2997ff]">{selected.length}개 선택</span>
-          )}
-        </h3>
         <button
           onClick={handleFetchYoutube}
           disabled={fetching || hasYoutubeComments}
@@ -260,18 +258,8 @@ export default function CommentCard({
                   value={comment.username}
                   onChange={e => updateField(idx, 'username', e.target.value)}
                   placeholder="username"
-                  className="w-32 shrink-0 rounded-md bg-[#1d1d1f] px-2 py-1 text-[13px] text-white outline-none placeholder:text-[rgba(255,255,255,0.2)] focus:ring-1 focus:ring-[#0071e3]"
+                  className="flex-1 rounded-md bg-[#1d1d1f] px-2 py-1 text-[13px] text-white outline-none placeholder:text-[rgba(255,255,255,0.2)] focus:ring-1 focus:ring-[#0071e3]"
                 />
-                <input
-                  type="number"
-                  value={comment.likes_count}
-                  onChange={e => {
-                    const v = parseInt(e.target.value, 10)
-                    updateField(idx, 'likes_count', isNaN(v) ? 0 : v)
-                  }}
-                  className="w-16 shrink-0 rounded-md bg-[#1d1d1f] px-2 py-1 text-[13px] text-[rgba(255,255,255,0.6)] outline-none focus:ring-1 focus:ring-[#0071e3]"
-                />
-                <span className="text-[11px] text-[rgba(255,255,255,0.3)]">👍</span>
                 {comment.source === 'youtube' && (
                   <span className="rounded bg-[#1d1d1f] px-1.5 py-0.5 font-mono text-[10px] text-[rgba(255,255,255,0.3)]">
                     YT
@@ -279,7 +267,7 @@ export default function CommentCard({
                 )}
                 <button
                   onClick={() => deleteComment(idx)}
-                  className="ml-auto text-[13px] text-[rgba(255,255,255,0.3)] transition-colors hover:text-red-400"
+                  className="text-[13px] text-[rgba(255,255,255,0.3)] transition-colors hover:text-red-400"
                 >
                   ✕
                 </button>
@@ -295,6 +283,23 @@ export default function CommentCard({
           ))}
         </div>
       )}
-    </div>
+    </>
+  )
+
+  if (noWrapper) return commentBody
+
+  return (
+    <details className="group rounded-xl bg-[#1d1d1f]" open>
+      <summary className="flex cursor-pointer list-none items-center justify-between px-5 py-3 text-[12px] text-[rgba(255,255,255,0.4)] hover:text-[rgba(255,255,255,0.6)]">
+        <span className="font-semibold uppercase tracking-[0.08em]">
+          댓글 ({comments.length})
+          {selected.length > 0 && (
+            <span className="ml-2 text-[#2997ff]">{selected.length}개 선택</span>
+          )}
+        </span>
+        <span className="transition-transform duration-200 group-open:rotate-180">▾</span>
+      </summary>
+      <div className="px-5 pb-4">{commentBody}</div>
+    </details>
   )
 }
