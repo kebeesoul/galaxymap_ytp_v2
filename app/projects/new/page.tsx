@@ -38,6 +38,7 @@ export default function NewProjectPage() {
 
     // import_status='pending' set on insert — worker picks it up automatically
     router.push('/projects')
+    router.refresh()
   }
 
   return (
