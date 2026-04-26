@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
     .from('projects')
     .update({ import_status: 'pending', import_error: null })
     .eq('id', project_id)
-    .not('import_status', 'eq', 'processing')
+    .or('import_status.is.null,import_status.neq.processing')
     .select('id')
 
   if (!updated?.length) {

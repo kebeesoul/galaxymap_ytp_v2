@@ -20,6 +20,7 @@ export default function NewProjectPage() {
       artist: (form.elements.namedItem('artist') as HTMLInputElement).value.trim(),
       song_title: (form.elements.namedItem('song_title') as HTMLInputElement).value.trim(),
       source_url: (form.elements.namedItem('source_url') as HTMLInputElement).value.trim(),
+      import_status: 'pending',
     }
 
     const supabase = createClient()
@@ -35,13 +36,7 @@ export default function NewProjectPage() {
       return
     }
 
-    // Fire import immediately — fire-and-forget (202), worker picks it up
-    await fetch('/api/import', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ project_id: project.id, url: payload.source_url }),
-    })
-
+    // import_status='pending' set on insert — worker picks it up automatically
     router.push('/projects')
   }
 
@@ -85,7 +80,7 @@ export default function NewProjectPage() {
             disabled={loading}
             className="mt-8 w-full rounded-lg bg-[#0071e3] py-3 text-[17px] text-white transition-colors hover:bg-[#0077ed] disabled:opacity-50"
           >
-            {loading ? 'Creating & Importing…' : 'Create Project'}
+            {loading ? 'Creating…' : 'Create Project'}
           </button>
         </form>
       </div>

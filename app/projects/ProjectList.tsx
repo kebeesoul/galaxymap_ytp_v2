@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
@@ -41,6 +41,21 @@ export default function ProjectList({ initialProjects }: { initialProjects: Proj
   const [deletingAll, setDeletingAll] = useState(false)
   const supabase = useMemo(() => createClient(), [])
   const router = useRouter()
+
+  // Sync fresh server data (from router.refresh) into local state
+  useEffect(() => {
+    setProjects(initialProjects)
+  }, [initialProjects])
+
+  // Auto-refresh every 3s while any project is still importing
+  useEffect(() => {
+    const hasImporting = projects.some(
+      p => p.import_status === 'pending' || p.import_status === 'processing'
+    )
+    if (!hasImporting) return
+    const id = setInterval(() => router.refresh(), 3000)
+    return () => clearInterval(id)
+  }, [projects, router])
 
   async function handleDelete(id: string) {
     setDeleting(id)
