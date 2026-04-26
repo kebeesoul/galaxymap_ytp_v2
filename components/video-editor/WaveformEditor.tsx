@@ -187,6 +187,11 @@ export default function WaveformEditor({
               </svg>
             )}
           </button>
+          {!loading && (
+            <span className="font-mono text-[13px] tabular-nums text-white">
+              {String(Math.floor(currentTime / 60)).padStart(2, '0')}:{String(Math.floor(currentTime % 60)).padStart(2, '0')}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-3">
           {startSec !== null && (
