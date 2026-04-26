@@ -234,7 +234,12 @@ export default function ClipEditor({
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'clips', filter: `project_id=eq.${project.id}` },
         (payload) => {
-          const row = payload.new as {
+          const raw = payload.new
+          if (!raw || typeof raw !== 'object' || !('id' in raw) || typeof (raw as Record<string, unknown>).id !== 'string') {
+            console.error('[ClipEditor] Unexpected Realtime payload:', payload.new)
+            return
+          }
+          const row = raw as {
             id: string
             render_status: string | null
             render_path: string | null
@@ -646,7 +651,14 @@ export default function ClipEditor({
     }
     setSegmentsByClip(cleanup)
     setTranscribeStatuses(cleanup)
+    setTranscribing(cleanup)
+    setTranscribeErrors(cleanup)
     setRenderStatuses(cleanup)
+    setRendering(cleanup)
+    setRenderErrors(cleanup)
+    setRenderPaths(cleanup)
+    setDownloading(cleanup)
+    setLabelsByClip(cleanup)
     setTemplateIdsByClip(cleanup)
     setBgmByClip(cleanup)
     setCommentsByClip(cleanup)
@@ -681,9 +693,13 @@ export default function ClipEditor({
       for (const id of ids) delete n[id]
       return n
     }
-    setSegmentsByClip(cleanup); setTranscribeStatuses(cleanup); setRenderStatuses(cleanup)
-    setTemplateIdsByClip(cleanup); setBgmByClip(cleanup); setCommentsByClip(cleanup)
-    setRawCommentsByClip(cleanup); setSelectedCommentIdxByClip(cleanup)
+    setSegmentsByClip(cleanup); setTranscribeStatuses(cleanup)
+    setTranscribing(cleanup); setTranscribeErrors(cleanup)
+    setRenderStatuses(cleanup); setRendering(cleanup)
+    setRenderErrors(cleanup); setRenderPaths(cleanup); setDownloading(cleanup)
+    setLabelsByClip(cleanup); setTemplateIdsByClip(cleanup); setBgmByClip(cleanup)
+    setCommentsByClip(cleanup); setRawCommentsByClip(cleanup)
+    setSelectedCommentIdxByClip(cleanup)
     setSubtitleStylesByClip(cleanup); setRenderProgressByClip(cleanup)
     setSelectedClipIds(new Set())
     if (loopingClipRef.current && ids.includes(loopingClipRef.current.clipId)) {

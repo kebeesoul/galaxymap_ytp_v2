@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Replicate from 'replicate'
 import { createClient } from '@/lib/supabase/server'
+import { getIngestWorkerUrl } from '@/lib/utils/worker'
 
 interface TranscribeBody {
   clip_id: string
@@ -38,16 +39,38 @@ async function persistSegments(
   rows: LyricsRow[],
   clipId: string,
 ): Promise<NextResponse | null> {
-  const { data: segments, error } = await supabase
-    .from('lyrics_segments').insert(rows).select()
-  if (error || !segments) {
-    console.error('[persistSegments] insert failed:', error?.message)
+  // INSERT new rows first so data is never absent during the transition
+  let inserted: Array<{ id: string }> = []
+  if (rows.length > 0) {
+    const { data, error } = await supabase.from('lyrics_segments').insert(rows).select()
+    if (error || !data) {
+      console.error('[persistSegments] insert failed:', error?.message)
+      return null
+    }
+    inserted = data
+  }
+
+  // DELETE old rows — keep only the newly inserted IDs
+  const idsToKeep = inserted.map(s => s.id)
+  const baseDelete = supabase.from('lyrics_segments').delete().eq('clip_id', clipId)
+  const { error: deleteError } = await (
+    idsToKeep.length > 0
+      ? baseDelete.not('id', 'in', `(${idsToKeep.join(',')})`)
+      : baseDelete
+  )
+  if (deleteError) {
+    console.error('[persistSegments] delete failed:', deleteError.message)
     return null
   }
-  await supabase.from('lyrics_segments').delete()
-    .eq('clip_id', clipId).not('id', 'in', `(${segments.map(s => s.id).join(',')})`)
-  await supabase.from('clips').update({ transcribe_status: 'success' }).eq('id', clipId)
-  return NextResponse.json({ segments })
+
+  const { error: updateError } = await supabase
+    .from('clips').update({ transcribe_status: 'success' }).eq('id', clipId)
+  if (updateError) {
+    console.error('[persistSegments] status update failed:', updateError.message)
+    return null
+  }
+
+  return NextResponse.json({ segments: inserted })
 }
 
 function parseSegments(
@@ -164,7 +187,7 @@ export async function POST(request: NextRequest) {
   }
 
   // A6: try Python ingest worker — it trims audio to clip range before calling Replicate
-  const workerUrl = process.env.INGEST_WORKER_URL ?? process.env.PYTHON_WORKER_URL
+  const workerUrl = getIngestWorkerUrl()
   if (workerUrl) {
     try {
       const workerRes = await fetch(`${workerUrl}/transcribe`, {
@@ -203,7 +226,11 @@ export async function POST(request: NextRequest) {
 
   try {
     // 5. Replicate 호출 (180s timeout) — sends full video URL (fallback when no worker)
-    const replicate = new Replicate({ auth: process.env.REPLICATE_API_TOKEN })
+    const replicateToken = process.env.REPLICATE_API_TOKEN
+    if (!replicateToken) {
+      throw new Error('REPLICATE_API_TOKEN not configured')
+    }
+    const replicate = new Replicate({ auth: replicateToken })
 
     const replicatePromise = replicate.run('openai/whisper', {
       input: {
@@ -226,7 +253,8 @@ export async function POST(request: NextRequest) {
       .map((r, idx) => ({ ...r, order: idx }))
 
     if (rows.length === 0) {
-      throw new Error('Replicate returned no segments')
+      // Silent/music clip — valid result, clear any previous segments
+      console.warn(`[transcribe] No speech detected in clip ${clip_id}`)
     }
 
     const result = await persistSegments(supabase, rows, clip_id)

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getIngestWorkerUrlWithFallback } from '@/lib/utils/worker'
 
-const WORKER_URL = process.env.INGEST_WORKER_URL ?? process.env.PYTHON_WORKER_URL ?? 'http://localhost:8001'
+const WORKER_URL = getIngestWorkerUrlWithFallback()
 
 export async function POST(request: NextRequest) {
   let formData: FormData
