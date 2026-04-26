@@ -50,6 +50,9 @@ export default function CommentCard({
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const supabase = useMemo(() => createClient(), [])
+  const originalIdsRef = useRef<Set<string>>(
+    new Set(initialComments.map(c => c.id).filter(Boolean) as string[])
+  )
 
   const hasYoutubeComments = comments.some(c => c.source === 'youtube')
   const selected = selectedIndices ?? []
@@ -69,10 +72,11 @@ export default function CommentCard({
       ? [...selected, idx]
       : selected.filter(i => i !== idx)
     onSelectionChange(newSelected)
-    // C3: persist is_selected immediately for existing DB rows
+    // C3: persist is_selected immediately for existing DB rows (fire-and-forget)
     const comment = comments[idx]
     if (comment.id) {
       supabase.from('comments').update({ is_selected: isNowSelected }).eq('id', comment.id)
+        .then(({ error }) => { if (error) console.error('[is_selected]', error.message) })
     }
   }
 
@@ -120,36 +124,54 @@ export default function CommentCard({
     setSaving(true)
     setSaveError(null)
 
-    const { error: deleteError } = await supabase
-      .from('comments')
-      .delete()
-      .eq('clip_id', clipId)
+    const valid = comments.filter(c => c.username.trim() || c.body.trim())
+    const toInsert = valid.filter(c => c.id === null)
+    const toUpdate = valid.filter(c => c.id !== null)
+    const currentIds = new Set(toUpdate.map(c => c.id!))
+    const toDelete = Array.from(originalIdsRef.current).filter(id => !currentIds.has(id))
 
-    if (deleteError) {
-      setSaveError(deleteError.message)
-      setSaving(false)
-      return
-    }
-
-    const rows = comments
-      .map((c, origIdx) => ({ c, origIdx }))
-      .filter(({ c }) => c.username.trim() || c.body.trim())
-      .map(({ c, origIdx }) => ({
+    // Step 1: INSERT new rows first — if this fails, existing data is untouched
+    if (toInsert.length > 0) {
+      const insertRows = toInsert.map((c, i) => ({
         clip_id: clipId,
         username: c.username.trim() || '(익명)',
         body: c.body.trim(),
         likes_count: c.likes_count,
         source: c.source,
-        is_selected: selected.includes(origIdx),
+        is_selected: selected.includes(comments.indexOf(c)),
       }))
-
-    if (rows.length > 0) {
-      const { error: insertError } = await supabase.from('comments').insert(rows)
-      if (insertError) {
-        setSaveError(insertError.message)
-        setSaving(false)
-        return
+      const { data: inserted, error: insertError } = await supabase
+        .from('comments').insert(insertRows).select()
+      if (insertError) { setSaveError(insertError.message); setSaving(false); return }
+      // Update local state with returned IDs
+      if (inserted) {
+        let insertIdx = 0
+        setComments(prev => prev.map(c => {
+          if (c.id !== null) return c
+          const row = inserted[insertIdx++]
+          return row ? { ...c, id: row.id } : c
+        }))
+        for (const row of inserted) originalIdsRef.current.add(row.id)
       }
+    }
+
+    // Step 2: UPDATE existing rows
+    for (const c of toUpdate) {
+      const idx = comments.findIndex(cm => cm.id === c.id)
+      const { error } = await supabase.from('comments').update({
+        username: c.username.trim() || '(익명)',
+        body: c.body.trim(),
+        likes_count: c.likes_count,
+        is_selected: selected.includes(idx),
+      }).eq('id', c.id!)
+      if (error) { setSaveError(error.message); setSaving(false); return }
+    }
+
+    // Step 3: DELETE removed rows — safe because new data is already in DB
+    if (toDelete.length > 0) {
+      const { error: deleteError } = await supabase.from('comments').delete().in('id', toDelete)
+      if (deleteError) { setSaveError(deleteError.message); setSaving(false); return }
+      for (const id of toDelete) originalIdsRef.current.delete(id)
     }
 
     setSaving(false)

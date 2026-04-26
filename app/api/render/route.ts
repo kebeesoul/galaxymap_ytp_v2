@@ -25,10 +25,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'clip not found' }, { status: 404 })
   }
 
-  await supabase
+  // Guard: don't overwrite a clip that's actively being rendered
+  const { data: updated } = await supabase
     .from('clips')
     .update({ render_status: 'pending', render_error: null })
     .eq('id', clip_id)
+    .not('render_status', 'eq', 'processing')
+    .select('id')
+
+  if (!updated?.length) {
+    return NextResponse.json({ error: 'already processing' }, { status: 409 })
+  }
 
   // Mac Studio render worker polls for render_status='pending' and runs Remotion locally
   return NextResponse.json({ queued: true }, { status: 202 })

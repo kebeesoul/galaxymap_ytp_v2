@@ -44,7 +44,7 @@ export default function EditorClient({
         }
       )
       .subscribe()
-    return () => { supabase.removeChannel(channel) }
+    return () => { channel.unsubscribe(); supabase.removeChannel(channel) }
   }, [project.import_status, project.id, supabase])
 
   async function handleImport() {

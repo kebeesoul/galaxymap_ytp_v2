@@ -101,11 +101,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'failed to generate signed URL' }, { status: 500 })
   }
 
-  // 4. transcribe_status = 'pending'
+  // 4. transcribe_status = 'pending' — skip if already a pending/success (idempotent guard)
   await supabase
     .from('clips')
     .update({ transcribe_status: 'pending' })
     .eq('id', clip_id)
+    .not('transcribe_status', 'eq', 'pending')
 
   // C4: try local WhisperX worker first (no API cost, better accuracy)
   const whisperWorkerUrl = process.env.WHISPER_WORKER_URL
@@ -129,7 +130,6 @@ export async function POST(request: NextRequest) {
         }
         const segs = body.segments ?? []
         if (segs.length > 0) {
-          await supabase.from('lyrics_segments').delete().eq('clip_id', clip_id)
           const rows: LyricsRow[] = segs.map((s, idx) => ({
             clip_id,
             text: s.text,
@@ -137,11 +137,14 @@ export async function POST(request: NextRequest) {
             end_sec: s.end_sec,
             order: idx,
           }))
+          // Insert first — if insert fails, existing data is untouched
           const { data: segments, error: insertError } = await supabase
             .from('lyrics_segments')
             .insert(rows)
             .select()
           if (!insertError) {
+            await supabase.from('lyrics_segments').delete()
+              .eq('clip_id', clip_id).not('id', 'in', `(${segments!.map(s => s.id).join(',')})`)
             await supabase.from('clips').update({ transcribe_status: 'success' }).eq('id', clip_id)
             return NextResponse.json({ segments })
           }
@@ -174,7 +177,6 @@ export async function POST(request: NextRequest) {
         }
         const workerSegs = workerBody.segments ?? []
         if (workerSegs.length > 0) {
-          await supabase.from('lyrics_segments').delete().eq('clip_id', clip_id)
           const rows: LyricsRow[] = workerSegs.map((s, idx) => ({
             clip_id,
             text: s.text,
@@ -187,6 +189,8 @@ export async function POST(request: NextRequest) {
             .insert(rows)
             .select()
           if (!insertError) {
+            await supabase.from('lyrics_segments').delete()
+              .eq('clip_id', clip_id).not('id', 'in', `(${segments!.map(s => s.id).join(',')})`)
             await supabase.from('clips').update({ transcribe_status: 'success' }).eq('id', clip_id)
             return NextResponse.json({ segments })
           }
@@ -225,15 +229,17 @@ export async function POST(request: NextRequest) {
       throw new Error('Replicate returned no segments')
     }
 
-    // 7. 기존 segments 삭제 후 재삽입
-    await supabase.from('lyrics_segments').delete().eq('clip_id', clip_id)
-
+    // 7. Insert first, then delete old — if insert fails, existing data is untouched
     const { data: segments, error: insertError } = await supabase
       .from('lyrics_segments')
       .insert(rows)
       .select()
 
     if (insertError) throw new Error(insertError.message)
+
+    // Delete old segments now that new ones are safely inserted
+    await supabase.from('lyrics_segments').delete()
+      .eq('clip_id', clip_id).not('id', 'in', `(${segments!.map(s => s.id).join(',')})`)
 
     // 8. transcribe_status = 'success'
     await supabase
