@@ -109,6 +109,12 @@ export default function ProjectList({ initialProjects }: { initialProjects: Proj
             </button>
           )}
           <Link
+            href="/export"
+            className="rounded-lg border border-[rgba(0,0,0,0.12)] bg-white px-4 py-2 text-[17px] text-[#1d1d1f] transition-colors hover:bg-[#f5f5f7]"
+          >
+            Export
+          </Link>
+          <Link
             href="/projects/new"
             className="rounded-lg bg-[#0071e3] px-4 py-2 text-[17px] text-white transition-colors hover:bg-[#0077ed]"
           >
