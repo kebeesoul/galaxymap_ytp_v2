@@ -20,7 +20,6 @@ export default function NewProjectPage() {
       artist: (form.elements.namedItem('artist') as HTMLInputElement).value.trim(),
       song_title: (form.elements.namedItem('song_title') as HTMLInputElement).value.trim(),
       source_url: (form.elements.namedItem('source_url') as HTMLInputElement).value.trim(),
-      ip_owner: (form.elements.namedItem('ip_owner') as HTMLInputElement).checked,
     }
 
     const supabase = createClient()
@@ -68,18 +67,6 @@ export default function NewProjectPage() {
               required
               placeholder="https://youtube.com/watch?v=..."
             />
-
-            <div className="flex items-center gap-3 pt-1">
-              <input
-                type="checkbox"
-                id="ip_owner"
-                name="ip_owner"
-                className="h-5 w-5 rounded accent-[#0071e3]"
-              />
-              <label htmlFor="ip_owner" className="select-none text-[17px] text-[#1d1d1f]">
-                IP 소유자 확인
-              </label>
-            </div>
           </div>
 
           {error && (
