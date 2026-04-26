@@ -29,6 +29,8 @@ const DEFAULT_SUBTITLE_STYLE: SubtitleStyle = {
 const DEFAULT_COMMENT_STYLE: CommentStyle = {
   theme: 'white-on-black',
   fontFamily: 'Noto Sans KR',
+  fontScale: 1,
+  durationSec: 5,
 }
 
 const FONT_LABELS: Record<string, string> = {
@@ -57,9 +59,13 @@ function parseSubtitleStyle(raw: unknown): SubtitleStyle {
 function parseCommentStyle(raw: unknown): CommentStyle {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return DEFAULT_COMMENT_STYLE
   const obj = raw as Record<string, unknown>
+  const fontScale = typeof obj.fontScale === 'number' ? obj.fontScale : DEFAULT_COMMENT_STYLE.fontScale
+  const durationSec = typeof obj.durationSec === 'number' ? obj.durationSec : DEFAULT_COMMENT_STYLE.durationSec
   return {
     theme: obj.theme === 'black-on-white' ? 'black-on-white' : 'white-on-black',
     fontFamily: typeof obj.fontFamily === 'string' && obj.fontFamily ? obj.fontFamily : DEFAULT_COMMENT_STYLE.fontFamily,
+    fontScale: Math.min(1.2, Math.max(0.8, fontScale)),
+    durationSec: Math.min(8, Math.max(3, durationSec)),
   }
 }
 
@@ -1272,8 +1278,10 @@ export default function ClipEditor({
                 </div>
                 </div>
 
+                <div className="md:grid md:grid-cols-[minmax(0,360px)_minmax(0,1fr)] md:gap-2 space-y-2 md:space-y-0">
+
                 {/* C1: subtitle style + editor (merged) */}
-                <details className="group rounded-xl bg-[#1d1d1f]" open>
+                <details className="group rounded-xl bg-[#1d1d1f] md:col-start-2" open>
                   <summary className="flex cursor-pointer list-none items-center justify-between px-5 py-3 text-[12px] text-[rgba(255,255,255,0.4)] hover:text-[rgba(255,255,255,0.6)]">
                     <span className="font-semibold uppercase tracking-[0.08em]">
                       자막{segments.length > 0 ? ` (${segments.length})` : ''}
@@ -1402,7 +1410,7 @@ export default function ClipEditor({
                 </details>
 
                 {/* ② 댓글 */}
-                <details className="group rounded-xl bg-[#1d1d1f]" open>
+                <details className="group rounded-xl bg-[#1d1d1f] md:col-start-2" open>
                   <summary className="flex cursor-pointer list-none items-center justify-between px-5 py-3 text-[12px] text-[rgba(255,255,255,0.4)] hover:text-[rgba(255,255,255,0.6)]">
                     <span className="font-semibold uppercase tracking-[0.08em]">
                       댓글 ({comments.length})
@@ -1452,6 +1460,45 @@ export default function ClipEditor({
                           ))}
                         </div>
                       </div>
+                      {/* Font scale: -20% ~ +20% */}
+                      <div>
+                        <p className="mb-1.5 text-[11px] text-[rgba(255,255,255,0.3)]">
+                          폰트 크기{' '}
+                          <span className="text-white">
+                            {Math.round(((commentStylesByClip[clip.id] ?? DEFAULT_COMMENT_STYLE).fontScale - 1) * 100) >= 0 ? '+' : ''}
+                            {Math.round(((commentStylesByClip[clip.id] ?? DEFAULT_COMMENT_STYLE).fontScale - 1) * 100)}%
+                          </span>
+                        </p>
+                        <input
+                          type="range" min={0.8} max={1.2} step={0.05}
+                          value={(commentStylesByClip[clip.id] ?? DEFAULT_COMMENT_STYLE).fontScale}
+                          onChange={e => setCommentStylesByClip(prev => ({
+                            ...prev,
+                            [clip.id]: { ...(prev[clip.id] ?? DEFAULT_COMMENT_STYLE), fontScale: Number(e.target.value) },
+                          }))}
+                          onMouseUp={() => handleSaveCommentStyle(clip.id, commentStylesByClip[clip.id] ?? DEFAULT_COMMENT_STYLE)}
+                          className="w-full accent-[#0071e3]"
+                        />
+                      </div>
+                      {/* Per-comment duration: 3 ~ 8 sec */}
+                      <div>
+                        <p className="mb-1.5 text-[11px] text-[rgba(255,255,255,0.3)]">
+                          댓글 표시 시간{' '}
+                          <span className="text-white">
+                            {(commentStylesByClip[clip.id] ?? DEFAULT_COMMENT_STYLE).durationSec.toFixed(1)}초
+                          </span>
+                        </p>
+                        <input
+                          type="range" min={3} max={8} step={0.5}
+                          value={(commentStylesByClip[clip.id] ?? DEFAULT_COMMENT_STYLE).durationSec}
+                          onChange={e => setCommentStylesByClip(prev => ({
+                            ...prev,
+                            [clip.id]: { ...(prev[clip.id] ?? DEFAULT_COMMENT_STYLE), durationSec: Number(e.target.value) },
+                          }))}
+                          onMouseUp={() => handleSaveCommentStyle(clip.id, commentStylesByClip[clip.id] ?? DEFAULT_COMMENT_STYLE)}
+                          className="w-full accent-[#0071e3]"
+                        />
+                      </div>
                     </div>
                     <div className="border-t border-[rgba(255,255,255,0.06)] pt-4">
                       <CommentCard
@@ -1468,6 +1515,7 @@ export default function ClipEditor({
                   </div>
                 </details>
 
+                <div className="md:col-start-2">
                 {/* ③ 템플릿 */}
                 <TemplatePicker
                   clipId={clip.id}
@@ -1475,7 +1523,9 @@ export default function ClipEditor({
                   templates={templates}
                   onSelect={(id) => setTemplateIdsByClip(prev => ({ ...prev, [clip.id]: id }))}
                 />
+                </div>
 
+                <div className="md:col-start-2">
                 {/* ④ BGM */}
                 <BgmEditor
                   clipId={clip.id}
@@ -1484,7 +1534,10 @@ export default function ClipEditor({
                   initialOriginalVolume={clip.original_volume}
                   onSave={(state) => setBgmByClip(prev => ({ ...prev, [clip.id]: state }))}
                 />
+                </div>
 
+                {/* Sticky left sidebar — preview + render */}
+                <div className="md:col-start-1 md:row-start-1 md:sticky md:top-4 md:self-start space-y-2">
                 {/* ⑤ 미리보기 */}
                 <CanvasPreview
                   clip={{
@@ -1578,6 +1631,9 @@ export default function ClipEditor({
                     )}
                   </div>
                 </details>
+                </div>{/* close sticky sidebar */}
+
+                </div>{/* close 2-col grid */}
               </div>
             )
           })}
