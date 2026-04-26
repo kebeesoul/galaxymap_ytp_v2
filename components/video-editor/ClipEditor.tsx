@@ -1226,81 +1226,89 @@ export default function ClipEditor({
                 </div>
                 </div>
 
-                {/* C1: subtitle style */}
-                <details className="rounded-xl bg-[#1d1d1f]">
+                {/* C1: subtitle style + editor (merged) */}
+                <details className="group rounded-xl bg-[#1d1d1f]" open>
                   <summary className="flex cursor-pointer list-none items-center justify-between px-5 py-3 text-[12px] text-[rgba(255,255,255,0.4)] hover:text-[rgba(255,255,255,0.6)]">
-                    <span>자막 스타일</span>
-                    <span>▾</span>
+                    <span className="font-semibold uppercase tracking-[0.08em]">
+                      자막{segments.length > 0 ? ` (${segments.length})` : ''}
+                    </span>
+                    <span className="transition-transform duration-200 group-open:rotate-180">▾</span>
                   </summary>
-                  <div className="space-y-3 px-5 pb-4">
-                    <div>
-                      <p className="mb-1.5 text-[11px] text-[rgba(255,255,255,0.3)]">위치</p>
-                      <div className="flex gap-1">
-                        {(['top', 'center', 'bottom'] as const).map(pos => (
-                          <button
-                            key={pos}
-                            onClick={() => handleSaveSubtitleStyle(clip.id, { ...subtitleStylesByClip[clip.id], position: pos })}
-                            className={`flex-1 rounded-md py-1.5 text-[12px] transition-colors ${
-                              (subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE).position === pos
-                                ? 'bg-[#0071e3] text-white'
-                                : 'bg-[#272729] text-[rgba(255,255,255,0.5)] hover:bg-[#2a2a2d]'
-                            }`}
-                          >
-                            {pos === 'top' ? '상단' : pos === 'center' ? '중앙' : '하단'}
-                          </button>
-                        ))}
+                  <div className="px-5 pb-4">
+                    {/* Style controls */}
+                    <div className="mb-4 space-y-3">
+                      <div>
+                        <p className="mb-1.5 text-[11px] text-[rgba(255,255,255,0.3)]">위치</p>
+                        <div className="flex gap-1">
+                          {(['top', 'center', 'bottom'] as const).map(pos => (
+                            <button
+                              key={pos}
+                              onClick={() => handleSaveSubtitleStyle(clip.id, { ...subtitleStylesByClip[clip.id], position: pos })}
+                              className={`flex-1 rounded-md py-1.5 text-[12px] transition-colors ${
+                                (subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE).position === pos
+                                  ? 'bg-[#0071e3] text-white'
+                                  : 'bg-[#272729] text-[rgba(255,255,255,0.5)] hover:bg-[#2a2a2d]'
+                              }`}
+                            >
+                              {pos === 'top' ? '상단' : pos === 'center' ? '중앙' : '하단'}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <p className="mb-1.5 text-[11px] text-[rgba(255,255,255,0.3)]">
+                          폰트 크기{' '}
+                          <span className="text-white">{(subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE).fontSize}px</span>
+                        </p>
+                        <input
+                          type="range" min={24} max={72} step={2}
+                          value={(subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE).fontSize}
+                          onChange={e => setSubtitleStylesByClip(prev => ({
+                            ...prev,
+                            [clip.id]: { ...(prev[clip.id] ?? DEFAULT_SUBTITLE_STYLE), fontSize: Number(e.target.value) },
+                          }))}
+                          onMouseUp={() => handleSaveSubtitleStyle(clip.id, subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE)}
+                          className="w-full accent-[#0071e3]"
+                        />
+                      </div>
+                      <div>
+                        <p className="mb-1.5 text-[11px] text-[rgba(255,255,255,0.3)]">
+                          배경 불투명도{' '}
+                          <span className="text-white">{Math.round((subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE).bgOpacity * 100)}%</span>
+                        </p>
+                        <input
+                          type="range" min={0} max={1} step={0.05}
+                          value={(subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE).bgOpacity}
+                          onChange={e => setSubtitleStylesByClip(prev => ({
+                            ...prev,
+                            [clip.id]: { ...(prev[clip.id] ?? DEFAULT_SUBTITLE_STYLE), bgOpacity: Number(e.target.value) },
+                          }))}
+                          onMouseUp={() => handleSaveSubtitleStyle(clip.id, subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE)}
+                          className="w-full accent-[#0071e3]"
+                        />
                       </div>
                     </div>
-                    <div>
-                      <p className="mb-1.5 text-[11px] text-[rgba(255,255,255,0.3)]">
-                        폰트 크기{' '}
-                        <span className="text-white">{(subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE).fontSize}px</span>
+
+                    {transcribeStatus === 'failed' && (
+                      <p className="mb-3 text-[13px] text-red-400">
+                        {transcribeErrors[clip.id] ?? '자막 추출 실패'}
                       </p>
-                      <input
-                        type="range" min={24} max={72} step={2}
-                        value={(subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE).fontSize}
-                        onChange={e => setSubtitleStylesByClip(prev => ({
-                          ...prev,
-                          [clip.id]: { ...(prev[clip.id] ?? DEFAULT_SUBTITLE_STYLE), fontSize: Number(e.target.value) },
-                        }))}
-                        onMouseUp={() => handleSaveSubtitleStyle(clip.id, subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE)}
-                        className="w-full accent-[#0071e3]"
-                      />
-                    </div>
-                    <div>
-                      <p className="mb-1.5 text-[11px] text-[rgba(255,255,255,0.3)]">
-                        배경 불투명도{' '}
-                        <span className="text-white">{Math.round((subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE).bgOpacity * 100)}%</span>
-                      </p>
-                      <input
-                        type="range" min={0} max={1} step={0.05}
-                        value={(subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE).bgOpacity}
-                        onChange={e => setSubtitleStylesByClip(prev => ({
-                          ...prev,
-                          [clip.id]: { ...(prev[clip.id] ?? DEFAULT_SUBTITLE_STYLE), bgOpacity: Number(e.target.value) },
-                        }))}
-                        onMouseUp={() => handleSaveSubtitleStyle(clip.id, subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE)}
-                        className="w-full accent-[#0071e3]"
-                      />
-                    </div>
+                    )}
+
+                    {transcribeStatus === 'success' && segments.length > 0 && (
+                      <div className="border-t border-[rgba(255,255,255,0.06)] pt-4">
+                        <SubtitleEditor
+                          key={`${clip.id}-${segments.length}`}
+                          clipId={clip.id}
+                          initialSegments={segments}
+                          currentTime={currentTime}
+                          onSeek={handleSeek}
+                          noWrapper
+                        />
+                      </div>
+                    )}
                   </div>
                 </details>
-
-                {transcribeStatus === 'failed' && (
-                  <p className="px-1 text-[13px] text-red-400">
-                    {transcribeErrors[clip.id] ?? '자막 추출 실패'}
-                  </p>
-                )}
-
-                {transcribeStatus === 'success' && segments.length > 0 && (
-                  <SubtitleEditor
-                    key={`${clip.id}-${segments.length}`}
-                    clipId={clip.id}
-                    initialSegments={segments}
-                    currentTime={currentTime}
-                    onSeek={handleSeek}
-                  />
-                )}
 
                 {/* ② 댓글 */}
                 <CommentCard
@@ -1347,74 +1355,81 @@ export default function ClipEditor({
                 />
 
                 {/* ⑥ 렌더 */}
-                <div className="rounded-xl bg-[#1d1d1f] px-5 py-4">
-                  <div className="flex items-center gap-3">
-                    <h3 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-[rgba(255,255,255,0.4)]">
+                <details className="group rounded-xl bg-[#1d1d1f]" open>
+                  <summary className="flex cursor-pointer list-none items-center justify-between px-5 py-3 text-[12px] text-[rgba(255,255,255,0.4)] hover:text-[rgba(255,255,255,0.6)]">
+                    <span className="flex items-center gap-2 font-semibold uppercase tracking-[0.08em]">
                       렌더
-                    </h3>
+                      {renderStatus === 'success' && (
+                        <span className="text-emerald-400">완료</span>
+                      )}
+                      {(isRendering || renderStatus === 'pending') && (
+                        <span className="h-3 w-3 animate-spin rounded-full border border-white/30 border-t-white" />
+                      )}
+                    </span>
+                    <span className="transition-transform duration-200 group-open:rotate-180">▾</span>
+                  </summary>
 
-                    {renderStatus === 'success' && (
-                      <span className="text-[12px] text-emerald-400">완료</span>
+                  <div className="px-5 pb-4">
+                    <div className="flex items-center">
+                      <button
+                        onClick={() => handleRender(clip.id)}
+                        disabled={isRendering || renderStatus === 'pending'}
+                        className="ml-auto flex items-center gap-2 rounded-lg bg-[#0071e3] px-4 py-1.5 text-[13px] text-white transition-colors hover:bg-[#0077ed] disabled:opacity-40"
+                      >
+                        {isRendering || renderStatus === 'pending' ? (
+                          <>
+                            <span className="h-3 w-3 animate-spin rounded-full border border-white/30 border-t-white" />
+                            렌더 중…
+                          </>
+                        ) : renderStatus === 'success' ? (
+                          '재렌더'
+                        ) : (
+                          '렌더 시작'
+                        )}
+                      </button>
+                    </div>
+
+                    {/* C5: render progress bar */}
+                    {(isRendering || renderStatus === 'pending') && (
+                      <div className="mt-3">
+                        <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#272729]">
+                          <div
+                            className="h-full rounded-full bg-[#0071e3] transition-all duration-500"
+                            style={{ width: `${renderProgressByClip[clip.id] ?? 0}%` }}
+                          />
+                        </div>
+                        {(renderProgressByClip[clip.id] ?? 0) > 0 && (
+                          <p className="mt-1 text-right font-mono text-[11px] text-[rgba(255,255,255,0.4)]">
+                            {Math.round(renderProgressByClip[clip.id] ?? 0)}%
+                          </p>
+                        )}
+                      </div>
                     )}
 
-                    <button
-                      onClick={() => handleRender(clip.id)}
-                      disabled={isRendering || renderStatus === 'pending'}
-                      className="ml-auto flex items-center gap-2 rounded-lg bg-[#0071e3] px-4 py-1.5 text-[13px] text-white transition-colors hover:bg-[#0077ed] disabled:opacity-40"
-                    >
-                      {isRendering || renderStatus === 'pending' ? (
-                        <>
-                          <span className="h-3 w-3 animate-spin rounded-full border border-white/30 border-t-white" />
-                          렌더 중…
-                        </>
-                      ) : renderStatus === 'success' ? (
-                        '재렌더'
-                      ) : (
-                        '렌더 시작'
-                      )}
-                    </button>
+                    {renderStatus === 'success' && hasRenderPath && (
+                      <button
+                        onClick={() => handleDownload(clip.id, `clip-${i + 1}.mp4`)}
+                        disabled={isDownloading}
+                        className="mt-3 flex items-center gap-1.5 text-[14px] text-[#2997ff] transition-opacity hover:underline disabled:opacity-40"
+                      >
+                        {isDownloading ? (
+                          <>
+                            <span className="h-3 w-3 animate-spin rounded-full border border-[#2997ff]/40 border-t-[#2997ff]" />
+                            준비 중…
+                          </>
+                        ) : (
+                          <>↓ clip-{i + 1}.mp4 다운로드</>
+                        )}
+                      </button>
+                    )}
+
+                    {renderStatus === 'failed' && (
+                      <p className="mt-3 text-[12px] text-red-400">
+                        {renderErrors[clip.id] ?? '렌더 실패'}
+                      </p>
+                    )}
                   </div>
-
-                  {/* C5: render progress bar */}
-                  {(isRendering || renderStatus === 'pending') && (
-                    <div className="mt-3">
-                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#272729]">
-                        <div
-                          className="h-full rounded-full bg-[#0071e3] transition-all duration-500"
-                          style={{ width: `${renderProgressByClip[clip.id] ?? 0}%` }}
-                        />
-                      </div>
-                      {(renderProgressByClip[clip.id] ?? 0) > 0 && (
-                        <p className="mt-1 text-right font-mono text-[11px] text-[rgba(255,255,255,0.4)]">
-                          {Math.round(renderProgressByClip[clip.id] ?? 0)}%
-                        </p>
-                      )}
-                    </div>
-                  )}
-
-                  {renderStatus === 'success' && hasRenderPath && (
-                    <button
-                      onClick={() => handleDownload(clip.id, `clip-${i + 1}.mp4`)}
-                      disabled={isDownloading}
-                      className="mt-3 flex items-center gap-1.5 text-[14px] text-[#2997ff] transition-opacity hover:underline disabled:opacity-40"
-                    >
-                      {isDownloading ? (
-                        <>
-                          <span className="h-3 w-3 animate-spin rounded-full border border-[#2997ff]/40 border-t-[#2997ff]" />
-                          준비 중…
-                        </>
-                      ) : (
-                        <>↓ clip-{i + 1}.mp4 다운로드</>
-                      )}
-                    </button>
-                  )}
-
-                  {renderStatus === 'failed' && (
-                    <p className="mt-3 text-[12px] text-red-400">
-                      {renderErrors[clip.id] ?? '렌더 실패'}
-                    </p>
-                  )}
-                </div>
+                </details>
               </div>
             )
           })}

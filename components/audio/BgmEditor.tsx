@@ -71,62 +71,67 @@ export default function BgmEditor({
   }
 
   return (
-    <div className="rounded-xl bg-[#1d1d1f] px-5 py-4">
-      <div className="mb-3 flex items-center gap-2">
-        <h3 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-[rgba(255,255,255,0.4)]">
-          BGM
-        </h3>
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="ml-auto rounded-lg bg-[#0071e3] px-3 py-1.5 text-[13px] text-white transition-colors hover:bg-[#0077ed] disabled:opacity-30"
-        >
-          {saving ? '저장 중…' : '저장'}
-        </button>
+    <details className="group rounded-xl bg-[#1d1d1f]" open>
+      <summary className="flex cursor-pointer list-none items-center justify-between px-5 py-3 text-[12px] text-[rgba(255,255,255,0.4)] hover:text-[rgba(255,255,255,0.6)]">
+        <span className="font-semibold uppercase tracking-[0.08em]">BGM</span>
+        <span className="transition-transform duration-200 group-open:rotate-180">▾</span>
+      </summary>
+
+      <div className="px-5 pb-4">
+        {/* Save button */}
+        <div className="mb-3 flex justify-end">
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="rounded-lg bg-[#0071e3] px-3 py-1.5 text-[13px] text-white transition-colors hover:bg-[#0077ed] disabled:opacity-30"
+          >
+            {saving ? '저장 중…' : '저장'}
+          </button>
+        </div>
+
+        {/* URL input + file upload */}
+        <div className="mb-4 flex gap-2">
+          <input
+            value={bgmUrl}
+            onChange={e => setBgmUrl(e.target.value)}
+            placeholder="BGM URL (https://…) 또는 파일 업로드"
+            className="min-w-0 flex-1 rounded-lg bg-[#272729] px-3 py-2 text-[13px] text-white outline-none placeholder:text-[rgba(255,255,255,0.2)] focus:ring-1 focus:ring-[#0071e3]"
+          />
+          <input
+            ref={fileRef}
+            type="file"
+            accept="audio/*"
+            className="hidden"
+            onChange={e => {
+              const file = e.target.files?.[0]
+              if (file) void handleUpload(file)
+              e.target.value = ''
+            }}
+          />
+          <button
+            onClick={() => fileRef.current?.click()}
+            disabled={uploading}
+            className="shrink-0 rounded-lg bg-[#272729] px-3 py-2 text-[13px] text-white transition-colors hover:bg-[#2a2a2d] disabled:opacity-40"
+          >
+            {uploading ? (
+              <span className="inline-block h-3 w-3 animate-spin rounded-full border border-white/30 border-t-white" />
+            ) : (
+              '파일 업로드'
+            )}
+          </button>
+        </div>
+
+        {uploadError && <p className="mb-3 text-[12px] text-red-400">{uploadError}</p>}
+
+        {/* Volume sliders */}
+        <div className="space-y-3">
+          <VolumeSlider label="원본 볼륨" value={origVol} onChange={setOrigVol} />
+          <VolumeSlider label="BGM 볼륨" value={bgmVol} onChange={setBgmVol} />
+        </div>
+
+        {saveError && <p className="mt-3 text-[12px] text-red-400">{saveError}</p>}
       </div>
-
-      {/* URL input + file upload */}
-      <div className="mb-4 flex gap-2">
-        <input
-          value={bgmUrl}
-          onChange={e => setBgmUrl(e.target.value)}
-          placeholder="BGM URL (https://…) 또는 파일 업로드"
-          className="min-w-0 flex-1 rounded-lg bg-[#272729] px-3 py-2 text-[13px] text-white outline-none placeholder:text-[rgba(255,255,255,0.2)] focus:ring-1 focus:ring-[#0071e3]"
-        />
-        <input
-          ref={fileRef}
-          type="file"
-          accept="audio/*"
-          className="hidden"
-          onChange={e => {
-            const file = e.target.files?.[0]
-            if (file) void handleUpload(file)
-            e.target.value = ''
-          }}
-        />
-        <button
-          onClick={() => fileRef.current?.click()}
-          disabled={uploading}
-          className="shrink-0 rounded-lg bg-[#272729] px-3 py-2 text-[13px] text-white transition-colors hover:bg-[#2a2a2d] disabled:opacity-40"
-        >
-          {uploading ? (
-            <span className="inline-block h-3 w-3 animate-spin rounded-full border border-white/30 border-t-white" />
-          ) : (
-            '파일 업로드'
-          )}
-        </button>
-      </div>
-
-      {uploadError && <p className="mb-3 text-[12px] text-red-400">{uploadError}</p>}
-
-      {/* Volume sliders */}
-      <div className="space-y-3">
-        <VolumeSlider label="원본 볼륨" value={origVol} onChange={setOrigVol} />
-        <VolumeSlider label="BGM 볼륨" value={bgmVol} onChange={setBgmVol} />
-      </div>
-
-      {saveError && <p className="mt-3 text-[12px] text-red-400">{saveError}</p>}
-    </div>
+    </details>
   )
 }
 

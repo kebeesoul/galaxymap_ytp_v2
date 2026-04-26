@@ -20,11 +20,13 @@ interface Props {
   initialSegments: Segment[]
   currentTime?: number
   onSeek?: (sec: number) => void
+  /** When true, skips the outer rounded card wrapper and h3 title (used inside a parent <details>) */
+  noWrapper?: boolean
 }
 
 let _localIdCounter = 0
 
-export default function SubtitleEditor({ clipId, initialSegments, currentTime, onSeek }: Props) {
+export default function SubtitleEditor({ clipId, initialSegments, currentTime, onSeek, noWrapper }: Props) {
   const [segments, setSegments] = useState<LocalSegment[]>(() =>
     initialSegments.map(seg => ({
       localId: _localIdCounter++,
@@ -232,12 +234,14 @@ export default function SubtitleEditor({ clipId, initialSegments, currentTime, o
     setSaving(false)
   }
 
-  return (
-    <div className="rounded-xl bg-[#1d1d1f] px-5 py-4">
-      <div className="mb-3 flex items-center justify-between">
-        <h3 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-[rgba(255,255,255,0.4)]">
-          자막 ({segments.length})
-        </h3>
+  const bodyContent = (
+    <>
+      <div className={`mb-3 flex items-center ${noWrapper ? 'justify-end' : 'justify-between'}`}>
+        {!noWrapper && (
+          <h3 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-[rgba(255,255,255,0.4)]">
+            자막 ({segments.length})
+          </h3>
+        )}
         <div className="flex items-center gap-2">
           {onSeek && (
             <button
@@ -342,6 +346,9 @@ export default function SubtitleEditor({ clipId, initialSegments, currentTime, o
           )
         })}
       </div>
-    </div>
+    </>
   )
+
+  if (noWrapper) return bodyContent
+  return <div className="rounded-xl bg-[#1d1d1f] px-5 py-4">{bodyContent}</div>
 }
