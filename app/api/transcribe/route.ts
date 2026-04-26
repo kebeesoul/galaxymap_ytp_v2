@@ -33,6 +33,20 @@ interface LyricsRow {
   order?: number
 }
 
+async function persistSegments(
+  supabase: ReturnType<typeof createClient>,
+  rows: LyricsRow[],
+  clipId: string,
+): Promise<NextResponse | null> {
+  const { data: segments, error } = await supabase
+    .from('lyrics_segments').insert(rows).select()
+  if (error || !segments) return null
+  await supabase.from('lyrics_segments').delete()
+    .eq('clip_id', clipId).not('id', 'in', `(${segments.map(s => s.id).join(',')})`)
+  await supabase.from('clips').update({ transcribe_status: 'success' }).eq('id', clipId)
+  return NextResponse.json({ segments })
+}
+
 function parseSegments(
   output: ReplicateOutput,
   clipId: string,
@@ -137,17 +151,8 @@ export async function POST(request: NextRequest) {
             end_sec: s.end_sec,
             order: idx,
           }))
-          // Insert first — if insert fails, existing data is untouched
-          const { data: segments, error: insertError } = await supabase
-            .from('lyrics_segments')
-            .insert(rows)
-            .select()
-          if (!insertError) {
-            await supabase.from('lyrics_segments').delete()
-              .eq('clip_id', clip_id).not('id', 'in', `(${segments!.map(s => s.id).join(',')})`)
-            await supabase.from('clips').update({ transcribe_status: 'success' }).eq('id', clip_id)
-            return NextResponse.json({ segments })
-          }
+          const result = await persistSegments(supabase, rows, clip_id)
+          if (result) return result
         }
       }
     } catch {
@@ -184,16 +189,8 @@ export async function POST(request: NextRequest) {
             end_sec: s.end_sec,
             order: idx,
           }))
-          const { data: segments, error: insertError } = await supabase
-            .from('lyrics_segments')
-            .insert(rows)
-            .select()
-          if (!insertError) {
-            await supabase.from('lyrics_segments').delete()
-              .eq('clip_id', clip_id).not('id', 'in', `(${segments!.map(s => s.id).join(',')})`)
-            await supabase.from('clips').update({ transcribe_status: 'success' }).eq('id', clip_id)
-            return NextResponse.json({ segments })
-          }
+          const result = await persistSegments(supabase, rows, clip_id)
+          if (result) return result
         }
       }
     } catch {
@@ -229,25 +226,9 @@ export async function POST(request: NextRequest) {
       throw new Error('Replicate returned no segments')
     }
 
-    // 7. Insert first, then delete old — if insert fails, existing data is untouched
-    const { data: segments, error: insertError } = await supabase
-      .from('lyrics_segments')
-      .insert(rows)
-      .select()
-
-    if (insertError) throw new Error(insertError.message)
-
-    // Delete old segments now that new ones are safely inserted
-    await supabase.from('lyrics_segments').delete()
-      .eq('clip_id', clip_id).not('id', 'in', `(${segments!.map(s => s.id).join(',')})`)
-
-    // 8. transcribe_status = 'success'
-    await supabase
-      .from('clips')
-      .update({ transcribe_status: 'success' })
-      .eq('id', clip_id)
-
-    return NextResponse.json({ segments })
+    const result = await persistSegments(supabase, rows, clip_id)
+    if (!result) throw new Error('Failed to persist segments')
+    return result
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Transcription failed'
 

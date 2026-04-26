@@ -263,7 +263,7 @@ export default function ClipEditor({
     const clipIds = initialClips.map(c => c.id)
     if (clipIds.length === 0) return
     Promise.all([
-      supabase.from('lyrics_segments').select('*').in('clip_id', clipIds).order('order', { ascending: true }),
+      supabase.from('lyrics_segments').select('*').in('clip_id', clipIds).order('start_sec', { ascending: true }),
       supabase.from('comments').select('*').in('clip_id', clipIds),
     ]).then(([{ data: segs }, { data: cmts }]) => {
       if (segs) {
@@ -475,10 +475,12 @@ export default function ClipEditor({
 
   async function handleSaveProjectLyrics() {
     setSavingProjectLyrics(true)
-    await supabase.from('projects').update({ song_lyrics: songLyrics }).eq('id', project.id)
-    savedLyricsRef.current = songLyrics
+    const { error } = await supabase.from('projects').update({ song_lyrics: songLyrics }).eq('id', project.id)
+    if (!error) {
+      savedLyricsRef.current = songLyrics
+      setLyricsEditOpen(false)
+    }
     setSavingProjectLyrics(false)
-    setLyricsEditOpen(false)
   }
 
   // Click a line in the lyrics list to expand / contract the selected range
@@ -675,6 +677,10 @@ export default function ClipEditor({
     setRawCommentsByClip(cleanup); setSelectedCommentIdxByClip(cleanup)
     setSubtitleStylesByClip(cleanup); setRenderProgressByClip(cleanup)
     setSelectedClipIds(new Set())
+    if (loopingClipRef.current && ids.includes(loopingClipRef.current.clipId)) {
+      loopingClipRef.current = null
+      setLoopingClipId(null)
+    }
   }
 
   async function handleBatchApplyTemplate(templateId: string) {

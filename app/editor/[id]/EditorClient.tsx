@@ -40,7 +40,7 @@ export default function EditorClient({
         { event: 'UPDATE', schema: 'public', table: 'projects', filter: `id=eq.${project.id}` },
         (payload) => {
           const status = (payload.new as { import_status?: string }).import_status
-          if (status === 'success' || status === 'failed') window.location.reload()
+          if (status === 'success' || status === 'failed') routerRef.current.refresh()
         }
       )
       .subscribe()
