@@ -353,6 +353,24 @@ export default function ClipEditor({
     setSaving(false)
   }
 
+  async function handleDeleteClip(clipId: string) {
+    if (!window.confirm('이 클립을 삭제하시겠습니까?')) return
+    await supabase.from('clips').delete().eq('id', clipId)
+    stopPolling(clipId)
+    setClips(prev => prev.filter(c => c.id !== clipId))
+    const cleanup = <T,>(rec: Record<string, T>) => {
+      const n = { ...rec }
+      delete n[clipId]
+      return n
+    }
+    setSegmentsByClip(cleanup)
+    setTranscribeStatuses(cleanup)
+    setRenderStatuses(cleanup)
+    setTemplateIdsByClip(cleanup)
+    setBgmByClip(cleanup)
+    setCommentsByClip(cleanup)
+  }
+
   async function handleTranscribe(clipId: string) {
     setTranscribing(prev => ({ ...prev, [clipId]: true }))
     setTranscribeStatuses(prev => ({ ...prev, [clipId]: 'pending' }))
@@ -681,6 +699,13 @@ export default function ClipEditor({
                       ) : (
                         'Whisper 자막 추출'
                       )}
+                    </button>
+                    <button
+                      onClick={() => handleDeleteClip(clip.id)}
+                      className="rounded-lg bg-[#272729] px-3 py-1.5 text-[13px] text-[rgba(255,255,255,0.4)] transition-colors hover:bg-red-950/60 hover:text-red-400"
+                      title="클립 삭제"
+                    >
+                      ✕
                     </button>
                   </div>
                 </div>
