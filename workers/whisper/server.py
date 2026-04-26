@@ -26,12 +26,6 @@ load_dotenv()
 
 app = FastAPI()
 
-# Load model once at startup (large-v2 gives best Korean accuracy)
-DEVICE = "cuda" if _cuda_available() else "cpu"
-COMPUTE = "float16" if DEVICE == "cuda" else "int8"
-MODEL_SIZE = os.environ.get("WHISPERX_MODEL", "large-v2")
-_model = None
-
 
 def _cuda_available() -> bool:
     try:
@@ -39,6 +33,13 @@ def _cuda_available() -> bool:
         return torch.cuda.is_available()
     except Exception:
         return False
+
+
+# Load model once at startup (large-v2 gives best Korean accuracy)
+DEVICE = "cuda" if _cuda_available() else "cpu"
+COMPUTE = "float16" if DEVICE == "cuda" else "int8"
+MODEL_SIZE = os.environ.get("WHISPERX_MODEL", "large-v2")
+_model = None
 
 
 def get_model():
