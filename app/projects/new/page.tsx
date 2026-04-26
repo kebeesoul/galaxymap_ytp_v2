@@ -35,7 +35,14 @@ export default function NewProjectPage() {
       return
     }
 
-    router.push(`/editor/${project.id}`)
+    // Fire import immediately — fire-and-forget (202), worker picks it up
+    await fetch('/api/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project_id: project.id, url: payload.source_url }),
+    })
+
+    router.push('/projects')
   }
 
   return (
@@ -78,7 +85,7 @@ export default function NewProjectPage() {
             disabled={loading}
             className="mt-8 w-full rounded-lg bg-[#0071e3] py-3 text-[17px] text-white transition-colors hover:bg-[#0077ed] disabled:opacity-50"
           >
-            {loading ? 'Creating…' : 'Create Project'}
+            {loading ? 'Creating & Importing…' : 'Create Project'}
           </button>
         </form>
       </div>
