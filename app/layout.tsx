@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Galaxy Map YTP',
+  title: 'galaxymap_ytp_v2',
   description: 'Music Shortform Generator',
 }
 
