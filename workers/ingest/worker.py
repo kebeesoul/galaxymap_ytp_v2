@@ -21,8 +21,12 @@ POLL_INTERVAL = 3
 
 
 async def _run(timeout: int, *args: str) -> tuple[int, bytes, bytes]:
+    # YouTube returns "Precondition check failed" / HTTP 400 against the default
+    # player client (requires a PO token). Force iOS / web clients which don't.
     proc = await asyncio.create_subprocess_exec(
-        "yt-dlp", *args,
+        "yt-dlp",
+        "--extractor-args", "youtube:player_client=ios,web",
+        *args,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
