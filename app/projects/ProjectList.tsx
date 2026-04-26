@@ -1,9 +1,8 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
 import type { Tables } from '@/lib/supabase/types'
 
 type Project = Tables<'projects'>
@@ -39,7 +38,6 @@ export default function ProjectList({ initialProjects }: { initialProjects: Proj
   const [projects, setProjects] = useState(initialProjects)
   const [deleting, setDeleting] = useState<string | null>(null)
   const [deletingAll, setDeletingAll] = useState(false)
-  const supabase = useMemo(() => createClient(), [])
   const router = useRouter()
 
   // Sync fresh server data (from router.refresh) into local state
@@ -57,28 +55,36 @@ export default function ProjectList({ initialProjects }: { initialProjects: Proj
     return () => clearInterval(id)
   }, [projects, router])
 
+  async function deleteProject(id: string): Promise<string | null> {
+    const res = await fetch(`/api/projects/${id}`, { method: 'DELETE' })
+    if (res.ok) return null
+    const body = (await res.json().catch(() => ({}))) as { error?: string }
+    return body.error ?? `HTTP ${res.status}`
+  }
+
   async function handleDelete(id: string) {
     setDeleting(id)
-    const { error } = await supabase.from('projects').delete().eq('id', id)
+    const error = await deleteProject(id)
     if (error) {
-      alert(`삭제 실패: ${error.message}`)
+      alert(`삭제 실패: ${error}`)
       setDeleting(null)
       return
     }
     setProjects(prev => prev.filter(p => p.id !== id))
     setDeleting(null)
+    router.refresh()
   }
 
   async function handleDeleteAll() {
     if (projects.length === 0) return
     setDeletingAll(true)
-    const { error } = await supabase.from('projects').delete().in('id', projects.map(p => p.id))
-    if (error) {
-      alert(`전체 삭제 실패: ${error.message}`)
-      setDeletingAll(false)
-      return
+    const results = await Promise.all(projects.map(p => deleteProject(p.id)))
+    const failedCount = results.filter(Boolean).length
+    if (failedCount > 0) {
+      const firstError = results.find(Boolean)
+      alert(`${failedCount}개 프로젝트 삭제 실패: ${firstError}`)
     }
-    setProjects([])
+    setProjects(prev => prev.filter((_, i) => results[i] !== null))
     setDeletingAll(false)
     router.refresh()
   }

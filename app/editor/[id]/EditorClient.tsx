@@ -98,6 +98,14 @@ export default function EditorClient({
                 {(project.yt_duration_sec % 60).toString().padStart(2, '0')}
               </p>
             )}
+            <a
+              href={`https://www.google.com/search?q=${encodeURIComponent(`${project.artist} ${project.song_title} lyrics`)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-4 inline-flex items-center rounded-[980px] border border-[#2997ff] px-4 py-1.5 text-[14px] tracking-[-0.224px] text-[#2997ff] hover:underline"
+            >
+              LYRICS
+            </a>
           </div>
         </div>
         <ClipEditor

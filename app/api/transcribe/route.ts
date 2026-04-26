@@ -290,7 +290,16 @@ export async function POST(request: NextRequest) {
     if (!result) throw new Error('Failed to persist segments')
     return result
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Transcription failed'
+    const raw = err instanceof Error ? err.message : 'Transcription failed'
+
+    let message = raw
+    if (/402|Payment Required|Insufficient credit/i.test(raw)) {
+      message = 'Replicate API 크레딧이 부족합니다. https://replicate.com/account/billing 에서 충전 후 몇 분 뒤 다시 시도해 주세요.'
+    } else if (/401|Unauthorized|Invalid token/i.test(raw)) {
+      message = 'Replicate API 토큰이 유효하지 않습니다. REPLICATE_API_TOKEN 환경변수를 확인해 주세요.'
+    } else if (/timeout/i.test(raw)) {
+      message = '전사 요청이 시간 초과(180초)되었습니다. 잠시 후 다시 시도해 주세요.'
+    }
 
     await supabase
       .from('clips')

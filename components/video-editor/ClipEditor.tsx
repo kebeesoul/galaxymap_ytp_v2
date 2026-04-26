@@ -231,6 +231,9 @@ export default function ClipEditor({
   // Line range for the current clip-in-progress (0-based indices into allLines)
   const [regionLineFrom, setRegionLineFrom] = useState<number | null>(null)
   const [regionLineTo, setRegionLineTo] = useState<number | null>(null)
+  // User-adjustable offset to correct linear mapping discrepancy (e.g. intro/outro)
+  const [lyricsShift, setLyricsShift] = useState(0)
+  const prevLyricsLineRef = useRef<number | null>(null)
 
   // Derived lines from project-level lyrics
   const allLines = useMemo(
@@ -505,16 +508,33 @@ export default function ClipEditor({
     }
     const totalDur = project.yt_duration_sec ?? 0
     if (!totalDur) return
-    const from = Math.max(0, Math.floor((startSec / totalDur) * allLines.length))
+    const from = Math.max(0, Math.floor((startSec / totalDur) * allLines.length) + lyricsShift)
     const to = Math.min(
       allLines.length - 1,
-      Math.ceil((endSec / totalDur) * allLines.length) - 1
+      Math.ceil((endSec / totalDur) * allLines.length) - 1 + lyricsShift
     )
     setRegionLineFrom(from)
     setRegionLineTo(Math.max(from, to))
   }, [startSec, endSec, allLines.length, project.yt_duration_sec])
 
-  // Auto-scroll lyrics panel so highlighted lines are visible
+  // Current line index driven by playback position (follows cursor in real time)
+  const currentLyricsLineIdx = useMemo(() => {
+    if (allLines.length === 0 || !project.yt_duration_sec) return null
+    const raw = Math.floor((currentTime / project.yt_duration_sec) * allLines.length) + lyricsShift
+    return Math.max(0, Math.min(allLines.length - 1, raw))
+  }, [currentTime, allLines.length, project.yt_duration_sec, lyricsShift])
+
+  // Auto-scroll so the currently playing line stays visible; only triggers on line change
+  useEffect(() => {
+    if (currentLyricsLineIdx === null || currentLyricsLineIdx === prevLyricsLineRef.current) return
+    prevLyricsLineRef.current = currentLyricsLineIdx
+    if (!lyricsScrollRef.current) return
+    const el = lyricsScrollRef.current
+    const lineHeight = 28
+    el.scrollTo({ top: Math.max(0, currentLyricsLineIdx * lineHeight - el.clientHeight / 2), behavior: 'smooth' })
+  }, [currentLyricsLineIdx])
+
+  // Auto-scroll lyrics panel so highlighted region lines are visible (on region change)
   useEffect(() => {
     if (regionLineFrom === null || !lyricsScrollRef.current) return
     const el = lyricsScrollRef.current
@@ -688,9 +708,10 @@ export default function ClipEditor({
 
   async function handleDeleteClip(clipId: string) {
     if (!window.confirm('이 클립을 삭제하시겠습니까?')) return
-    const { error } = await supabase.from('clips').delete().eq('id', clipId)
-    if (error) {
-      alert(`클립 삭제 실패: ${error.message}`)
+    const res = await fetch(`/api/clips/${clipId}`, { method: 'DELETE' })
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { error?: string }
+      alert(`클립 삭제 실패: ${body.error ?? `HTTP ${res.status}`}`)
       return
     }
     stopPolling(clipId)
@@ -734,15 +755,20 @@ export default function ClipEditor({
 
   async function handleBatchDelete() {
     if (!window.confirm(`선택된 ${selectedClipIds.size}개 클립을 모두 삭제하시겠습니까?`)) return
-    for (const clipId of Array.from(selectedClipIds)) {
-      await supabase.from('clips').delete().eq('id', clipId)
-      stopPolling(clipId)
-    }
     const ids = Array.from(selectedClipIds)
-    setClips(prev => prev.filter(c => !ids.includes(c.id)))
+    const results = await Promise.all(
+      ids.map(clipId =>
+        fetch(`/api/clips/${clipId}`, { method: 'DELETE' }).then(r => ({ clipId, ok: r.ok }))
+      )
+    )
+    const succeeded = results.filter(r => r.ok).map(r => r.clipId)
+    const failedCount = results.length - succeeded.length
+    if (failedCount > 0) alert(`${failedCount}개 클립 삭제 실패`)
+    for (const clipId of succeeded) stopPolling(clipId)
+    setClips(prev => prev.filter(c => !succeeded.includes(c.id)))
     const cleanup = <T,>(rec: Record<string, T>) => {
       const n = { ...rec }
-      for (const id of ids) delete n[id]
+      for (const id of succeeded) delete n[id]
       return n
     }
     setSegmentsByClip(cleanup); setTranscribeStatuses(cleanup)
@@ -753,8 +779,12 @@ export default function ClipEditor({
     setCommentsByClip(cleanup); setRawCommentsByClip(cleanup)
     setSelectedCommentIdxByClip(cleanup)
     setSubtitleStylesByClip(cleanup); setCommentStylesByClip(cleanup); setRenderProgressByClip(cleanup)
-    setSelectedClipIds(new Set())
-    if (loopingClipRef.current && ids.includes(loopingClipRef.current.clipId)) {
+    setSelectedClipIds(prev => {
+      const n = new Set(prev)
+      for (const id of succeeded) n.delete(id)
+      return n
+    })
+    if (loopingClipRef.current && succeeded.includes(loopingClipRef.current.clipId)) {
       loopingClipRef.current = null
       setLoopingClipId(null)
     }
@@ -874,14 +904,37 @@ export default function ClipEditor({
               <span className="text-[12px] text-[rgba(255,255,255,0.3)]">{allLines.length}줄</span>
             )}
           </div>
-          {!lyricsEditOpen && (
-            <button
-              onClick={() => setLyricsEditOpen(true)}
-              className="text-[12px] text-[rgba(255,255,255,0.35)] transition-colors hover:text-white"
-            >
-              {allLines.length > 0 ? '수정' : '입력'}
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            {allLines.length > 0 && !lyricsEditOpen && (
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setLyricsShift(s => s - 1)}
+                  className="flex h-5 w-5 items-center justify-center rounded bg-[#272729] text-[13px] text-[rgba(255,255,255,0.5)] transition-colors hover:bg-[#2a2a2d] hover:text-white"
+                  title="가사 1줄 앞으로"
+                >
+                  −
+                </button>
+                <span className="w-8 text-center font-mono text-[11px] text-[rgba(255,255,255,0.4)]">
+                  {lyricsShift > 0 ? `+${lyricsShift}` : lyricsShift}
+                </span>
+                <button
+                  onClick={() => setLyricsShift(s => s + 1)}
+                  className="flex h-5 w-5 items-center justify-center rounded bg-[#272729] text-[13px] text-[rgba(255,255,255,0.5)] transition-colors hover:bg-[#2a2a2d] hover:text-white"
+                  title="가사 1줄 뒤로"
+                >
+                  +
+                </button>
+              </div>
+            )}
+            {!lyricsEditOpen && (
+              <button
+                onClick={() => setLyricsEditOpen(true)}
+                className="text-[12px] text-[rgba(255,255,255,0.35)] transition-colors hover:text-white"
+              >
+                {allLines.length > 0 ? '수정' : '입력'}
+              </button>
+            )}
+          </div>
         </div>
 
         {lyricsEditOpen ? (
@@ -934,18 +987,27 @@ export default function ClipEditor({
                     regionLineTo !== null &&
                     i >= regionLineFrom &&
                     i <= regionLineTo
+                  const isCurrent = currentLyricsLineIdx === i
                   return (
                     <div
                       key={i}
                       onClick={() => handleLyricsLineClick(i)}
                       className={`flex cursor-pointer select-none gap-3 rounded px-2 py-1 transition-colors ${
-                        inRange ? 'bg-[#0071e3]/25 hover:bg-[#0071e3]/35' : 'hover:bg-[#272729]'
+                        isCurrent
+                          ? 'bg-[rgba(255,255,255,0.07)]'
+                          : inRange
+                            ? 'bg-[#0071e3]/25 hover:bg-[#0071e3]/35'
+                            : 'hover:bg-[#272729]'
                       }`}
                     >
-                      <span className={`w-5 shrink-0 text-right font-mono text-[11px] ${inRange ? 'text-[#2997ff]' : 'text-[rgba(255,255,255,0.2)]'}`}>
-                        {i + 1}
+                      <span className={`w-5 shrink-0 text-right font-mono text-[11px] ${
+                        isCurrent ? 'text-white' : inRange ? 'text-[#2997ff]' : 'text-[rgba(255,255,255,0.2)]'
+                      }`}>
+                        {isCurrent ? '▶' : i + 1}
                       </span>
-                      <span className={`text-[13px] leading-snug ${inRange ? 'text-white' : 'text-[rgba(255,255,255,0.45)]'}`}>
+                      <span className={`text-[13px] leading-snug ${
+                        isCurrent ? 'font-medium text-white' : inRange ? 'text-white' : 'text-[rgba(255,255,255,0.45)]'
+                      }`}>
                         {line}
                       </span>
                     </div>
