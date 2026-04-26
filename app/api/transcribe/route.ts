@@ -88,17 +88,20 @@ function parseSegments(
 ): LyricsRow[] {
   const rows: LyricsRow[] = []
 
-  // vaibhavs10/incredibly-fast-whisper format: { chunks: [{ text, timestamp: [start, end] }] }
-  for (const chunk of output.chunks ?? []) {
-    const text = chunk.text.trim()
-    if (!text) continue
-    const start = chunk.timestamp[0]
-    const end = chunk.timestamp[1] ?? start
-    if (start < clipStart || end > clipEnd) continue
-    rows.push({ clip_id: clipId, text, start_sec: start, end_sec: end })
+  // vaibhavs10/incredibly-fast-whisper: prefer chunks when present
+  if (output.chunks && output.chunks.length > 0) {
+    for (const chunk of output.chunks) {
+      const text = chunk.text.trim()
+      if (!text) continue
+      const start = chunk.timestamp[0]
+      const end = chunk.timestamp[1] ?? start
+      if (start < clipStart || end > clipEnd) continue
+      rows.push({ clip_id: clipId, text, start_sec: start, end_sec: end })
+    }
+    return rows
   }
 
-  // openai/whisper format: { segments: [{ text, start, end, words: [...] }] }
+  // openai/whisper fallback: { segments: [{ text, start, end, words: [...] }] }
   for (const seg of output.segments ?? []) {
     if (seg.words && seg.words.length > 0) {
       for (const w of seg.words) {
@@ -250,26 +253,29 @@ export async function POST(request: NextRequest) {
     }
     const replicate = new Replicate({ auth: replicateToken })
 
-    // Use vaibhavs10/incredibly-fast-whisper — openai/whisper's official endpoint
-    // started returning 404 because the model has no public version.
-    const replicatePromise = replicate.run(
-      'vaibhavs10/incredibly-fast-whisper:3ab86df6c8f54c11309d4d1f930ac292bad43ace52d10c80d87eb258b3c9f79c',
-      {
-        input: {
-          audio: signed.signedUrl,
-          language: 'korean',
-          task: 'transcribe',
-          timestamp: 'chunk',
-          batch_size: 24,
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(new Error('Replicate timeout (180s)')), 180_000)
+
+    let output: ReplicateOutput
+    try {
+      // vaibhavs10/incredibly-fast-whisper — openai/whisper's official endpoint
+      // started returning 404 because the model has no public version.
+      output = (await replicate.run(
+        'vaibhavs10/incredibly-fast-whisper:3ab86df6c8f54c11309d4d1f930ac292bad43ace52d10c80d87eb258b3c9f79c',
+        {
+          input: {
+            audio: signed.signedUrl,
+            language: 'korean',
+            task: 'transcribe',
+            timestamp: 'chunk',
+            batch_size: 24,
+          },
+          signal: controller.signal,
         },
-      },
-    )
-
-    const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('Replicate timeout (180s)')), 180_000)
-    )
-
-    const output = (await Promise.race([replicatePromise, timeoutPromise])) as ReplicateOutput
+      )) as ReplicateOutput
+    } finally {
+      clearTimeout(timeoutId)
+    }
 
     // 6. 결과 파싱 (클립 구간 내 segments만) — add order index
     const rows = parseSegments(output, clip_id, Number(clip.start_sec), Number(clip.end_sec))

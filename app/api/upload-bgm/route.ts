@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getIngestWorkerUrlWithFallback } from '@/lib/utils/worker'
 
-const WORKER_URL = getIngestWorkerUrlWithFallback()
-
 export async function POST(request: NextRequest) {
   let formData: FormData
   try {
@@ -15,8 +13,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'clip_id and file are required' }, { status: 400 })
   }
 
+  const workerUrl = getIngestWorkerUrlWithFallback()
+
   try {
-    const res = await fetch(`${WORKER_URL}/upload-bgm`, {
+    const res = await fetch(`${workerUrl}/upload-bgm`, {
       method: 'POST',
       body: formData,
       signal: AbortSignal.timeout(120_000),

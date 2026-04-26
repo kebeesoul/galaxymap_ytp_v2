@@ -24,8 +24,9 @@ Spec: PROJECT_SPEC.md 참고
 - Next.js: localhost:3000 / Python worker: localhost:8001
 
 ## Render Strategy
-- DEV/PROD 모두 local Mac Studio worker
-- Vercel / Edge function에 render worker 배포 금지
+- Next.js: Railway 배포 (railway.json 기준)
+- ingest worker / render worker: local Mac Studio only (Docker or bare process)
+- Vercel / Edge function / Railway에 render/ingest worker 배포 금지
 - Remotion Lambda stub 유지 — daily volume > 100 clips 시점에만 재검토 (Phase 4)
 
 ## Video File Strategy
