@@ -129,6 +129,11 @@ export default function ClipEditor({
   )
   const [downloading, setDownloading] = useState<Record<string, boolean>>({})
 
+  // B8: full Comment rows for CommentCard (lazy-loaded on mount)
+  const [rawCommentsByClip, setRawCommentsByClip] = useState<Record<string, Comment[]>>(
+    initialCommentsByClip
+  )
+
   // A8: per-clip selected comment indices (empty = all)
   const [selectedCommentIdxByClip, setSelectedCommentIdxByClip] = useState<Record<string, number[]>>(
     Object.fromEntries(initialClips.map(c => [c.id, []]))
@@ -189,6 +194,47 @@ export default function ClipEditor({
     }, 50 * 60 * 1000)
     return () => clearInterval(id)
   }, [project.yt_source_path, supabase])
+
+  // B8: lazy-load segments + comments client-side (page.tsx skips these SSR queries)
+  useEffect(() => {
+    const clipIds = initialClips.map(c => c.id)
+    if (clipIds.length === 0) return
+    Promise.all([
+      supabase.from('lyrics_segments').select('*').in('clip_id', clipIds).order('order', { ascending: true }),
+      supabase.from('comments').select('*').in('clip_id', clipIds),
+    ]).then(([{ data: segs }, { data: cmts }]) => {
+      if (segs) {
+        const byClip: Record<string, LyricsSegment[]> = {}
+        for (const seg of segs) {
+          if (!seg.clip_id) continue
+          if (!byClip[seg.clip_id]) byClip[seg.clip_id] = []
+          byClip[seg.clip_id].push(seg)
+        }
+        setSegmentsByClip(prev => ({ ...prev, ...byClip }))
+        setTranscribeStatuses(prev => {
+          const updated = { ...prev }
+          for (const clipId of Object.keys(byClip)) {
+            if (!updated[clipId]) updated[clipId] = 'success'
+          }
+          return updated
+        })
+      }
+      if (cmts) {
+        const rawByClip: Record<string, Comment[]> = {}
+        const simplByClip: Record<string, Array<{ username: string; body: string; likes_count: number }>> = {}
+        for (const c of cmts) {
+          if (!c.clip_id) continue
+          if (!rawByClip[c.clip_id]) rawByClip[c.clip_id] = []
+          if (!simplByClip[c.clip_id]) simplByClip[c.clip_id] = []
+          rawByClip[c.clip_id].push(c)
+          simplByClip[c.clip_id].push({ username: c.username, body: c.body, likes_count: c.likes_count ?? 0 })
+        }
+        setRawCommentsByClip(rawByClip)
+        setCommentsByClip(simplByClip)
+      }
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Resume polling for pending renders on page load
   useEffect(() => {
@@ -465,6 +511,7 @@ export default function ClipEditor({
     setTemplateIdsByClip(cleanup)
     setBgmByClip(cleanup)
     setCommentsByClip(cleanup)
+    setRawCommentsByClip(cleanup)
     setSelectedCommentIdxByClip(cleanup)
     if (loopingClipRef.current?.clipId === clipId) {
       loopingClipRef.current = null
@@ -786,7 +833,7 @@ export default function ClipEditor({
             const transcribeStatus = transcribeStatuses[clip.id]
             const isTranscribing = transcribing[clip.id] ?? false
             const segments = segmentsByClip[clip.id] ?? []
-            const comments = initialCommentsByClip[clip.id] ?? []
+            const comments = rawCommentsByClip[clip.id] ?? []
             const allComments = commentsByClip[clip.id] ?? []
             const selectedCommentIdx = selectedCommentIdxByClip[clip.id] ?? []
             const filteredComments = selectedCommentIdx.length > 0
@@ -946,6 +993,7 @@ export default function ClipEditor({
 
                 {/* ② 댓글 */}
                 <CommentCard
+                  key={`${clip.id}-comments-${comments.length}`}
                   clipId={clip.id}
                   videoId={project.yt_video_id ?? ''}
                   initialComments={comments}
