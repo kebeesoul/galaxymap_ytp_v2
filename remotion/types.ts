@@ -10,10 +10,30 @@ export interface Comment {
   likes_count: number
 }
 
+export type StyleTheme = 'white-on-black' | 'black-on-white'
+
+export const FONT_FAMILIES = [
+  'Noto Sans KR',
+  'Black Han Sans',
+  'Nanum Gothic',
+  'Gothic A1',
+  'Noto Serif KR',
+  'Gowun Dodum',
+] as const
+
+export type FontFamily = typeof FONT_FAMILIES[number]
+
 export interface SubtitleStyle {
   position: 'top' | 'center' | 'bottom'
   fontSize: number
   bgOpacity: number
+  theme: StyleTheme
+  fontFamily: string
+}
+
+export interface CommentStyle {
+  theme: StyleTheme
+  fontFamily: string
 }
 
 export interface ClipInput {
@@ -23,6 +43,7 @@ export interface ClipInput {
   bgm_volume?: number
   original_volume?: number
   subtitle_style?: SubtitleStyle | null
+  comment_style?: CommentStyle | null
 }
 
 export interface RenderInput {

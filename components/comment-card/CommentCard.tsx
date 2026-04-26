@@ -23,6 +23,8 @@ interface Props {
   selectedIndices?: number[]
   onSelectionChange?: (indices: number[]) => void
   onCommentsChange?: (comments: Array<{ username: string; body: string; likes_count: number }>) => void
+  /** When true, skips the outer <details> wrapper (used inside a parent <details> in ClipEditor) */
+  noWrapper?: boolean
 }
 
 function toLocal(c: Comment): LocalComment {
@@ -43,6 +45,7 @@ export default function CommentCard({
   selectedIndices,
   onSelectionChange,
   onCommentsChange,
+  noWrapper,
 }: Props) {
   const [comments, setComments] = useState<LocalComment[]>(initialComments.map(toLocal))
   const [fetching, setFetching] = useState(false)
@@ -178,6 +181,113 @@ export default function CommentCard({
     setSaving(false)
   }
 
+  const commentBody = (
+    <>
+      {/* Action toolbar */}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <button
+          onClick={handleFetchYoutube}
+          disabled={fetching || hasYoutubeComments}
+          title={hasYoutubeComments ? '이미 YouTube 댓글을 불러왔습니다' : undefined}
+          className="flex items-center gap-1.5 rounded-lg bg-[#272729] px-3 py-1.5 text-[13px] text-white transition-colors hover:bg-[#2a2a2d] disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {fetching ? (
+            <>
+              <span className="h-3 w-3 animate-spin rounded-full border border-white/30 border-t-white" />
+              불러오는 중…
+            </>
+          ) : hasYoutubeComments ? (
+            'YouTube 댓글 완료'
+          ) : (
+            'YouTube 댓글 불러오기'
+          )}
+        </button>
+        <button
+          onClick={addComment}
+          className="rounded-lg bg-[#272729] px-3 py-1.5 text-[13px] text-white transition-colors hover:bg-[#2a2a2d]"
+        >
+          + 댓글 추가
+        </button>
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="ml-auto rounded-lg bg-[#0071e3] px-3 py-1.5 text-[13px] text-white transition-colors hover:bg-[#0077ed] disabled:opacity-30"
+        >
+          {saving ? '저장 중…' : '저장'}
+        </button>
+      </div>
+
+      {fetchError && <p className="mb-3 text-[12px] text-red-400">{fetchError}</p>}
+      {saveError && <p className="mb-3 text-[12px] text-red-400">{saveError}</p>}
+
+      {selected.length > 0 && (
+        <p className="mb-2 text-[11px] text-[#2997ff]">
+          체크된 댓글만 미리보기·렌더에 사용됩니다
+        </p>
+      )}
+
+      {comments.length === 0 ? (
+        <p className="py-4 text-center text-[13px] text-[rgba(255,255,255,0.24)]">
+          댓글 없음 — YouTube에서 불러오거나 직접 추가하세요.
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {comments.map((comment, idx) => (
+            <div
+              key={idx}
+              className={`rounded-lg px-4 py-3 transition-colors ${
+                selected.length > 0
+                  ? selected.includes(idx)
+                    ? 'bg-[#0071e3]/20 ring-1 ring-[#0071e3]/40'
+                    : 'bg-[#272729] opacity-50'
+                  : 'bg-[#272729]'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                {/* A8: selection checkbox */}
+                {onSelectionChange && (
+                  <input
+                    type="checkbox"
+                    checked={selected.includes(idx)}
+                    onChange={() => toggleSelection(idx)}
+                    className="h-4 w-4 shrink-0 cursor-pointer accent-[#0071e3]"
+                    title="렌더에 포함"
+                  />
+                )}
+                <input
+                  value={comment.username}
+                  onChange={e => updateField(idx, 'username', e.target.value)}
+                  placeholder="username"
+                  className="flex-1 rounded-md bg-[#1d1d1f] px-2 py-1 text-[13px] text-white outline-none placeholder:text-[rgba(255,255,255,0.2)] focus:ring-1 focus:ring-[#0071e3]"
+                />
+                {comment.source === 'youtube' && (
+                  <span className="rounded bg-[#1d1d1f] px-1.5 py-0.5 font-mono text-[10px] text-[rgba(255,255,255,0.3)]">
+                    YT
+                  </span>
+                )}
+                <button
+                  onClick={() => deleteComment(idx)}
+                  className="text-[13px] text-[rgba(255,255,255,0.3)] transition-colors hover:text-red-400"
+                >
+                  ✕
+                </button>
+              </div>
+              <textarea
+                value={comment.body}
+                onChange={e => updateField(idx, 'body', e.target.value)}
+                rows={2}
+                placeholder="댓글 내용"
+                className="mt-2 w-full resize-none rounded-md bg-[#1d1d1f] px-2 py-1.5 text-[13px] text-white outline-none placeholder:text-[rgba(255,255,255,0.2)] focus:ring-1 focus:ring-[#0071e3]"
+              />
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  )
+
+  if (noWrapper) return commentBody
+
   return (
     <details className="group rounded-xl bg-[#1d1d1f]" open>
       <summary className="flex cursor-pointer list-none items-center justify-between px-5 py-3 text-[12px] text-[rgba(255,255,255,0.4)] hover:text-[rgba(255,255,255,0.6)]">
@@ -189,119 +299,7 @@ export default function CommentCard({
         </span>
         <span className="transition-transform duration-200 group-open:rotate-180">▾</span>
       </summary>
-
-      <div className="px-5 pb-4">
-        {/* Action toolbar */}
-        <div className="mb-3 flex flex-wrap items-center gap-2">
-          <button
-            onClick={handleFetchYoutube}
-            disabled={fetching || hasYoutubeComments}
-            title={hasYoutubeComments ? '이미 YouTube 댓글을 불러왔습니다' : undefined}
-            className="flex items-center gap-1.5 rounded-lg bg-[#272729] px-3 py-1.5 text-[13px] text-white transition-colors hover:bg-[#2a2a2d] disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {fetching ? (
-              <>
-                <span className="h-3 w-3 animate-spin rounded-full border border-white/30 border-t-white" />
-                불러오는 중…
-              </>
-            ) : hasYoutubeComments ? (
-              'YouTube 댓글 완료'
-            ) : (
-              'YouTube 댓글 불러오기'
-            )}
-          </button>
-          <button
-            onClick={addComment}
-            className="rounded-lg bg-[#272729] px-3 py-1.5 text-[13px] text-white transition-colors hover:bg-[#2a2a2d]"
-          >
-            + 댓글 추가
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="ml-auto rounded-lg bg-[#0071e3] px-3 py-1.5 text-[13px] text-white transition-colors hover:bg-[#0077ed] disabled:opacity-30"
-          >
-            {saving ? '저장 중…' : '저장'}
-          </button>
-        </div>
-
-        {fetchError && <p className="mb-3 text-[12px] text-red-400">{fetchError}</p>}
-        {saveError && <p className="mb-3 text-[12px] text-red-400">{saveError}</p>}
-
-        {selected.length > 0 && (
-          <p className="mb-2 text-[11px] text-[#2997ff]">
-            체크된 댓글만 미리보기·렌더에 사용됩니다
-          </p>
-        )}
-
-        {comments.length === 0 ? (
-          <p className="py-4 text-center text-[13px] text-[rgba(255,255,255,0.24)]">
-            댓글 없음 — YouTube에서 불러오거나 직접 추가하세요.
-          </p>
-        ) : (
-          <div className="space-y-2">
-            {comments.map((comment, idx) => (
-              <div
-                key={idx}
-                className={`rounded-lg px-4 py-3 transition-colors ${
-                  selected.length > 0
-                    ? selected.includes(idx)
-                      ? 'bg-[#0071e3]/20 ring-1 ring-[#0071e3]/40'
-                      : 'bg-[#272729] opacity-50'
-                    : 'bg-[#272729]'
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  {/* A8: selection checkbox */}
-                  {onSelectionChange && (
-                    <input
-                      type="checkbox"
-                      checked={selected.includes(idx)}
-                      onChange={() => toggleSelection(idx)}
-                      className="h-4 w-4 shrink-0 cursor-pointer accent-[#0071e3]"
-                      title="렌더에 포함"
-                    />
-                  )}
-                  <input
-                    value={comment.username}
-                    onChange={e => updateField(idx, 'username', e.target.value)}
-                    placeholder="username"
-                    className="w-32 shrink-0 rounded-md bg-[#1d1d1f] px-2 py-1 text-[13px] text-white outline-none placeholder:text-[rgba(255,255,255,0.2)] focus:ring-1 focus:ring-[#0071e3]"
-                  />
-                  <input
-                    type="number"
-                    value={comment.likes_count}
-                    onChange={e => {
-                      const v = parseInt(e.target.value, 10)
-                      updateField(idx, 'likes_count', isNaN(v) ? 0 : v)
-                    }}
-                    className="w-16 shrink-0 rounded-md bg-[#1d1d1f] px-2 py-1 text-[13px] text-[rgba(255,255,255,0.6)] outline-none focus:ring-1 focus:ring-[#0071e3]"
-                  />
-                  <span className="text-[11px] text-[rgba(255,255,255,0.3)]">👍</span>
-                  {comment.source === 'youtube' && (
-                    <span className="rounded bg-[#1d1d1f] px-1.5 py-0.5 font-mono text-[10px] text-[rgba(255,255,255,0.3)]">
-                      YT
-                    </span>
-                  )}
-                  <button
-                    onClick={() => deleteComment(idx)}
-                    className="ml-auto text-[13px] text-[rgba(255,255,255,0.3)] transition-colors hover:text-red-400"
-                  >
-                    ✕
-                  </button>
-                </div>
-                <textarea
-                  value={comment.body}
-                  onChange={e => updateField(idx, 'body', e.target.value)}
-                  rows={2}
-                  placeholder="댓글 내용"
-                  className="mt-2 w-full resize-none rounded-md bg-[#1d1d1f] px-2 py-1.5 text-[13px] text-white outline-none placeholder:text-[rgba(255,255,255,0.2)] focus:ring-1 focus:ring-[#0071e3]"
-                />
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      <div className="px-5 pb-4">{commentBody}</div>
     </details>
   )
 }

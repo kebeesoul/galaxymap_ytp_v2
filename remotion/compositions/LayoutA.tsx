@@ -23,7 +23,7 @@ export default function LayoutA({ clip, segments, comments, preview_path }: Layo
         originalVolume={clip.original_volume}
       />
       <SubtitleLayer segments={segments} clipStartSec={clip.start_sec} style={clip.subtitle_style} />
-      <CommentLayer comments={comments} />
+      <CommentLayer comments={comments} style={clip.comment_style} />
     </AbsoluteFill>
   )
 }

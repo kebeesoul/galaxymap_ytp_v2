@@ -1,4 +1,13 @@
 import { Composition, registerRoot } from 'remotion'
+
+// Load Google Fonts for Remotion renderer (Chromium headless loads fonts from CDN)
+if (typeof document !== 'undefined') {
+  const link = Object.assign(document.createElement('link'), {
+    rel: 'stylesheet',
+    href: 'https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@700&family=Black+Han+Sans&family=Nanum+Gothic:wght@700&family=Gothic+A1:wght@700&family=Noto+Serif+KR:wght@700&family=Gowun+Dodum&display=swap',
+  })
+  document.head.appendChild(link)
+}
 import LayoutA from './compositions/LayoutA'
 import LayoutB from './compositions/LayoutB'
 import LayoutC from './compositions/LayoutC'

@@ -7,7 +7,13 @@ interface Props {
   style?: SubtitleStyle | null
 }
 
-const DEFAULTS: SubtitleStyle = { position: 'bottom', fontSize: 42, bgOpacity: 0.72 }
+const DEFAULTS: SubtitleStyle = {
+  position: 'bottom',
+  fontSize: 42,
+  bgOpacity: 0.72,
+  theme: 'white-on-black',
+  fontFamily: 'Noto Sans KR',
+}
 
 export default function SubtitleLayer({ segments, clipStartSec, style }: Props) {
   const frame = useCurrentFrame()
@@ -23,9 +29,14 @@ export default function SubtitleLayer({ segments, clipStartSec, style }: Props) 
   const position = style?.position ?? DEFAULTS.position
   const fontSize = style?.fontSize ?? DEFAULTS.fontSize
   const bgOpacity = style?.bgOpacity ?? DEFAULTS.bgOpacity
+  const theme = style?.theme ?? DEFAULTS.theme
+  const fontFamily = style?.fontFamily ?? DEFAULTS.fontFamily
 
   const top = position === 'top' ? '10%' : position === 'center' ? '50%' : '75%'
   const transform = position === 'center' ? 'translateY(-50%)' : undefined
+
+  const textColor = theme === 'black-on-white' ? '#000000' : '#ffffff'
+  const bgRgb = theme === 'black-on-white' ? '255,255,255' : '0,0,0'
 
   return (
     <div
@@ -43,7 +54,7 @@ export default function SubtitleLayer({ segments, clipStartSec, style }: Props) 
     >
       <div
         style={{
-          backgroundColor: `rgba(0,0,0,${bgOpacity})`,
+          backgroundColor: `rgba(${bgRgb},${bgOpacity})`,
           borderRadius: 16,
           padding: '14px 32px',
           maxWidth: 800,
@@ -51,9 +62,10 @@ export default function SubtitleLayer({ segments, clipStartSec, style }: Props) 
       >
         <p
           style={{
-            color: '#ffffff',
+            color: textColor,
             fontSize,
             fontWeight: 700,
+            fontFamily: `'${fontFamily}', 'Apple SD Gothic Neo', sans-serif`,
             lineHeight: 1.25,
             textAlign: 'center',
             margin: 0,
