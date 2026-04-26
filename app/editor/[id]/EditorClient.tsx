@@ -1,7 +1,8 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { createClient } from '@/lib/supabase/client'
 import ClipEditor from '@/components/video-editor/ClipEditor'
 import VideoPreview from '@/components/video-editor/VideoPreview'
 import type { Project, Clip, LyricsSegment, Comment, Template } from '@/lib/types'
@@ -24,27 +25,27 @@ export default function EditorClient({
   const router = useRouter()
   const routerRef = useRef(router)
   routerRef.current = router
+  const supabase = useMemo(() => createClient(), [])
 
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState('')
 
-  // Auto-poll every 3s while worker is queued or running
+  // C6: Supabase Realtime for import_status (replaces 3s polling)
   useEffect(() => {
     if (project.import_status !== 'pending' && project.import_status !== 'processing') return
-    const id = setInterval(async () => {
-      try {
-        const res = await fetch(`/api/import/status?project_id=${project.id}`)
-        if (!res.ok) return
-        const data = (await res.json()) as { import_status?: string }
-        if (data.import_status === 'success' || data.import_status === 'failed') {
-          window.location.reload()
+    const channel = supabase
+      .channel(`project-import-${project.id}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'projects', filter: `id=eq.${project.id}` },
+        (payload) => {
+          const status = (payload.new as { import_status?: string }).import_status
+          if (status === 'success' || status === 'failed') window.location.reload()
         }
-      } catch {
-        // network error — keep polling
-      }
-    }, 3_000)
-    return () => clearInterval(id)
-  }, [project.import_status, project.id])
+      )
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [project.import_status, project.id, supabase])
 
   async function handleImport() {
     setImporting(true)

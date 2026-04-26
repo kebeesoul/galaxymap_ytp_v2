@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
 
   const { data: clip, error } = await supabase
     .from('clips')
-    .select('render_status, render_path, render_error')
+    .select('render_status, render_path, render_error, render_progress')
     .eq('id', clip_id)
     .single()
 
@@ -26,5 +26,6 @@ export async function GET(request: NextRequest) {
     render_status: clip.render_status,
     render_path: clip.render_path,
     render_error: clip.render_error,
+    render_progress: clip.render_progress ?? 0,
   })
 }

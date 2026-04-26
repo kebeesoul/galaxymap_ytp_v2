@@ -42,35 +42,50 @@ export default function WaveformEditor({
   // ── Initialise WaveSurfer once per video element ──────────────────────────
   useEffect(() => {
     if (!containerRef.current) return
+    let destroyed = false
 
-    const regionsPlugin = RegionsPlugin.create()
-    const ws = WaveSurfer.create({
-      container: containerRef.current,
-      media: mediaEl,          // Reuse the existing <video> — no duplicate fetch
-      waveColor: 'rgba(255,255,255,0.22)',
-      progressColor: '#0071e3',
-      cursorColor: 'rgba(255,255,255,0.7)',
-      cursorWidth: 2,
-      height: 80,
-      barWidth: 2,
-      barGap: 1,
-      barRadius: 2,
-      interact: true,
-      plugins: [regionsPlugin],
-    })
+    function createWaveSurfer() {
+      if (destroyed || !containerRef.current) return
 
-    wsRef.current = ws
-    regionsPluginRef.current = regionsPlugin
+      const regionsPlugin = RegionsPlugin.create()
+      const ws = WaveSurfer.create({
+        container: containerRef.current,
+        media: mediaEl,
+        waveColor: 'rgba(255,255,255,0.22)',
+        progressColor: '#0071e3',
+        cursorColor: 'rgba(255,255,255,0.7)',
+        cursorWidth: 2,
+        height: 80,
+        barWidth: 2,
+        barGap: 1,
+        barRadius: 2,
+        interact: true,
+        plugins: [regionsPlugin],
+      })
 
-    ws.on('ready', () => setLoading(false))
+      wsRef.current = ws
+      regionsPluginRef.current = regionsPlugin
 
-    // Clicking / scrubbing the waveform seeks the video.
-    ws.on('interaction', (newTime: number) => {
-      onSeekRef.current(newTime)
-    })
+      ws.on('ready', () => setLoading(false))
+
+      ws.on('interaction', (newTime: number) => {
+        onSeekRef.current(newTime)
+      })
+    }
+
+    // Defer WaveSurfer init until the video has buffered enough to play without
+    // interruption. This prevents WaveSurfer's audio decode from competing with
+    // the initial video stream and causing choppy playback.
+    if (mediaEl.readyState >= HTMLMediaElement.HAVE_ENOUGH_DATA) {
+      createWaveSurfer()
+    } else {
+      mediaEl.addEventListener('canplaythrough', createWaveSurfer, { once: true })
+    }
 
     return () => {
-      ws.destroy()
+      destroyed = true
+      mediaEl.removeEventListener('canplaythrough', createWaveSurfer)
+      wsRef.current?.destroy()
       wsRef.current = null
       regionsPluginRef.current = null
       regionRef.current = null

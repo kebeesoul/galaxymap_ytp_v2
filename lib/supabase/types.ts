@@ -10,12 +10,15 @@ export type Database = {
           created_at: string | null
           end_sec: number
           id: string
+          label: string | null
           original_volume: number
           project_id: string | null
           render_error: string | null
           render_path: string | null
+          render_progress: number
           render_status: string | null
           start_sec: number
+          subtitle_style: Json | null
           template_id: string | null
           transcribe_status: string | null
         }
@@ -25,12 +28,15 @@ export type Database = {
           created_at?: string | null
           end_sec: number
           id?: string
+          label?: string | null
           original_volume?: number
           project_id?: string | null
           render_error?: string | null
           render_path?: string | null
+          render_progress?: number
           render_status?: string | null
           start_sec: number
+          subtitle_style?: Json | null
           template_id?: string | null
           transcribe_status?: string | null
         }
@@ -40,12 +46,15 @@ export type Database = {
           created_at?: string | null
           end_sec?: number
           id?: string
+          label?: string | null
           original_volume?: number
           project_id?: string | null
           render_error?: string | null
           render_path?: string | null
+          render_progress?: number
           render_status?: string | null
           start_sec?: number
+          subtitle_style?: Json | null
           template_id?: string | null
           transcribe_status?: string | null
         }
@@ -64,6 +73,7 @@ export type Database = {
           body: string
           clip_id: string | null
           id: string
+          is_selected: boolean
           likes_count: number | null
           source: string | null
           username: string
@@ -72,6 +82,7 @@ export type Database = {
           body: string
           clip_id?: string | null
           id?: string
+          is_selected?: boolean
           likes_count?: number | null
           source?: string | null
           username: string
@@ -80,6 +91,7 @@ export type Database = {
           body?: string
           clip_id?: string | null
           id?: string
+          is_selected?: boolean
           likes_count?: number | null
           source?: string | null
           username?: string
@@ -99,6 +111,7 @@ export type Database = {
           clip_id: string | null
           end_sec: number
           id: string
+          order: number
           start_sec: number
           text: string
         }
@@ -106,6 +119,7 @@ export type Database = {
           clip_id?: string | null
           end_sec: number
           id?: string
+          order?: number
           start_sec: number
           text: string
         }
@@ -113,6 +127,7 @@ export type Database = {
           clip_id?: string | null
           end_sec?: number
           id?: string
+          order?: number
           start_sec?: number
           text?: string
         }
@@ -135,6 +150,7 @@ export type Database = {
           import_status: string | null
           ip_confirmed_at: string | null
           ip_owner: boolean
+          song_lyrics: string | null
           song_title: string
           source_url: string
           yt_duration_sec: number | null
@@ -151,6 +167,7 @@ export type Database = {
           import_status?: string | null
           ip_confirmed_at?: string | null
           ip_owner?: boolean
+          song_lyrics?: string | null
           song_title: string
           source_url: string
           yt_duration_sec?: number | null
@@ -167,6 +184,7 @@ export type Database = {
           import_status?: string | null
           ip_confirmed_at?: string | null
           ip_owner?: boolean
+          song_lyrics?: string | null
           song_title?: string
           source_url?: string
           yt_duration_sec?: number | null
