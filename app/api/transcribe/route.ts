@@ -40,7 +40,10 @@ async function persistSegments(
 ): Promise<NextResponse | null> {
   const { data: segments, error } = await supabase
     .from('lyrics_segments').insert(rows).select()
-  if (error || !segments) return null
+  if (error || !segments) {
+    console.error('[persistSegments] insert failed:', error?.message)
+    return null
+  }
   await supabase.from('lyrics_segments').delete()
     .eq('clip_id', clipId).not('id', 'in', `(${segments.map(s => s.id).join(',')})`)
   await supabase.from('clips').update({ transcribe_status: 'success' }).eq('id', clipId)

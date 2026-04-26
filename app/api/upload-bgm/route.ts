@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const WORKER_URL = process.env.INGEST_WORKER_URL ?? 'http://localhost:8001'
+const WORKER_URL = process.env.INGEST_WORKER_URL ?? process.env.PYTHON_WORKER_URL ?? 'http://localhost:8001'
 
 export async function POST(request: NextRequest) {
   let formData: FormData

@@ -44,7 +44,12 @@ export default function ProjectList({ initialProjects }: { initialProjects: Proj
   async function handleDelete(id: string, title: string) {
     if (!window.confirm(`"${title}" 프로젝트를 삭제하시겠습니까?`)) return
     setDeleting(id)
-    await supabase.from('projects').delete().eq('id', id)
+    const { error } = await supabase.from('projects').delete().eq('id', id)
+    if (error) {
+      alert(`삭제 실패: ${error.message}`)
+      setDeleting(null)
+      return
+    }
     setProjects(prev => prev.filter(p => p.id !== id))
     setDeleting(null)
   }
@@ -53,7 +58,12 @@ export default function ProjectList({ initialProjects }: { initialProjects: Proj
     if (projects.length === 0) return
     if (!window.confirm(`프로젝트 ${projects.length}개를 모두 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`)) return
     setDeletingAll(true)
-    await supabase.from('projects').delete().in('id', projects.map(p => p.id))
+    const { error } = await supabase.from('projects').delete().in('id', projects.map(p => p.id))
+    if (error) {
+      alert(`전체 삭제 실패: ${error.message}`)
+      setDeletingAll(false)
+      return
+    }
     setProjects([])
     setDeletingAll(false)
     router.refresh()
