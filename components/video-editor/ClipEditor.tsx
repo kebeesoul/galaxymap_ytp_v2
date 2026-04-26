@@ -129,6 +129,19 @@ export default function ClipEditor({
   )
   const [downloading, setDownloading] = useState<Record<string, boolean>>({})
 
+  // A8: per-clip selected comment indices (empty = all)
+  const [selectedCommentIdxByClip, setSelectedCommentIdxByClip] = useState<Record<string, number[]>>(
+    Object.fromEntries(initialClips.map(c => [c.id, []]))
+  )
+  // B3: per-clip loop play
+  const [loopingClipId, setLoopingClipId] = useState<string | null>(null)
+  const loopingClipRef = useRef<{ clipId: string; start: number; end: number } | null>(null)
+  // B6: seek via direct time input
+  const [seekInputMode, setSeekInputMode] = useState(false)
+  const [seekInputValue, setSeekInputValue] = useState('')
+  // B7: clip container refs for auto-scroll after save
+  const clipContainerRefs = useRef<Map<string, HTMLDivElement>>(new Map())
+
   // Project-level lyrics (full song lyrics)
   const [songLyrics, setSongLyrics] = useState(project.song_lyrics ?? '')
   const [lyricsEditOpen, setLyricsEditOpen] = useState(!(project.song_lyrics?.trim()))
@@ -249,6 +262,13 @@ export default function ClipEditor({
   const handleTimeUpdate = useCallback(() => {
     if (!videoRef.current) return
     const t = videoRef.current.currentTime
+    // B3: loop back to clip start when end is reached
+    const loop = loopingClipRef.current
+    if (loop && t >= loop.end) {
+      videoRef.current.currentTime = loop.start
+      videoRef.current.play().catch(() => {})
+      return
+    }
     if (Math.abs(t - lastTimeRef.current) < 0.25) return
     lastTimeRef.current = t
     setCurrentTime(t)
@@ -265,6 +285,21 @@ export default function ClipEditor({
     if (!videoRef.current) return
     videoRef.current.currentTime = sec
   }, [])
+
+  // B3: toggle loop playback for a clip
+  function handleToggleLoop(clipId: string, startSec: number, endSec: number) {
+    if (loopingClipRef.current?.clipId === clipId) {
+      loopingClipRef.current = null
+      setLoopingClipId(null)
+    } else {
+      loopingClipRef.current = { clipId, start: startSec, end: endSec }
+      setLoopingClipId(clipId)
+      if (videoRef.current) {
+        videoRef.current.currentTime = startSec
+        videoRef.current.play().catch(() => {})
+      }
+    }
+  }
 
   function handleSetDuration(durationSec: number) {
     const current = videoRef.current?.currentTime ?? 0
@@ -378,10 +413,15 @@ export default function ClipEditor({
       setTemplateIdsByClip(prev => ({ ...prev, [data.id]: null }))
       setBgmByClip(prev => ({ ...prev, [data.id]: { bgm_url: null, bgm_volume: 0.3, original_volume: 1.0 } }))
       setCommentsByClip(prev => ({ ...prev, [data.id]: [] }))
+      setSelectedCommentIdxByClip(prev => ({ ...prev, [data.id]: [] }))
       setRegionLineFrom(null)
       setRegionLineTo(null)
       setStartSec(null)
       setEndSec(null)
+      // B7: scroll to the newly created clip
+      setTimeout(() => {
+        clipContainerRefs.current.get(data.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }, 100)
     }
     setSaving(false)
   }
@@ -425,6 +465,11 @@ export default function ClipEditor({
     setTemplateIdsByClip(cleanup)
     setBgmByClip(cleanup)
     setCommentsByClip(cleanup)
+    setSelectedCommentIdxByClip(cleanup)
+    if (loopingClipRef.current?.clipId === clipId) {
+      loopingClipRef.current = null
+      setLoopingClipId(null)
+    }
   }
 
   async function handleTranscribe(clipId: string) {
@@ -637,9 +682,38 @@ export default function ClipEditor({
       {/* Controls bar */}
       <div className="rounded-xl bg-[#1d1d1f] px-5 py-4">
         <div className="flex flex-wrap items-center gap-4">
-          <span className="font-mono text-[13px] text-[rgba(255,255,255,0.5)]">
-            {formatTime(currentTime)}
-          </span>
+          {/* B6: click current time to seek directly */}
+          {seekInputMode ? (
+            <input
+              type="number"
+              autoFocus
+              step="0.1"
+              value={seekInputValue}
+              onChange={e => setSeekInputValue(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  const t = parseFloat(seekInputValue)
+                  if (!isNaN(t)) handleSeekOnly(t)
+                  setSeekInputMode(false)
+                }
+                if (e.key === 'Escape') setSeekInputMode(false)
+              }}
+              onBlur={() => {
+                const t = parseFloat(seekInputValue)
+                if (!isNaN(t)) handleSeekOnly(t)
+                setSeekInputMode(false)
+              }}
+              className="w-20 rounded-md bg-[#272729] px-2 py-1 font-mono text-[13px] text-white outline-none focus:ring-1 focus:ring-[#0071e3]"
+            />
+          ) : (
+            <button
+              onClick={() => { setSeekInputValue(currentTime.toFixed(1)); setSeekInputMode(true) }}
+              className="font-mono text-[13px] text-[rgba(255,255,255,0.5)] transition-colors hover:text-white"
+              title="클릭해서 직접 이동"
+            >
+              {formatTime(currentTime)}
+            </button>
+          )}
 
           <button
             onClick={() => setStartSec(videoRef.current?.currentTime ?? 0)}
@@ -713,13 +787,25 @@ export default function ClipEditor({
             const isTranscribing = transcribing[clip.id] ?? false
             const segments = segmentsByClip[clip.id] ?? []
             const comments = initialCommentsByClip[clip.id] ?? []
+            const allComments = commentsByClip[clip.id] ?? []
+            const selectedCommentIdx = selectedCommentIdxByClip[clip.id] ?? []
+            const filteredComments = selectedCommentIdx.length > 0
+              ? allComments.filter((_, i) => selectedCommentIdx.includes(i))
+              : allComments
             const renderStatus = renderStatuses[clip.id]
             const isRendering = rendering[clip.id] ?? false
             const hasRenderPath = Boolean(renderPaths[clip.id])
             const isDownloading = downloading[clip.id] ?? false
 
             return (
-              <div key={clip.id} className="space-y-2">
+              <div
+                key={clip.id}
+                ref={el => {
+                  if (el) clipContainerRefs.current.set(clip.id, el)
+                  else clipContainerRefs.current.delete(clip.id)
+                }}
+                className="space-y-2"
+              >
                 {/* ── Clip header ── */}
                 <div className="rounded-xl bg-[#1d1d1f] px-5 py-3">
                 {/* A10: label input row */}
@@ -789,6 +875,18 @@ export default function ClipEditor({
                       </span>
 
                       <div className="ml-auto flex items-center gap-2">
+                        {/* B3: loop play for this clip */}
+                        <button
+                          onClick={() => handleToggleLoop(clip.id, Number(clip.start_sec), Number(clip.end_sec))}
+                          className={`rounded-lg px-2.5 py-1.5 text-[13px] transition-colors ${
+                            loopingClipId === clip.id
+                              ? 'bg-[#0071e3]/20 text-[#2997ff] ring-1 ring-[#2997ff]/40'
+                              : 'bg-[#272729] text-[rgba(255,255,255,0.4)] hover:bg-[#2a2a2d] hover:text-white'
+                          }`}
+                          title={loopingClipId === clip.id ? '루프 중지' : '클립 루프 재생'}
+                        >
+                          ↻
+                        </button>
                         <button
                           onClick={() => {
                             setEditStartSec(String(Number(clip.start_sec)))
@@ -851,6 +949,8 @@ export default function ClipEditor({
                   clipId={clip.id}
                   videoId={project.yt_video_id ?? ''}
                   initialComments={comments}
+                  selectedIndices={selectedCommentIdx}
+                  onSelectionChange={(indices) => setSelectedCommentIdxByClip(prev => ({ ...prev, [clip.id]: indices }))}
                   onCommentsChange={(cmts) => setCommentsByClip(prev => ({ ...prev, [clip.id]: cmts }))}
                 />
 
@@ -881,7 +981,7 @@ export default function ClipEditor({
                     original_volume: bgmByClip[clip.id]?.original_volume ?? clip.original_volume,
                   }}
                   segments={segments}
-                  comments={commentsByClip[clip.id] ?? []}
+                  comments={filteredComments}
                   layout={getLayoutForClip(templates, templateIdsByClip[clip.id] ?? null)}
                   signedUrl={signedUrl}
                 />
