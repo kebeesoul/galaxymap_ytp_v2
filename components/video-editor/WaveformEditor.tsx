@@ -38,6 +38,31 @@ export default function WaveformEditor({
   onRegionChangeRef.current = onRegionChange
 
   const [loading, setLoading] = useState(true)
+  const [isPlaying, setIsPlaying] = useState(() => !mediaEl.paused)
+
+  // ── Track play/pause state + enforce 1× speed ─────────────────────────────
+  useEffect(() => {
+    const onPlay = () => {
+      if (mediaEl.playbackRate !== 1) mediaEl.playbackRate = 1
+      setIsPlaying(true)
+    }
+    const onPause = () => setIsPlaying(false)
+    mediaEl.addEventListener('play', onPlay)
+    mediaEl.addEventListener('pause', onPause)
+    return () => {
+      mediaEl.removeEventListener('play', onPlay)
+      mediaEl.removeEventListener('pause', onPause)
+    }
+  }, [mediaEl])
+
+  function handlePlayPause() {
+    if (mediaEl.paused) {
+      mediaEl.playbackRate = 1
+      mediaEl.play().catch(() => {})
+    } else {
+      mediaEl.pause()
+    }
+  }
 
   // ── Initialise WaveSurfer once per video element ──────────────────────────
   useEffect(() => {
@@ -137,9 +162,28 @@ export default function WaveformEditor({
     <div className="rounded-xl bg-[#1d1d1f] px-4 py-3">
       {/* Header */}
       <div className="mb-2 flex items-center justify-between px-0.5">
-        <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[rgba(255,255,255,0.3)]">
-          파형
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[rgba(255,255,255,0.3)]">
+            파형
+          </span>
+          <button
+            onClick={handlePlayPause}
+            disabled={loading}
+            className="flex h-5 w-5 items-center justify-center rounded-full bg-[#0071e3] text-white transition-opacity hover:bg-[#0077ed] disabled:opacity-30"
+            title={isPlaying ? '일시정지' : '재생'}
+          >
+            {isPlaying ? (
+              <svg viewBox="0 0 16 16" className="h-2.5 w-2.5 fill-current">
+                <rect x="3" y="2" width="3.5" height="12" rx="1" />
+                <rect x="9.5" y="2" width="3.5" height="12" rx="1" />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 16 16" className="h-2.5 w-2.5 fill-current">
+                <path d="M4 2l10 6-10 6z" />
+              </svg>
+            )}
+          </button>
+        </div>
         <div className="flex items-center gap-3">
           {startSec !== null && (
             <span className="font-mono text-[11px] text-[rgba(255,255,255,0.35)]">
