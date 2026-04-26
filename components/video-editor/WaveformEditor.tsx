@@ -117,10 +117,11 @@ export default function WaveformEditor({
     }
   }, [mediaEl])
 
-  // ── Sync waveform cursor ← video currentTime ──────────────────────────────
-  useEffect(() => {
-    wsRef.current?.setTime(currentTime)
-  }, [currentTime])
+  // WaveSurfer v7 with `media` option auto-syncs its cursor via the media
+  // element's timeupdate event. Calling setTime() ourselves on every parent
+  // re-render forces mediaEl.currentTime to a slightly stale value, causing
+  // micro backward-seeks that stutter playback. We only use `currentTime`
+  // for the mm:ss readout below.
 
   // ── Sync region ← startSec / endSec (from I/O keys, detect-speech, etc.) ─
   useEffect(() => {
