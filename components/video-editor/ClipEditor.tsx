@@ -708,9 +708,10 @@ export default function ClipEditor({
 
   async function handleDeleteClip(clipId: string) {
     if (!window.confirm('이 클립을 삭제하시겠습니까?')) return
-    const { error } = await supabase.from('clips').delete().eq('id', clipId)
-    if (error) {
-      alert(`클립 삭제 실패: ${error.message}`)
+    const res = await fetch(`/api/clips/${clipId}`, { method: 'DELETE' })
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { error?: string }
+      alert(`클립 삭제 실패: ${body.error ?? `HTTP ${res.status}`}`)
       return
     }
     stopPolling(clipId)
@@ -754,15 +755,20 @@ export default function ClipEditor({
 
   async function handleBatchDelete() {
     if (!window.confirm(`선택된 ${selectedClipIds.size}개 클립을 모두 삭제하시겠습니까?`)) return
-    for (const clipId of Array.from(selectedClipIds)) {
-      await supabase.from('clips').delete().eq('id', clipId)
-      stopPolling(clipId)
-    }
     const ids = Array.from(selectedClipIds)
-    setClips(prev => prev.filter(c => !ids.includes(c.id)))
+    const results = await Promise.all(
+      ids.map(clipId =>
+        fetch(`/api/clips/${clipId}`, { method: 'DELETE' }).then(r => ({ clipId, ok: r.ok }))
+      )
+    )
+    const succeeded = results.filter(r => r.ok).map(r => r.clipId)
+    const failedCount = results.length - succeeded.length
+    if (failedCount > 0) alert(`${failedCount}개 클립 삭제 실패`)
+    for (const clipId of succeeded) stopPolling(clipId)
+    setClips(prev => prev.filter(c => !succeeded.includes(c.id)))
     const cleanup = <T,>(rec: Record<string, T>) => {
       const n = { ...rec }
-      for (const id of ids) delete n[id]
+      for (const id of succeeded) delete n[id]
       return n
     }
     setSegmentsByClip(cleanup); setTranscribeStatuses(cleanup)
@@ -773,8 +779,12 @@ export default function ClipEditor({
     setCommentsByClip(cleanup); setRawCommentsByClip(cleanup)
     setSelectedCommentIdxByClip(cleanup)
     setSubtitleStylesByClip(cleanup); setCommentStylesByClip(cleanup); setRenderProgressByClip(cleanup)
-    setSelectedClipIds(new Set())
-    if (loopingClipRef.current && ids.includes(loopingClipRef.current.clipId)) {
+    setSelectedClipIds(prev => {
+      const n = new Set(prev)
+      for (const id of succeeded) n.delete(id)
+      return n
+    })
+    if (loopingClipRef.current && succeeded.includes(loopingClipRef.current.clipId)) {
       loopingClipRef.current = null
       setLoopingClipId(null)
     }
