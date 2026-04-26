@@ -2,7 +2,7 @@
 CREATE INDEX IF NOT EXISTS idx_clips_render_status ON clips(render_status);
 CREATE INDEX IF NOT EXISTS idx_clips_transcribe_status ON clips(transcribe_status);
 CREATE INDEX IF NOT EXISTS idx_clips_project_id ON clips(project_id);
-CREATE INDEX IF NOT EXISTS idx_lyrics_segments_clip_id_order ON lyrics_segments(clip_id, "order");
+CREATE INDEX IF NOT EXISTS idx_lyrics_segments_clip_id_start ON lyrics_segments(clip_id, start_sec);
 CREATE INDEX IF NOT EXISTS idx_comments_clip_id ON comments(clip_id);
 
 -- CHECK constraints on status columns
