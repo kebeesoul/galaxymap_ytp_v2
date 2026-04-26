@@ -9,7 +9,9 @@
     "lint": "next lint",
     "type-check": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "cleanup:storage": "node scripts/cleanup-orphan-storage.mjs",
+    "cleanup:storage:apply": "node scripts/cleanup-orphan-storage.mjs --apply"
   },
   "dependencies": {
     "@remotion/cli": "^4.0.451",
