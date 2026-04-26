@@ -7,16 +7,16 @@ interface DetectSpeechResult {
   confidence: number
 }
 
-const WORKER_URL = getIngestWorkerUrlWithFallback()
-
 export async function POST(request: NextRequest) {
   const body = (await request.json()) as { project_id?: string }
   if (!body.project_id) {
     return NextResponse.json({ error: 'project_id is required' }, { status: 400 })
   }
 
+  const workerUrl = getIngestWorkerUrlWithFallback()
+
   try {
-    const res = await fetch(`${WORKER_URL}/detect-speech`, {
+    const res = await fetch(`${workerUrl}/detect-speech`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ project_id: body.project_id }),
