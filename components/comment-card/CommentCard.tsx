@@ -159,16 +159,21 @@ export default function CommentCard({
       }
     }
 
-    // Step 2: UPDATE existing rows
-    for (const c of toUpdate) {
-      const idx = commentToIdx.get(c) ?? -1
-      const { error } = await supabase.from('comments').update({
-        username: c.username.trim() || '(익명)',
-        body: c.body.trim(),
-        likes_count: c.likes_count,
-        is_selected: selected.includes(idx),
-      }).eq('id', c.id!)
-      if (error) { setSaveError(error.message); setSaving(false); return }
+    // Step 2: UPDATE existing rows in parallel
+    if (toUpdate.length > 0) {
+      const updateResults = await Promise.all(
+        toUpdate.map((c) => {
+          const idx = commentToIdx.get(c) ?? -1
+          return supabase.from('comments').update({
+            username: c.username.trim() || '(익명)',
+            body: c.body.trim(),
+            likes_count: c.likes_count,
+            is_selected: selected.includes(idx),
+          }).eq('id', c.id!)
+        })
+      )
+      const updateError = updateResults.find((r) => r.error)?.error
+      if (updateError) { setSaveError(updateError.message); setSaving(false); return }
     }
 
     // Step 3: DELETE removed rows — safe because new data is already in DB
