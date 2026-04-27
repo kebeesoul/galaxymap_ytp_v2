@@ -1,12 +1,10 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 
 export default function NewProjectPage() {
-  const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -36,9 +34,9 @@ export default function NewProjectPage() {
       return
     }
 
-    // import_status='pending' set on insert — worker picks it up automatically
-    router.push('/projects')
-    router.refresh()
+    // Full reload guarantees the dashboard server-renders with the new row.
+    // router.push alone can serve a prefetch that predates the insert.
+    window.location.href = '/projects'
   }
 
   return (
