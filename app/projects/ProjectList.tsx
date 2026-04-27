@@ -40,12 +40,10 @@ export default function ProjectList({ initialProjects }: { initialProjects: Proj
   const [deletingAll, setDeletingAll] = useState(false)
   const router = useRouter()
 
-  // Sync fresh server data (from router.refresh) into local state
   useEffect(() => {
     setProjects(initialProjects)
   }, [initialProjects])
 
-  // Auto-refresh every 3s while any project is still importing
   useEffect(() => {
     const hasImporting = projects.some(
       p => p.import_status === 'pending' || p.import_status === 'processing'

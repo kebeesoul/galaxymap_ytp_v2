@@ -3,16 +3,10 @@
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
+import { formatMmss } from '@/lib/utils/time'
 import type { ExportRow } from './page'
 
-function fmtRange(start: number, end: number): string {
-  const fmt = (s: number) => {
-    const m = Math.floor(s / 60)
-    const sec = Math.floor(s % 60)
-    return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
-  }
-  return `${fmt(start)} – ${fmt(end)}`
-}
+const supabase = createClient()
 
 interface ProjectGroup {
   project_id: string
@@ -23,7 +17,6 @@ interface ProjectGroup {
 }
 
 export default function ExportList({ rows }: { rows: ExportRow[] }) {
-  const supabase = useMemo(() => createClient(), [])
   const [downloading, setDownloading] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -133,7 +126,7 @@ export default function ExportList({ rows }: { rows: ExportRow[] }) {
                         {c.clip_label || '(라벨 없음)'}
                       </p>
                       <p className="mt-0.5 font-mono text-[12px] text-[rgba(0,0,0,0.5)]">
-                        {fmtRange(c.start_sec, c.end_sec)}
+                        {formatMmss(c.start_sec)} – {formatMmss(c.end_sec)}
                       </p>
                     </div>
                     <button
