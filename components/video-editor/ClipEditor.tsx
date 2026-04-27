@@ -709,7 +709,8 @@ export default function ClipEditor({
   async function handleDeleteClip(clipId: string) {
     if (!window.confirm('이 클립을 삭제하시겠습니까?')) return
     const res = await fetch(`/api/clips/${clipId}`, { method: 'DELETE' })
-    if (!res.ok) {
+    // 404 = already deleted (stale tab) → treat as idempotent success
+    if (!res.ok && res.status !== 404) {
       const body = (await res.json().catch(() => ({}))) as { error?: string }
       alert(`클립 삭제 실패: ${body.error ?? `HTTP ${res.status}`}`)
       return
@@ -758,7 +759,8 @@ export default function ClipEditor({
     const ids = Array.from(selectedClipIds)
     const results = await Promise.all(
       ids.map(clipId =>
-        fetch(`/api/clips/${clipId}`, { method: 'DELETE' }).then(r => ({ clipId, ok: r.ok }))
+        // 404 = already deleted (stale tab) → treat as idempotent success
+        fetch(`/api/clips/${clipId}`, { method: 'DELETE' }).then(r => ({ clipId, ok: r.ok || r.status === 404 }))
       )
     )
     const succeeded = results.filter(r => r.ok).map(r => r.clipId)
