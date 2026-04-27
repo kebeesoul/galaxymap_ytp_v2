@@ -6,6 +6,7 @@ function makeChain(leafValue: unknown) {
   const terminal = () => Promise.resolve(leafValue)
   chain.eq = () => chain
   chain.not = () => chain
+  chain.or = () => chain
   chain.single = terminal
   chain.select = terminal
   chain.update = () => chain

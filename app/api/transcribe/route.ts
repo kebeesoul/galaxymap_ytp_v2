@@ -162,12 +162,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'failed to generate signed URL' }, { status: 500 })
   }
 
-  // 4. transcribe_status = 'pending' — skip if already a pending/success (idempotent guard)
-  await supabase
+  // Skip if already pending or successfully transcribed to prevent overwrite
+  const { data: claimed } = await supabase
     .from('clips')
     .update({ transcribe_status: 'pending' })
     .eq('id', clip_id)
-    .not('transcribe_status', 'eq', 'pending')
+    .not('transcribe_status', 'in', '(pending,success)')
+    .select('id')
+  if (!claimed?.length) {
+    return NextResponse.json({ error: 'already pending or already transcribed' }, { status: 409 })
+  }
 
   // C4: try local WhisperX worker first (no API cost, better accuracy)
   const whisperWorkerUrl = process.env.WHISPER_WORKER_URL
@@ -189,18 +193,21 @@ export async function POST(request: NextRequest) {
         const body = (await workerRes.json()) as {
           segments?: Array<{ text: string; start_sec: number; end_sec: number }>
         }
-        const segs = body.segments ?? []
-        if (segs.length > 0) {
-          const rows: LyricsRow[] = segs.map((s, idx) => ({
-            clip_id,
-            text: s.text,
-            start_sec: s.start_sec,
-            end_sec: s.end_sec,
-            order: idx,
-          }))
-          const result = await persistSegments(supabase, rows, clip_id)
-          if (result) return result
+        const rows: LyricsRow[] = (body.segments ?? []).map((s, idx) => ({
+          clip_id,
+          text: s.text,
+          start_sec: s.start_sec,
+          end_sec: s.end_sec,
+          order: idx,
+        }))
+        const result = await persistSegments(supabase, rows, clip_id)
+        if (!result) {
+          return NextResponse.json(
+            { error: 'Failed to save transcription segments to database' },
+            { status: 500 },
+          )
         }
+        return result
       }
     } catch {
       // WhisperX worker unavailable — fall through to ingest worker / Replicate
@@ -227,18 +234,21 @@ export async function POST(request: NextRequest) {
         const workerBody = (await workerRes.json()) as {
           segments?: Array<{ text: string; start_sec: number; end_sec: number }>
         }
-        const workerSegs = workerBody.segments ?? []
-        if (workerSegs.length > 0) {
-          const rows: LyricsRow[] = workerSegs.map((s, idx) => ({
-            clip_id,
-            text: s.text,
-            start_sec: s.start_sec,
-            end_sec: s.end_sec,
-            order: idx,
-          }))
-          const result = await persistSegments(supabase, rows, clip_id)
-          if (result) return result
+        const rows: LyricsRow[] = (workerBody.segments ?? []).map((s, idx) => ({
+          clip_id,
+          text: s.text,
+          start_sec: s.start_sec,
+          end_sec: s.end_sec,
+          order: idx,
+        }))
+        const result = await persistSegments(supabase, rows, clip_id)
+        if (!result) {
+          return NextResponse.json(
+            { error: 'Failed to save transcription segments to database' },
+            { status: 500 },
+          )
         }
+        return result
       }
     } catch {
       // Worker unavailable or failed — fall through to Replicate
