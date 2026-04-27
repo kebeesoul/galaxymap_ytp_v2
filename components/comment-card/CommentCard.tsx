@@ -60,6 +60,12 @@ export default function CommentCard({
   const hasYoutubeComments = comments.some(c => c.source === 'youtube')
   const selected = selectedIndices ?? []
 
+  useEffect(() => {
+    originalIdsRef.current = new Set(
+      initialComments.map(c => c.id).filter(Boolean) as string[]
+    )
+  }, [initialComments])
+
   const onCommentsChangeRef = useRef(onCommentsChange)
   onCommentsChangeRef.current = onCommentsChange
   useEffect(() => {
