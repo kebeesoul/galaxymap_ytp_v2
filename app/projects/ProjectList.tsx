@@ -55,7 +55,8 @@ export default function ProjectList({ initialProjects }: { initialProjects: Proj
 
   async function deleteProject(id: string): Promise<string | null> {
     const res = await fetch(`/api/projects/${id}`, { method: 'DELETE' })
-    if (res.ok) return null
+    // 404 = already gone from DB, treat as success so UI removes the stale row
+    if (res.ok || res.status === 404) return null
     const body = (await res.json().catch(() => ({}))) as { error?: string }
     return body.error ?? `HTTP ${res.status}`
   }
