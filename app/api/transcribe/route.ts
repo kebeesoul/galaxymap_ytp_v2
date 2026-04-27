@@ -201,7 +201,13 @@ export async function POST(request: NextRequest) {
           order: idx,
         }))
         const result = await persistSegments(supabase, rows, clip_id)
-        if (result) return result
+        if (!result) {
+          return NextResponse.json(
+            { error: 'Failed to save transcription segments to database' },
+            { status: 500 },
+          )
+        }
+        return result
       }
     } catch {
       // WhisperX worker unavailable — fall through to ingest worker / Replicate
@@ -236,7 +242,13 @@ export async function POST(request: NextRequest) {
           order: idx,
         }))
         const result = await persistSegments(supabase, rows, clip_id)
-        if (result) return result
+        if (!result) {
+          return NextResponse.json(
+            { error: 'Failed to save transcription segments to database' },
+            { status: 500 },
+          )
+        }
+        return result
       }
     } catch {
       // Worker unavailable or failed — fall through to Replicate
