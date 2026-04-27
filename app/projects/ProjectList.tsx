@@ -44,6 +44,23 @@ export default function ProjectList({ initialProjects }: { initialProjects: Proj
     setProjects(initialProjects)
   }, [initialProjects])
 
+  // Immediately show a project that was just created in /projects/new.
+  // sessionStorage bridges the gap between the insert and the server render,
+  // which may return a cached snapshot that predates the insert.
+  useEffect(() => {
+    const raw = sessionStorage.getItem('galaxymap_new_project')
+    if (!raw) return
+    sessionStorage.removeItem('galaxymap_new_project')
+    try {
+      const newProject = JSON.parse(raw) as Project
+      setProjects(prev =>
+        prev.some(p => p.id === newProject.id) ? prev : [newProject, ...prev]
+      )
+    } catch {
+      // malformed data — ignore
+    }
+  }, [])
+
   useEffect(() => {
     const hasImporting = projects.some(
       p => p.import_status === 'pending' || p.import_status === 'processing'

@@ -34,8 +34,9 @@ export default function NewProjectPage() {
       return
     }
 
-    // Full reload guarantees the dashboard server-renders with the new row.
-    // router.push alone can serve a prefetch that predates the insert.
+    // Stash the new project so the dashboard can add it to local state
+    // immediately on mount, regardless of server-render cache timing.
+    sessionStorage.setItem('galaxymap_new_project', JSON.stringify(project))
     window.location.href = '/projects'
   }
 
