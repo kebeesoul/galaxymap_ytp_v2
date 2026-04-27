@@ -1,19 +1,3 @@
-/**
- * galaxymap_ytp_v2 — local render worker
- *
- * Polls Supabase for clips with render_status='pending', renders the matching
- * Remotion composition (LayoutA/B/C) to MP4, uploads to the `renders` bucket,
- * and writes the result back to the clip row.
- *
- * Run from repo root:
- *
- *   npm run render-worker
- *
- * Required env (read from .env.local at the repo root):
- *
- *   NEXT_PUBLIC_SUPABASE_URL
- *   NEXT_PUBLIC_SUPABASE_ANON_KEY     # or SUPABASE_SERVICE_ROLE_KEY (preferred)
- */
 import { createClient } from '@supabase/supabase-js'
 import { bundle } from '@remotion/bundler'
 import { renderMedia, selectComposition } from '@remotion/renderer'
@@ -21,7 +5,6 @@ import { promises as fs, existsSync, readFileSync } from 'fs'
 import path from 'path'
 import os from 'os'
 
-// --- env loading (dotenv-free) -----------------------------------------------
 const REPO_ROOT = process.cwd()
 const ENV_PATH = path.join(REPO_ROOT, '.env.local')
 if (existsSync(ENV_PATH)) {
@@ -43,7 +26,6 @@ if (!SUPABASE_URL || !SUPABASE_KEY) {
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
 
-// --- Remotion bundle (built once, reused per render) -------------------------
 let serveUrlPromise: Promise<string> | null = null
 function ensureBundle(): Promise<string> {
   if (!serveUrlPromise) {
@@ -59,7 +41,6 @@ function ensureBundle(): Promise<string> {
   return serveUrlPromise
 }
 
-// --- helpers -----------------------------------------------------------------
 type CompositionId = 'LayoutA' | 'LayoutB' | 'LayoutC'
 
 function extractLayout(config: unknown): CompositionId {
@@ -140,48 +121,51 @@ async function processJob(clipId: string): Promise<void> {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'galaxymap-render-'))
   const outputPath = path.join(tmpDir, `${clipId}.mp4`)
 
-  let lastReportedPct = 0
-  await renderMedia({
-    composition,
-    serveUrl,
-    codec: 'h264',
-    outputLocation: outputPath,
-    inputProps,
-    onProgress: ({ progress }) => {
-      const pct = Math.round(progress * 100)
-      if (pct - lastReportedPct >= 5) {
-        lastReportedPct = pct
-        supabase
-          .from('clips')
-          .update({ render_progress: pct })
-          .eq('id', clipId)
-          .then(({ error }) => {
-            if (error) console.error(`[progress] ${clipId}: ${error.message}`)
-          })
-      }
-    },
-  })
-
-  const fileBuffer = await fs.readFile(outputPath)
-  const renderPath = `${clipId}/${Date.now()}.mp4`
-  const { error: uploadErr } = await supabase.storage
-    .from('renders')
-    .upload(renderPath, fileBuffer, { contentType: 'video/mp4', upsert: true })
-  if (uploadErr) throw new Error(`upload failed: ${uploadErr.message}`)
-
-  const { error: finalErr } = await supabase
-    .from('clips')
-    .update({
-      render_status: 'success',
-      render_path: renderPath,
-      render_progress: 100,
-      render_error: null,
+  try {
+    let lastReportedPct = 0
+    await renderMedia({
+      composition,
+      serveUrl,
+      codec: 'h264',
+      outputLocation: outputPath,
+      inputProps,
+      onProgress: ({ progress }) => {
+        const pct = Math.round(progress * 100)
+        if (pct - lastReportedPct >= 5) {
+          lastReportedPct = pct
+          supabase
+            .from('clips')
+            .update({ render_progress: pct })
+            .eq('id', clipId)
+            .then(({ error }) => {
+              if (error) console.error(`[progress] ${clipId}: ${error.message}`)
+            })
+        }
+      },
     })
-    .eq('id', clipId)
-  if (finalErr) throw new Error(`final update failed: ${finalErr.message}`)
 
-  await fs.rm(tmpDir, { recursive: true, force: true })
-  console.log(`[OK]  ${clipId}  → ${renderPath}`)
+    const fileBuffer = await fs.readFile(outputPath)
+    const renderPath = `${clipId}/${Date.now()}.mp4`
+    const { error: uploadErr } = await supabase.storage
+      .from('renders')
+      .upload(renderPath, fileBuffer, { contentType: 'video/mp4', upsert: true })
+    if (uploadErr) throw new Error(`upload failed: ${uploadErr.message}`)
+
+    const { error: finalErr } = await supabase
+      .from('clips')
+      .update({
+        render_status: 'success',
+        render_path: renderPath,
+        render_progress: 100,
+        render_error: null,
+      })
+      .eq('id', clipId)
+    if (finalErr) throw new Error(`final update failed: ${finalErr.message}`)
+
+    console.log(`[OK]  ${clipId}  → ${renderPath}`)
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true })
+  }
 }
 
 async function pollOnce(): Promise<void> {
@@ -216,14 +200,13 @@ async function pollOnce(): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  // Reset jobs stuck in 'processing' from a previous crash so they're retried
   await supabase
     .from('clips')
     .update({ render_status: 'pending' })
     .eq('render_status', 'processing')
 
   console.log(`galaxymap render worker — polling every ${POLL_INTERVAL_MS / 1000}s`)
-  await ensureBundle() // pre-bundle so the first job doesn't pay the cost
+  await ensureBundle()
 
   // eslint-disable-next-line no-constant-condition
   while (true) {
