@@ -8,11 +8,18 @@ export async function GET(request: NextRequest) {
   if (!projectId) return NextResponse.json({ error: 'project_id required' }, { status: 400 })
 
   const supabase = createClient()
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('projects')
     .select('import_status, import_error')
     .eq('id', projectId)
     .single()
+
+  if (error && error.code !== 'PGRST116') {
+    return NextResponse.json(
+      { error: 'Failed to fetch import status' },
+      { status: 500 },
+    )
+  }
 
   return NextResponse.json(data ?? {})
 }
