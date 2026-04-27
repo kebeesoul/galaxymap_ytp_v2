@@ -193,18 +193,15 @@ export async function POST(request: NextRequest) {
         const body = (await workerRes.json()) as {
           segments?: Array<{ text: string; start_sec: number; end_sec: number }>
         }
-        const segs = body.segments ?? []
-        if (segs.length > 0) {
-          const rows: LyricsRow[] = segs.map((s, idx) => ({
-            clip_id,
-            text: s.text,
-            start_sec: s.start_sec,
-            end_sec: s.end_sec,
-            order: idx,
-          }))
-          const result = await persistSegments(supabase, rows, clip_id)
-          if (result) return result
-        }
+        const rows: LyricsRow[] = (body.segments ?? []).map((s, idx) => ({
+          clip_id,
+          text: s.text,
+          start_sec: s.start_sec,
+          end_sec: s.end_sec,
+          order: idx,
+        }))
+        const result = await persistSegments(supabase, rows, clip_id)
+        if (result) return result
       }
     } catch {
       // WhisperX worker unavailable — fall through to ingest worker / Replicate
@@ -231,18 +228,15 @@ export async function POST(request: NextRequest) {
         const workerBody = (await workerRes.json()) as {
           segments?: Array<{ text: string; start_sec: number; end_sec: number }>
         }
-        const workerSegs = workerBody.segments ?? []
-        if (workerSegs.length > 0) {
-          const rows: LyricsRow[] = workerSegs.map((s, idx) => ({
-            clip_id,
-            text: s.text,
-            start_sec: s.start_sec,
-            end_sec: s.end_sec,
-            order: idx,
-          }))
-          const result = await persistSegments(supabase, rows, clip_id)
-          if (result) return result
-        }
+        const rows: LyricsRow[] = (workerBody.segments ?? []).map((s, idx) => ({
+          clip_id,
+          text: s.text,
+          start_sec: s.start_sec,
+          end_sec: s.end_sec,
+          order: idx,
+        }))
+        const result = await persistSegments(supabase, rows, clip_id)
+        if (result) return result
       }
     } catch {
       // Worker unavailable or failed — fall through to Replicate
