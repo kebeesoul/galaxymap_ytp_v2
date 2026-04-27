@@ -20,7 +20,14 @@ export async function DELETE(
       .eq('project_id', projectId),
   ])
 
-  if (projectError || !project) {
+  if (projectError) {
+    // PGRST116 = .single() found 0 rows — project is genuinely gone
+    if (projectError.code === 'PGRST116') {
+      return NextResponse.json({ error: 'project not found' }, { status: 404 })
+    }
+    return NextResponse.json({ error: projectError.message }, { status: 500 })
+  }
+  if (!project) {
     return NextResponse.json({ error: 'project not found' }, { status: 404 })
   }
   if (clipsError) {
