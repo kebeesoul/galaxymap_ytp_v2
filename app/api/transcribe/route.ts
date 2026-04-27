@@ -162,12 +162,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'failed to generate signed URL' }, { status: 500 })
   }
 
-  // 4. transcribe_status = 'pending' — skip if already a pending/success (idempotent guard)
-  await supabase
+  // Skip if already pending or successfully transcribed to prevent overwrite
+  const { data: claimed } = await supabase
     .from('clips')
     .update({ transcribe_status: 'pending' })
     .eq('id', clip_id)
-    .not('transcribe_status', 'eq', 'pending')
+    .not('transcribe_status', 'in', '(pending,success)')
+    .select('id')
+  if (!claimed?.length) {
+    return NextResponse.json({ error: 'already pending or already transcribed' }, { status: 409 })
+  }
 
   // C4: try local WhisperX worker first (no API cost, better accuracy)
   const whisperWorkerUrl = process.env.WHISPER_WORKER_URL
