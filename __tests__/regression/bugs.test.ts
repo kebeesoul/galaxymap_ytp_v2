@@ -86,11 +86,12 @@ describe('Bug 4 regression: import/route processing guard', () => {
   /**
    * import/route.ts had no guard against overwriting import_status='processing'.
    * Unlike render/route.ts which already had this guard, import allowed double-triggering.
+   * Uses .or() to also allow queuing when status is null (new projects).
    */
   const src = read('app/api/import/route.ts')
 
-  it('uses .not() guard to prevent overwriting processing status', () => {
-    expect(src).toContain(".not('import_status', 'eq', 'processing')")
+  it('uses .or() guard to prevent overwriting processing status', () => {
+    expect(src).toContain(".or('import_status.is.null,import_status.neq.processing')")
   })
 
   it('returns 409 when project is already processing', () => {
