@@ -131,43 +131,53 @@ export default function ProjectList({ initialProjects }: { initialProjects: Proj
         </div>
       ) : (
         <div className="grid gap-3">
-          {projects.map(project => (
-            <div key={project.id} className="group relative">
-              <Link href={`/editor/${project.id}`}>
-                <div className="flex items-center gap-6 rounded-2xl bg-white px-6 py-5 shadow-[rgba(0,0,0,0.08)_0px_2px_12px] transition-shadow hover:shadow-[rgba(0,0,0,0.14)_0px_4px_20px]">
-                  {project.yt_thumbnail_url ? (
-                    <img
-                      src={project.yt_thumbnail_url}
-                      alt={project.yt_title ?? project.song_title}
-                      className="h-16 w-28 rounded-lg object-cover"
-                    />
-                  ) : (
-                    <div className="h-16 w-28 shrink-0 rounded-lg bg-[#f5f5f7]" />
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-[21px] font-semibold leading-[1.19] tracking-[0.231px] text-[#1d1d1f]">
-                      {project.song_title}
-                    </p>
-                    <p className="mt-0.5 text-[14px] text-[rgba(0,0,0,0.6)]">{project.artist}</p>
+          {[
+            ...projects.filter(p => p.import_status === 'pending' || p.import_status === 'processing'),
+            ...projects.filter(p => p.import_status !== 'pending' && p.import_status !== 'processing'),
+          ].map(project => {
+            const isImporting = project.import_status === 'pending' || project.import_status === 'processing'
+            return (
+              <div key={project.id} className="group relative">
+                <Link href={`/editor/${project.id}`}>
+                  <div className={`flex items-center gap-6 rounded-2xl px-6 py-5 transition-shadow ${
+                    isImporting
+                      ? 'bg-amber-50 ring-1 ring-amber-200 shadow-[rgba(0,0,0,0.06)_0px_2px_12px] hover:shadow-[rgba(0,0,0,0.12)_0px_4px_20px]'
+                      : 'bg-white shadow-[rgba(0,0,0,0.08)_0px_2px_12px] hover:shadow-[rgba(0,0,0,0.14)_0px_4px_20px]'
+                  }`}>
+                    {project.yt_thumbnail_url ? (
+                      <img
+                        src={project.yt_thumbnail_url}
+                        alt={project.yt_title ?? project.song_title}
+                        className="h-16 w-28 rounded-lg object-cover"
+                      />
+                    ) : (
+                      <div className={`h-16 w-28 shrink-0 rounded-lg ${isImporting ? 'bg-amber-100' : 'bg-[#f5f5f7]'}`} />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-[21px] font-semibold leading-[1.19] tracking-[0.231px] text-[#1d1d1f]">
+                        {project.song_title}
+                      </p>
+                      <p className="mt-0.5 text-[14px] text-[rgba(0,0,0,0.6)]">{project.artist}</p>
+                    </div>
+                    <ImportStatusBadge status={project.import_status} />
                   </div>
-                  <ImportStatusBadge status={project.import_status} />
-                </div>
-              </Link>
+                </Link>
 
-              <button
-                onClick={() => handleDelete(project.id)}
-                disabled={deleting === project.id}
-                className="absolute right-4 top-1/2 -translate-y-1/2 flex h-7 w-7 items-center justify-center rounded-full bg-white text-[rgba(0,0,0,0.3)] opacity-0 shadow-sm transition-all hover:bg-red-50 hover:text-red-500 group-hover:opacity-100 disabled:opacity-40"
-                title="삭제"
-              >
-                {deleting === project.id ? (
-                  <span className="h-3 w-3 animate-spin rounded-full border border-red-300 border-t-red-500" />
-                ) : (
-                  <span className="text-[14px] leading-none">✕</span>
-                )}
-              </button>
-            </div>
-          ))}
+                <button
+                  onClick={() => handleDelete(project.id)}
+                  disabled={deleting === project.id}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 flex h-7 w-7 items-center justify-center rounded-full bg-white text-[rgba(0,0,0,0.3)] opacity-0 shadow-sm transition-all hover:bg-red-50 hover:text-red-500 group-hover:opacity-100 disabled:opacity-40"
+                  title="삭제"
+                >
+                  {deleting === project.id ? (
+                    <span className="h-3 w-3 animate-spin rounded-full border border-red-300 border-t-red-500" />
+                  ) : (
+                    <span className="text-[14px] leading-none">✕</span>
+                  )}
+                </button>
+              </div>
+            )
+          })}
         </div>
       )}
     </>
