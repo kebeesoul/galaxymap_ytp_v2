@@ -1,9 +1,4 @@
-function formatDuration(sec: number | null): string {
-  if (!sec) return '--:--'
-  const m = Math.floor(sec / 60)
-  const s = sec % 60
-  return `${m}:${s.toString().padStart(2, '0')}`
-}
+import { formatMss } from '@/lib/utils/time'
 
 interface Props {
   thumbnailUrl: string | null
@@ -28,7 +23,7 @@ export default function VideoPreview({ thumbnailUrl, title, durationSec }: Props
           {title ?? '—'}
         </p>
         <p className="mt-1 text-[14px] tracking-[-0.224px] text-[rgba(255,255,255,0.48)]">
-          {formatDuration(durationSec)}
+          {durationSec ? formatMss(durationSec) : '--:--'}
         </p>
       </div>
     </div>

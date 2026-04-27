@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { formatMss } from '@/lib/utils/time'
 import ClipEditor from '@/components/video-editor/ClipEditor'
 import VideoPreview from '@/components/video-editor/VideoPreview'
 import type { Project, Clip, LyricsSegment, Comment, Template } from '@/lib/types'
@@ -94,8 +95,7 @@ export default function EditorClient({
             )}
             {project.yt_duration_sec && (
               <p className="mt-1 text-[14px] text-[rgba(255,255,255,0.3)]">
-                {Math.floor(project.yt_duration_sec / 60)}:
-                {(project.yt_duration_sec % 60).toString().padStart(2, '0')}
+                {formatMss(project.yt_duration_sec)}
               </p>
             )}
             <a
