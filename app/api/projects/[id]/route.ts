@@ -8,15 +8,17 @@ export async function DELETE(
   const projectId = params.id
   const supabase = createClient()
 
-  const [{ data: project, error: projectError }, { data: clips, error: clipsError }] = await Promise.all([
+  const [{ data: project, error: projectError }, { data: clipData, error: clipsError }] = await Promise.all([
     supabase
       .from('projects')
       .select('id, yt_source_path')
       .eq('id', projectId)
       .single(),
+    // select('*') avoids "column does not exist" errors when schema migrations
+    // have not yet been applied — PostgREST returns only the columns that exist.
     supabase
       .from('clips')
-      .select('id, bgm_url, render_path')
+      .select('*')
       .eq('project_id', projectId),
   ])
 
@@ -30,9 +32,12 @@ export async function DELETE(
   if (!project) {
     return NextResponse.json({ error: 'project not found' }, { status: 404 })
   }
+  // Clips query failure (e.g. missing migration columns) is non-fatal: the DB
+  // cascade still removes all clip rows; only storage cleanup is skipped.
   if (clipsError) {
-    return NextResponse.json({ error: clipsError.message }, { status: 500 })
+    console.error('[delete project] clips query failed:', clipsError.message)
   }
+  const clips = clipsError ? [] : (clipData ?? [])
 
   // Collect every storage path attached to this project
   const sourcesPaths: string[] = []
