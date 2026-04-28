@@ -90,6 +90,7 @@ interface Props {
     yt_thumbnail_url: string | null
     yt_title: string | null
     song_lyrics: string | null
+    song_lyrics_timestamps: unknown
   }
   initialClips: Clip[]
   initialSegmentsByClip: Record<string, LyricsSegment[]>
@@ -231,14 +232,30 @@ export default function ClipEditor({
   // Line range for the current clip-in-progress (0-based indices into allLines)
   const [regionLineFrom, setRegionLineFrom] = useState<number | null>(null)
   const [regionLineTo, setRegionLineTo] = useState<number | null>(null)
-  // User-adjustable offset to correct linear mapping discrepancy (e.g. intro/outro)
+  // User-adjustable offset (fallback when no timestamps are set)
   const [lyricsShift, setLyricsShift] = useState(0)
   const prevLyricsLineRef = useRef<number | null>(null)
+
+  // Per-line timestamps for accurate sync (parallel array to allLines)
+  const [lyricsTimestamps, setLyricsTimestamps] = useState<(number | null)[]>(() => {
+    const raw = project.song_lyrics_timestamps
+    if (!Array.isArray(raw)) return []
+    return raw.map(v => (typeof v === 'number' ? v : null))
+  })
+  const [lyricsSyncMode, setLyricsSyncMode] = useState(false)
+  const [lyricsSyncTapIdx, setLyricsSyncTapIdx] = useState(0)
+  const [savingLyricsTimestamps, setSavingLyricsTimestamps] = useState(false)
+  const lyricsTapButtonRefs = useRef<Map<number, HTMLButtonElement>>(new Map())
 
   // Derived lines from project-level lyrics
   const allLines = useMemo(
     () => songLyrics.split('\n').map(l => l.trim()).filter(Boolean),
     [songLyrics]
+  )
+
+  const hasLyricsTimestamps = useMemo(
+    () => lyricsTimestamps.some(t => t !== null),
+    [lyricsTimestamps]
   )
 
   const pollingIntervalsRef = useRef<Record<string, ReturnType<typeof setInterval>>>({})
@@ -499,12 +516,37 @@ export default function ClipEditor({
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [])
 
+  // Resize lyricsTimestamps when lyrics lines change (add/remove lines)
+  useEffect(() => {
+    setLyricsTimestamps(prev => {
+      if (prev.length === allLines.length) return prev
+      const next: (number | null)[] = new Array(allLines.length).fill(null)
+      for (let i = 0; i < Math.min(prev.length, next.length); i++) next[i] = prev[i]
+      return next
+    })
+  }, [allLines.length])
+
   // Auto-detect which lyrics lines correspond to the selected waveform region
   useEffect(() => {
     if (startSec === null || endSec === null || allLines.length === 0) {
       setRegionLineFrom(null)
       setRegionLineTo(null)
       return
+    }
+    if (hasLyricsTimestamps) {
+      let from = -1, to = -1
+      for (let i = 0; i < lyricsTimestamps.length; i++) {
+        const t = lyricsTimestamps[i]
+        if (t !== null && t >= startSec && t <= endSec) {
+          if (from === -1) from = i
+          to = i
+        }
+      }
+      if (from !== -1) {
+        setRegionLineFrom(from)
+        setRegionLineTo(to)
+        return
+      }
     }
     const totalDur = project.yt_duration_sec ?? 0
     if (!totalDur) return
@@ -515,14 +557,24 @@ export default function ClipEditor({
     )
     setRegionLineFrom(from)
     setRegionLineTo(Math.max(from, to))
-  }, [startSec, endSec, allLines.length, project.yt_duration_sec])
+  }, [startSec, endSec, allLines.length, project.yt_duration_sec, hasLyricsTimestamps, lyricsTimestamps, lyricsShift])
 
-  // Current line index driven by playback position (follows cursor in real time)
+  // Current line index driven by playback position — uses explicit timestamps when set
   const currentLyricsLineIdx = useMemo(() => {
-    if (allLines.length === 0 || !project.yt_duration_sec) return null
+    if (allLines.length === 0) return null
+    if (hasLyricsTimestamps) {
+      let best = -1
+      for (let i = 0; i < lyricsTimestamps.length; i++) {
+        if (lyricsTimestamps[i] !== null && lyricsTimestamps[i]! <= currentTime) best = i
+      }
+      if (best >= 0) return best
+      const first = lyricsTimestamps.findIndex(t => t !== null)
+      return Math.max(0, first - 1)
+    }
+    if (!project.yt_duration_sec) return null
     const raw = Math.floor((currentTime / project.yt_duration_sec) * allLines.length) + lyricsShift
     return Math.max(0, Math.min(allLines.length - 1, raw))
-  }, [currentTime, allLines.length, project.yt_duration_sec, lyricsShift])
+  }, [currentTime, allLines.length, lyricsTimestamps, hasLyricsTimestamps, project.yt_duration_sec, lyricsShift])
 
   // Auto-scroll so the currently playing line stays visible; only triggers on line change
   useEffect(() => {
@@ -554,6 +606,40 @@ export default function ClipEditor({
       setLyricsError(error.message)
     }
     setSavingProjectLyrics(false)
+  }
+
+  async function saveLyricsTimestamps(timestamps: (number | null)[]) {
+    setSavingLyricsTimestamps(true)
+    const resized: (number | null)[] = Array.from({ length: allLines.length }, (_, i) => timestamps[i] ?? null)
+    await supabase
+      .from('projects')
+      .update({ song_lyrics_timestamps: resized as unknown as Json })
+      .eq('id', project.id)
+    setSavingLyricsTimestamps(false)
+  }
+
+  function handleTapLyricsSync(idx: number) {
+    const t = videoRef.current?.currentTime ?? currentTime
+    const next = [...lyricsTimestamps]
+    next[idx] = t
+    setLyricsTimestamps(next)
+    if (idx === allLines.length - 1) {
+      setLyricsSyncMode(false)
+      setLyricsSyncTapIdx(0)
+      void saveLyricsTimestamps(next)
+    } else {
+      const nextIdx = idx + 1
+      setLyricsSyncTapIdx(nextIdx)
+      setTimeout(() => {
+        lyricsTapButtonRefs.current.get(nextIdx)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+      }, 0)
+    }
+  }
+
+  function handleResetLyricsTimestamps() {
+    const cleared: (number | null)[] = new Array(allLines.length).fill(null)
+    setLyricsTimestamps(cleared)
+    void saveLyricsTimestamps(cleared)
   }
 
   // Click a line in the lyrics list to expand / contract the selected range
@@ -903,30 +989,79 @@ export default function ClipEditor({
             {allLines.length > 0 && !lyricsEditOpen && (
               <span className="text-[12px] text-[rgba(255,255,255,0.3)]">{allLines.length}줄</span>
             )}
+            {hasLyricsTimestamps && !lyricsEditOpen && (
+              <span className="text-[11px] text-[#2997ff]/60">싱크 완료</span>
+            )}
           </div>
           <div className="flex items-center gap-2">
-            {allLines.length > 0 && !lyricsEditOpen && (
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => setLyricsShift(s => s - 1)}
-                  className="flex h-5 w-5 items-center justify-center rounded bg-[#272729] text-[13px] text-[rgba(255,255,255,0.5)] transition-colors hover:bg-[#2a2a2d] hover:text-white"
-                  title="가사 1줄 앞으로"
-                >
-                  −
-                </button>
-                <span className="w-8 text-center font-mono text-[11px] text-[rgba(255,255,255,0.4)]">
-                  {lyricsShift > 0 ? `+${lyricsShift}` : lyricsShift}
+            {allLines.length > 0 && !lyricsEditOpen && lyricsSyncMode && (
+              <>
+                <span className="text-[11px] text-red-400/80">
+                  다음: {lyricsSyncTapIdx + 1}번 줄
                 </span>
                 <button
-                  onClick={() => setLyricsShift(s => s + 1)}
-                  className="flex h-5 w-5 items-center justify-center rounded bg-[#272729] text-[13px] text-[rgba(255,255,255,0.5)] transition-colors hover:bg-[#2a2a2d] hover:text-white"
-                  title="가사 1줄 뒤로"
+                  onClick={() => {
+                    void saveLyricsTimestamps(lyricsTimestamps)
+                    setLyricsSyncMode(false)
+                    setLyricsSyncTapIdx(0)
+                  }}
+                  disabled={savingLyricsTimestamps}
+                  className="rounded-lg bg-[#0071e3] px-3 py-1 text-[12px] text-white disabled:opacity-40"
                 >
-                  +
+                  {savingLyricsTimestamps ? '저장 중…' : '저장'}
                 </button>
-              </div>
+                <button
+                  onClick={() => { setLyricsSyncMode(false); setLyricsSyncTapIdx(0) }}
+                  className="text-[12px] text-[rgba(255,255,255,0.35)] transition-colors hover:text-white"
+                >
+                  취소
+                </button>
+              </>
             )}
-            {!lyricsEditOpen && (
+            {allLines.length > 0 && !lyricsEditOpen && !lyricsSyncMode && (
+              <>
+                {!hasLyricsTimestamps && (
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setLyricsShift(s => s - 1)}
+                      className="flex h-5 w-5 items-center justify-center rounded bg-[#272729] text-[13px] text-[rgba(255,255,255,0.5)] transition-colors hover:bg-[#2a2a2d] hover:text-white"
+                      title="가사 1줄 앞으로"
+                    >
+                      −
+                    </button>
+                    <span className="w-8 text-center font-mono text-[11px] text-[rgba(255,255,255,0.4)]">
+                      {lyricsShift > 0 ? `+${lyricsShift}` : lyricsShift}
+                    </span>
+                    <button
+                      onClick={() => setLyricsShift(s => s + 1)}
+                      className="flex h-5 w-5 items-center justify-center rounded bg-[#272729] text-[13px] text-[rgba(255,255,255,0.5)] transition-colors hover:bg-[#2a2a2d] hover:text-white"
+                      title="가사 1줄 뒤로"
+                    >
+                      +
+                    </button>
+                  </div>
+                )}
+                {hasLyricsTimestamps && (
+                  <button
+                    onClick={handleResetLyricsTimestamps}
+                    className="text-[11px] text-[rgba(255,255,255,0.25)] transition-colors hover:text-red-400"
+                    title="싱크 초기화"
+                  >
+                    초기화
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    setLyricsSyncMode(true)
+                    setLyricsSyncTapIdx(0)
+                  }}
+                  className="rounded-lg bg-[#272729] px-3 py-1 text-[12px] text-[rgba(255,255,255,0.5)] transition-colors hover:bg-[#2a2a2d] hover:text-white"
+                >
+                  싱크 맞추기
+                </button>
+              </>
+            )}
+            {!lyricsEditOpen && !lyricsSyncMode && (
               <button
                 onClick={() => setLyricsEditOpen(true)}
                 className="text-[12px] text-[rgba(255,255,255,0.35)] transition-colors hover:text-white"
@@ -975,6 +1110,11 @@ export default function ClipEditor({
           </>
         ) : (
           <>
+            {lyricsSyncMode && (
+              <p className="mb-2 text-[11px] text-red-400/80">
+                ▶ 음악 재생 후, 각 줄이 시작되는 순간 ● 버튼을 누르세요 — 강조된 줄이 다음 차례
+              </p>
+            )}
             <div ref={lyricsScrollRef} className="max-h-52 overflow-y-auto space-y-px pr-1">
               {allLines.length === 0 ? (
                 <p className="py-4 text-center text-[13px] text-[rgba(255,255,255,0.2)]">
@@ -988,11 +1128,46 @@ export default function ClipEditor({
                     i >= regionLineFrom &&
                     i <= regionLineTo
                   const isCurrent = currentLyricsLineIdx === i
+                  const isNextTap = lyricsSyncMode && i === lyricsSyncTapIdx
+                  const ts = lyricsTimestamps[i]
+                  if (lyricsSyncMode) {
+                    return (
+                      <div
+                        key={i}
+                        className={`flex items-center gap-2 rounded px-2 py-0.5 ${isNextTap ? 'bg-red-500/10' : ''}`}
+                      >
+                        <button
+                          ref={el => {
+                            if (el) lyricsTapButtonRefs.current.set(i, el)
+                            else lyricsTapButtonRefs.current.delete(i)
+                          }}
+                          type="button"
+                          onClick={() => handleTapLyricsSync(i)}
+                          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-white transition-all hover:scale-110 active:scale-95 ${
+                            isNextTap
+                              ? 'scale-110 bg-red-500 ring-2 ring-red-400 ring-offset-1 ring-offset-[#1d1d1f]'
+                              : 'bg-red-900/50 hover:bg-red-500'
+                          }`}
+                          title="지금 재생 위치로 싱크"
+                        >
+                          <span className="text-[8px] leading-none">●</span>
+                        </button>
+                        <span className="flex-1 text-[13px] leading-snug text-[rgba(255,255,255,0.6)]">
+                          {line}
+                        </span>
+                        {ts !== null && (
+                          <span className="font-mono text-[10px] text-[#2997ff]/60">
+                            {formatTime(ts)}
+                          </span>
+                        )}
+                      </div>
+                    )
+                  }
                   return (
                     <div
                       key={i}
                       onClick={() => handleLyricsLineClick(i)}
-                      className={`flex cursor-pointer select-none gap-3 rounded px-2 py-1 transition-colors ${
+                      className={`flex cursor-pointer select-none items-center gap-3 rounded px-2 py-1 transition-colors ${
                         isCurrent
                           ? 'bg-[rgba(255,255,255,0.07)]'
                           : inRange
@@ -1005,17 +1180,22 @@ export default function ClipEditor({
                       }`}>
                         {isCurrent ? '▶' : i + 1}
                       </span>
-                      <span className={`text-[13px] leading-snug ${
+                      <span className={`flex-1 text-[13px] leading-snug ${
                         isCurrent ? 'font-medium text-white' : inRange ? 'text-white' : 'text-[rgba(255,255,255,0.45)]'
                       }`}>
                         {line}
                       </span>
+                      {ts !== null && (
+                        <span className={`font-mono text-[10px] ${isCurrent ? 'text-[#2997ff]' : 'text-[rgba(255,255,255,0.18)]'}`}>
+                          {formatTime(ts)}
+                        </span>
+                      )}
                     </div>
                   )
                 })
               )}
             </div>
-            {allLines.length > 0 && regionLineFrom !== null && regionLineTo !== null && (
+            {!lyricsSyncMode && allLines.length > 0 && regionLineFrom !== null && regionLineTo !== null && (
               <p className="mt-2 text-[11px] text-[#2997ff]">
                 {regionLineFrom + 1}~{regionLineTo + 1}번 줄 선택 ({regionLineTo - regionLineFrom + 1}줄) — 클릭해서 범위 조정
               </p>
