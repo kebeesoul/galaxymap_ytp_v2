@@ -7,7 +7,7 @@ import type { Tables } from '@/lib/supabase/types'
 
 type Project = Tables<'projects'>
 
-function ImportStatusBadge({ status }: { status: string | null }) {
+function ImportStatusBadge({ status, importError }: { status: string | null; importError?: string | null }) {
   if (status === 'success')
     return (
       <span className="shrink-0 rounded-full bg-green-100 px-3 py-1 text-[12px] font-medium text-green-700">
@@ -23,9 +23,19 @@ function ImportStatusBadge({ status }: { status: string | null }) {
     )
   if (status === 'failed')
     return (
-      <span className="shrink-0 rounded-full bg-red-100 px-3 py-1 text-[12px] font-medium text-red-700">
-        Failed
-      </span>
+      <div className="flex shrink-0 flex-col items-end gap-1">
+        <span className="rounded-full bg-red-100 px-3 py-1 text-[12px] font-medium text-red-700">
+          Failed
+        </span>
+        {importError && (
+          <span
+            className="max-w-[220px] truncate text-[11px] text-red-400 cursor-default"
+            title={importError}
+          >
+            {importError}
+          </span>
+        )}
+      </div>
     )
   return (
     <span className="shrink-0 rounded-full bg-[#f5f5f7] px-3 py-1 text-[12px] text-[rgba(0,0,0,0.4)]">
@@ -107,7 +117,7 @@ export default function ProjectList({ initialProjects }: { initialProjects: Proj
 
   return (
     <>
-      <p className="fixed right-4 top-3 text-[11px] text-[rgba(0,0,0,0.28)] select-none pointer-events-none">
+      <p className="fixed left-4 top-3 text-[11px] text-[rgba(0,0,0,0.28)] select-none pointer-events-none">
         ytp dashboard created by galaxymap
       </p>
       <div className="mb-12 flex items-center justify-between">
@@ -179,7 +189,7 @@ export default function ProjectList({ initialProjects }: { initialProjects: Proj
                       </p>
                       <p className="mt-0.5 text-[14px] text-[rgba(0,0,0,0.6)]">{project.artist}</p>
                     </div>
-                    <ImportStatusBadge status={project.import_status} />
+                    <ImportStatusBadge status={project.import_status} importError={project.import_error} />
                   </div>
                 </Link>
 
