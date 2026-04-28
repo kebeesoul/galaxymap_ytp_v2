@@ -1,8 +1,9 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { createClient } from '@/lib/supabase/client'
 import type { Tables } from '@/lib/supabase/types'
 
 type Project = Tables<'projects'>
@@ -49,6 +50,7 @@ export default function ProjectList({ initialProjects }: { initialProjects: Proj
   const [deleting, setDeleting] = useState<string | null>(null)
   const [deletingAll, setDeletingAll] = useState(false)
   const router = useRouter()
+  const supabase = useMemo(() => createClient(), [])
 
   useEffect(() => {
     setProjects(initialProjects)
@@ -71,6 +73,47 @@ export default function ProjectList({ initialProjects }: { initialProjects: Proj
     }
   }, [])
 
+  // Supabase Realtime: keep dashboard in sync with DB changes from any source
+  // (ingest worker, direct Supabase edits, other sessions)
+  useEffect(() => {
+    const channel = supabase
+      .channel('projects-dashboard')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'projects' },
+        (payload) => {
+          const row = payload.new as Project
+          setProjects(prev => prev.some(p => p.id === row.id) ? prev : [row, ...prev])
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'projects' },
+        (payload) => {
+          const row = payload.new as Project
+          setProjects(prev => prev.map(p => p.id === row.id ? row : p))
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'DELETE', schema: 'public', table: 'projects' },
+        (payload) => {
+          const old = payload.old as { id?: string }
+          if (old.id) setProjects(prev => prev.filter(p => p.id !== old.id))
+        }
+      )
+      .subscribe()
+    return () => { channel.unsubscribe(); supabase.removeChannel(channel) }
+  }, [supabase])
+
+  // Window focus → refresh server snapshot (fallback when Realtime is unavailable)
+  useEffect(() => {
+    const onFocus = () => router.refresh()
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [router])
+
+  // Polling fallback for pending/processing imports (in case Realtime misses an update)
   useEffect(() => {
     const hasImporting = projects.some(
       p => p.import_status === 'pending' || p.import_status === 'processing'
