@@ -117,7 +117,7 @@ export default function ProjectList({ initialProjects }: { initialProjects: Proj
 
   return (
     <>
-      <p className="fixed right-4 top-3 text-[11px] text-[rgba(0,0,0,0.28)] select-none pointer-events-none">
+      <p className="fixed left-4 top-3 text-[11px] text-[rgba(0,0,0,0.28)] select-none pointer-events-none">
         ytp dashboard created by galaxymap
       </p>
       <div className="mb-12 flex items-center justify-between">
