@@ -141,7 +141,9 @@ export default function ProjectList({ initialProjects }: { initialProjects: Proj
     }
     setProjects(prev => prev.filter(p => p.id !== id))
     setDeleting(null)
-    router.refresh()
+    // No router.refresh() — calling it causes useEffect([initialProjects]) to overwrite
+    // local state with a server snapshot that may still contain the just-deleted row,
+    // making the project reappear. Realtime DELETE handles server-side confirmation.
   }
 
   async function handleDeleteAll() {
@@ -155,7 +157,6 @@ export default function ProjectList({ initialProjects }: { initialProjects: Proj
     }
     setProjects(prev => prev.filter((_, i) => results[i] !== null))
     setDeletingAll(false)
-    router.refresh()
   }
 
   return (
