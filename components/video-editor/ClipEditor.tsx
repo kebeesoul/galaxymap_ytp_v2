@@ -127,6 +127,9 @@ export default function ClipEditor({
     setVideoEl(el)
   }, [])
   const [currentTime, setCurrentTime] = useState(0)
+  // Per-clip preview playback time (absolute video seconds) — drives subtitle active-line highlight
+  // and the "싱크 맞추기" tap, so the source of truth is the preview, not the top original video.
+  const [previewTimeByClip, setPreviewTimeByClip] = useState<Record<string, number>>({})
   const [startSec, setStartSec] = useState<number | null>(null)
   const [endSec, setEndSec] = useState<number | null>(null)
   const [clips, setClips] = useState<Clip[]>(initialClips)
@@ -1642,8 +1645,7 @@ export default function ClipEditor({
                           key={`${clip.id}-${segments.length}`}
                           clipId={clip.id}
                           initialSegments={segments}
-                          currentTime={currentTime}
-                          onSeek={handleSeek}
+                          currentTime={previewTimeByClip[clip.id]}
                           noWrapper
                         />
                       </div>
@@ -1795,6 +1797,7 @@ export default function ClipEditor({
                   comments={filteredComments}
                   layout={getLayoutForClip(templates, templateIdsByClip[clip.id] ?? null)}
                   signedUrl={signedUrl}
+                  onTimeUpdate={(t) => setPreviewTimeByClip(prev => ({ ...prev, [clip.id]: t }))}
                 />
 
                 {/* ⑥ 렌더 */}

@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { Tables } from '@/lib/supabase/types'
 import { formatTime } from '@/lib/utils/time'
@@ -19,14 +19,17 @@ interface Props {
   clipId: string
   initialSegments: Segment[]
   currentTime?: number
-  onSeek?: (sec: number) => void
   /** When true, skips the outer rounded card wrapper and h3 title (used inside a parent <details>) */
   noWrapper?: boolean
 }
 
 let _localIdCounter = 0
 
-export default function SubtitleEditor({ clipId, initialSegments, currentTime, onSeek, noWrapper }: Props) {
+// Drag sensitivity: how many seconds the timestamp moves per pixel of vertical mouse drag.
+// 0.05s/px → 1s = 20px, fine enough for 0.1s nudges (2px) yet quick for ~5s reach (100px).
+const SECONDS_PER_PIXEL = 0.05
+
+export default function SubtitleEditor({ clipId, initialSegments, currentTime, noWrapper }: Props) {
   const [segments, setSegments] = useState<LocalSegment[]>(() =>
     initialSegments.map(seg => ({
       localId: _localIdCounter++,
@@ -48,6 +51,44 @@ export default function SubtitleEditor({ clipId, initialSegments, currentTime, o
   )
   const inputRefs = useRef<Map<number, HTMLTextAreaElement>>(new Map())
   const tapButtonRefs = useRef<Map<number, HTMLButtonElement>>(new Map())
+
+  // Drag-to-adjust state for timecodes: vertical drag changes start_sec.
+  // Mouse up → earlier, mouse down → later. Previous segment's end_sec follows to avoid gaps.
+  const [dragIdx, setDragIdx] = useState<number | null>(null)
+  const dragStateRef = useRef<{ idx: number; startY: number; startSec: number } | null>(null)
+
+  useEffect(() => {
+    if (dragIdx === null) return
+    function handleMove(e: MouseEvent) {
+      const s = dragStateRef.current
+      if (!s) return
+      const deltaY = e.clientY - s.startY
+      const newStart = Math.max(0, s.startSec + deltaY * SECONDS_PER_PIXEL)
+      setSegments(prev => {
+        const updated = [...prev]
+        updated[s.idx] = { ...updated[s.idx], start_sec: newStart }
+        if (s.idx > 0) updated[s.idx - 1] = { ...updated[s.idx - 1], end_sec: newStart }
+        return updated
+      })
+    }
+    function handleUp() {
+      dragStateRef.current = null
+      setDragIdx(null)
+    }
+    document.addEventListener('mousemove', handleMove)
+    document.addEventListener('mouseup', handleUp)
+    return () => {
+      document.removeEventListener('mousemove', handleMove)
+      document.removeEventListener('mouseup', handleUp)
+    }
+  }, [dragIdx])
+
+  function handleTimecodeMouseDown(idx: number, e: React.MouseEvent<HTMLButtonElement>) {
+    e.preventDefault()
+    const seg = segments[idx]
+    dragStateRef.current = { idx, startY: e.clientY, startSec: seg.start_sec }
+    setDragIdx(idx)
+  }
 
   const supabase = useMemo(() => createClient(), [])
 
@@ -243,7 +284,7 @@ export default function SubtitleEditor({ clipId, initialSegments, currentTime, o
           </h3>
         )}
         <div className="flex items-center gap-2">
-          {onSeek && (
+          {currentTime !== undefined && (
             <button
               onClick={() => {
                 setSyncMode(prev => {
@@ -280,11 +321,11 @@ export default function SubtitleEditor({ clipId, initialSegments, currentTime, o
 
       {syncMode ? (
         <p className="mb-2 text-[11px] text-red-400/80">
-          ▶ 음악 재생 후, 각 줄이 시작되는 순간 ● 버튼을 누르면 싱크가 설정됩니다 — 강조된 줄이 다음 차례
+          ▶ 미리보기 재생 후, 각 줄이 시작되는 순간 ● 버튼을 누르면 싱크가 설정됩니다 — 강조된 줄이 다음 차례
         </p>
-      ) : onSeek ? (
+      ) : currentTime !== undefined ? (
         <p className="mb-2 text-[11px] text-[rgba(255,255,255,0.2)]">
-          타임코드 클릭 → 해당 위치로 이동 &nbsp;·&nbsp; 싱크 맞추기 → 재생 중 각 줄 시작 시점에 ● 탭
+          타임코드 위·아래 드래그 → 시작 시간 미세 조정 &nbsp;·&nbsp; 싱크 맞추기 → 미리보기 재생 중 각 줄 시작 시점에 ● 탭
         </p>
       ) : null}
 
@@ -319,13 +360,14 @@ export default function SubtitleEditor({ clipId, initialSegments, currentTime, o
               ) : (
                 <button
                   type="button"
-                  onClick={() => onSeek?.(seg.start_sec)}
-                  className={`mt-2 w-16 shrink-0 text-left font-mono text-[11px] transition-colors ${
-                    isActive
+                  onMouseDown={(e) => handleTimecodeMouseDown(idx, e)}
+                  title="위·아래로 드래그하여 시작 시간 조정"
+                  className={`mt-2 w-16 shrink-0 select-none text-left font-mono text-[11px] transition-colors cursor-ns-resize ${
+                    dragIdx === idx
                       ? 'text-[#2997ff]'
-                      : onSeek
-                        ? 'text-[rgba(255,255,255,0.3)] hover:text-[#2997ff]'
-                        : 'cursor-default text-[rgba(255,255,255,0.2)]'
+                      : isActive
+                        ? 'text-[#2997ff]'
+                        : 'text-[rgba(255,255,255,0.3)] hover:text-[#2997ff]'
                   }`}
                 >
                   {formatTime(seg.start_sec)}

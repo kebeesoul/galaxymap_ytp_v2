@@ -1,7 +1,7 @@
 'use client'
 
-import { memo } from 'react'
-import { Player } from '@remotion/player'
+import { memo, useEffect, useRef } from 'react'
+import { Player, type PlayerRef } from '@remotion/player'
 import LayoutA from '@/remotion/compositions/LayoutA'
 import LayoutB from '@/remotion/compositions/LayoutB'
 import LayoutC from '@/remotion/compositions/LayoutC'
@@ -17,13 +17,38 @@ interface Props {
   comments: Comment[]
   layout: 'LAYOUT_A' | 'LAYOUT_B' | 'LAYOUT_C'
   signedUrl: string | null
+  /** Called with absolute video time (clip.start_sec + preview frame time) on every frame update. */
+  onTimeUpdate?: (absSec: number) => void
 }
 
 function calcFrames(startSec: number, endSec: number): number {
   return Math.max(1, Math.round((endSec - startSec) * FPS))
 }
 
-function CanvasPreview({ clip, segments, comments, layout, signedUrl }: Props) {
+function CanvasPreview({ clip, segments, comments, layout, signedUrl, onTimeUpdate }: Props) {
+  const playerRef = useRef<PlayerRef>(null)
+  const startSecRef = useRef(clip.start_sec)
+  const onTimeUpdateRef = useRef(onTimeUpdate)
+  startSecRef.current = clip.start_sec
+  onTimeUpdateRef.current = onTimeUpdate
+
+  useEffect(() => {
+    const player = playerRef.current
+    if (!player) return
+    let lastUpdate = 0
+    const handler = () => {
+      const cb = onTimeUpdateRef.current
+      if (!cb) return
+      const now = performance.now()
+      // Throttle to ~10 updates/sec — enough for active-line highlighting
+      if (now - lastUpdate < 100) return
+      lastUpdate = now
+      cb(startSecRef.current + player.getCurrentFrame() / FPS)
+    }
+    player.addEventListener('frameupdate', handler)
+    return () => player.removeEventListener('frameupdate', handler)
+  }, [signedUrl, layout])
+
   if (!signedUrl) {
     return (
       <details className="group rounded-xl bg-[#1d1d1f]" open>
@@ -60,6 +85,7 @@ function CanvasPreview({ clip, segments, comments, layout, signedUrl }: Props) {
           {layout === 'LAYOUT_A' ? (
             <Player
               key={layout}
+              ref={playerRef}
               {...commonPlayerProps}
               component={LayoutA}
               inputProps={{ clip, segments, comments, preview_path: signedUrl }}
@@ -67,6 +93,7 @@ function CanvasPreview({ clip, segments, comments, layout, signedUrl }: Props) {
           ) : layout === 'LAYOUT_B' ? (
             <Player
               key={layout}
+              ref={playerRef}
               {...commonPlayerProps}
               component={LayoutB}
               inputProps={{ clip, segments, preview_path: signedUrl }}
@@ -74,6 +101,7 @@ function CanvasPreview({ clip, segments, comments, layout, signedUrl }: Props) {
           ) : (
             <Player
               key={layout}
+              ref={playerRef}
               {...commonPlayerProps}
               component={LayoutC}
               inputProps={{ clip, comments, preview_path: signedUrl }}
