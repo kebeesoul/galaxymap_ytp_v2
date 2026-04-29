@@ -1,10 +1,21 @@
 services:
-  ingest:
+  ingest-server:
     build:
       context: ./workers/ingest
+    command: uvicorn server:app --host 0.0.0.0 --port 8001
     env_file:
       - .env.local
     environment:
       - PYTHONUNBUFFERED=1
     ports:
       - "8001:8001"
+
+  ingest-worker:
+    build:
+      context: ./workers/ingest
+    command: python -u worker.py
+    env_file:
+      - .env.local
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
