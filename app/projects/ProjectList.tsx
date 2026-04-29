@@ -50,19 +50,34 @@ export default function ProjectList({ initialProjects }: { initialProjects: Proj
   const [deletingAll, setDeletingAll] = useState(false)
   const supabase = useMemo(() => createClient(), [])
 
-  // Merge server snapshot with local state instead of overwriting:
-  // keep any locally-added pending/processing projects that the server
-  // snapshot may not include yet (race between insert and re-render).
-  // Confirmed deletes arrive via Realtime DELETE, not via initialProjects.
+  // On mount, fetch fresh data from the API to ensure the list is always in
+  // sync with the DB — the SSR snapshot can be stale if Realtime missed an
+  // INSERT event (e.g. project created before the subscription was active).
   useEffect(() => {
-    setProjects(prev => {
-      const serverIds = new Set(initialProjects.map(p => p.id))
-      const localPending = prev.filter(
-        p => !serverIds.has(p.id) && (p.import_status === 'pending' || p.import_status === 'processing')
-      )
-      return [...localPending, ...initialProjects]
-    })
-  }, [initialProjects])
+    fetch('/api/projects')
+      .then(r => r.ok ? r.json() as Promise<Project[]> : Promise.reject())
+      .then(data => {
+        setProjects(prev => {
+          const apiIds = new Set(data.map(p => p.id))
+          // Keep locally-added pending/processing projects not yet in the API snapshot
+          const localPending = prev.filter(
+            p => !apiIds.has(p.id) && (p.import_status === 'pending' || p.import_status === 'processing')
+          )
+          return [...localPending, ...data]
+        })
+      })
+      .catch(() => {
+        // Fallback: sync SSR snapshot the old way
+        setProjects(prev => {
+          const serverIds = new Set(initialProjects.map(p => p.id))
+          const localPending = prev.filter(
+            p => !serverIds.has(p.id) && (p.import_status === 'pending' || p.import_status === 'processing')
+          )
+          return [...localPending, ...initialProjects]
+        })
+      })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Immediately show a project that was just created in /projects/new.
   // sessionStorage bridges the gap between the insert and the server render,
@@ -148,13 +163,16 @@ export default function ProjectList({ initialProjects }: { initialProjects: Proj
   async function handleDeleteAll() {
     if (projects.length === 0) return
     setDeletingAll(true)
-    const results = await Promise.all(projects.map(p => deleteProject(p.id)))
+    const snapshot = [...projects]
+    const results = await Promise.all(snapshot.map(p => deleteProject(p.id)))
     const failedCount = results.filter(Boolean).length
     if (failedCount > 0) {
       const firstError = results.find(Boolean)
       alert(`${failedCount}개 프로젝트 삭제 실패: ${firstError}`)
     }
-    setProjects(prev => prev.filter((_, i) => results[i] !== null))
+    // Use IDs (not indices) so concurrent Realtime updates don't shift positions
+    const deletedIds = new Set(snapshot.filter((_, i) => results[i] === null).map(p => p.id))
+    setProjects(prev => prev.filter(p => !deletedIds.has(p.id)))
     setDeletingAll(false)
   }
 
