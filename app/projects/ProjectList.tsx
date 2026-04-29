@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import type { Tables } from '@/lib/supabase/types'
 
@@ -49,7 +48,6 @@ export default function ProjectList({ initialProjects }: { initialProjects: Proj
   const [projects, setProjects] = useState(initialProjects)
   const [deleting, setDeleting] = useState<string | null>(null)
   const [deletingAll, setDeletingAll] = useState(false)
-  const router = useRouter()
   const supabase = useMemo(() => createClient(), [])
 
   useEffect(() => {
@@ -105,23 +103,6 @@ export default function ProjectList({ initialProjects }: { initialProjects: Proj
       .subscribe()
     return () => { channel.unsubscribe(); supabase.removeChannel(channel) }
   }, [supabase])
-
-  // Window focus → refresh server snapshot (fallback when Realtime is unavailable)
-  useEffect(() => {
-    const onFocus = () => router.refresh()
-    window.addEventListener('focus', onFocus)
-    return () => window.removeEventListener('focus', onFocus)
-  }, [router])
-
-  // Polling fallback for pending/processing imports (in case Realtime misses an update)
-  useEffect(() => {
-    const hasImporting = projects.some(
-      p => p.import_status === 'pending' || p.import_status === 'processing'
-    )
-    if (!hasImporting) return
-    const id = setInterval(() => router.refresh(), 3000)
-    return () => clearInterval(id)
-  }, [projects, router])
 
   async function deleteProject(id: string): Promise<string | null> {
     const res = await fetch(`/api/projects/${id}`, { method: 'DELETE' })
