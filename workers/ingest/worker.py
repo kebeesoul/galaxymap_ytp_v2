@@ -20,18 +20,27 @@ SUPABASE_KEY = os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY", "")
 POLL_INTERVAL = 3
 
 
-async def _run(timeout: int, *args: str) -> tuple[int, bytes, bytes]:
-    # YouTube returns "Precondition check failed" / HTTP 400 against the default
-    # player client (requires a PO token). Force iOS / web clients which don't.
+async def _run_with_client(client: str, timeout: int, *args: str) -> tuple[int, bytes, bytes]:
     proc = await asyncio.create_subprocess_exec(
         "yt-dlp",
-        "--extractor-args", "youtube:player_client=ios,web",
+        "--extractor-args", f"youtube:player_client={client}",
         *args,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
     stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
     return proc.returncode or 0, stdout, stderr
+
+
+async def _run(timeout: int, *args: str) -> tuple[int, bytes, bytes]:
+    # Primary: ios,web bypasses PO token requirement (YouTube bot detection).
+    rc, stdout, stderr = await _run_with_client("ios,web", timeout, *args)
+    if rc != 0:
+        err = stderr.decode(errors="replace")
+        # tv_embedded player skips YouTube's age-gate — retry only for that error.
+        if any(k in err for k in ("age-restricted", "age restricted", "confirm your age", "Sign in to confirm")):
+            rc, stdout, stderr = await _run_with_client("tv_embedded", timeout, *args)
+    return rc, stdout, stderr
 
 
 async def process(supabase, project_id: str, source_url: str) -> None:

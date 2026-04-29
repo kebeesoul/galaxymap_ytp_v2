@@ -122,6 +122,14 @@ export default function ProjectList({ initialProjects }: { initialProjects: Proj
     return body.error ?? `HTTP ${res.status}`
   }
 
+  async function handleRetry(id: string, sourceUrl: string) {
+    await fetch('/api/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project_id: id, url: sourceUrl }),
+    })
+  }
+
   async function handleDelete(id: string) {
     setDeleting(id)
     const error = await deleteProject(id)
@@ -230,6 +238,15 @@ export default function ProjectList({ initialProjects }: { initialProjects: Proj
                   </div>
                 </Link>
 
+                {project.import_status === 'failed' && (
+                  <button
+                    onClick={(e) => { e.preventDefault(); handleRetry(project.id, project.source_url) }}
+                    className="absolute right-12 top-1/2 -translate-y-1/2 flex h-7 w-7 items-center justify-center rounded-full bg-white text-[rgba(0,0,0,0.3)] opacity-0 shadow-sm transition-all hover:bg-blue-50 hover:text-blue-500 group-hover:opacity-100"
+                    title="다시 시도"
+                  >
+                    <span className="text-[14px] leading-none">↺</span>
+                  </button>
+                )}
                 <button
                   onClick={() => handleDelete(project.id)}
                   disabled={deleting === project.id}
