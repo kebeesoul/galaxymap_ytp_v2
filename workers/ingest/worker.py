@@ -112,7 +112,9 @@ async def process(supabase, project_id: str, source_url: str) -> None:
             "import_status": "failed",
             "import_error": str(exc)[:500],
         }).eq("id", project_id).execute()
+        import traceback
         print(f"[ERR] {project_id}  {exc}")
+        traceback.print_exc()
 
 
 async def main() -> None:

@@ -50,8 +50,18 @@ export default function ProjectList({ initialProjects }: { initialProjects: Proj
   const [deletingAll, setDeletingAll] = useState(false)
   const supabase = useMemo(() => createClient(), [])
 
+  // Merge server snapshot with local state instead of overwriting:
+  // keep any locally-added pending/processing projects that the server
+  // snapshot may not include yet (race between insert and re-render).
+  // Confirmed deletes arrive via Realtime DELETE, not via initialProjects.
   useEffect(() => {
-    setProjects(initialProjects)
+    setProjects(prev => {
+      const serverIds = new Set(initialProjects.map(p => p.id))
+      const localPending = prev.filter(
+        p => !serverIds.has(p.id) && (p.import_status === 'pending' || p.import_status === 'processing')
+      )
+      return [...localPending, ...initialProjects]
+    })
   }, [initialProjects])
 
   // Immediately show a project that was just created in /projects/new.
@@ -150,7 +160,9 @@ export default function ProjectList({ initialProjects }: { initialProjects: Proj
           className="text-[40px] font-semibold leading-[1.10] text-[#1d1d1f]"
           style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", Helvetica, Arial, sans-serif' }}
         >
-          Projects
+          <Link href="/projects" className="hover:opacity-70 transition-opacity">
+            Projects Dashboard
+          </Link>
         </h1>
         <div className="flex items-center gap-3">
           {projects.length > 0 && (
