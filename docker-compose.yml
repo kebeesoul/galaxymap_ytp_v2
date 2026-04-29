@@ -4,5 +4,7 @@ services:
       context: ./workers/ingest
     env_file:
       - .env.local
+    environment:
+      - PYTHONUNBUFFERED=1
     ports:
       - "8001:8001"
