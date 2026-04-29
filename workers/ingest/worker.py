@@ -45,9 +45,18 @@ async def process(supabase, project_id: str, source_url: str) -> None:
         rc, stdout, stderr = await _run(60, "--dump-json", "--no-playlist", source_url)
         if rc != 0:
             err = stderr.decode(errors="replace")
-            if any(k in err for k in ("403", "Private video", "age-restricted", "not available")):
-                raise RuntimeError("Video unavailable (age-restricted / private / region-locked)")
-            raise RuntimeError(f"yt-dlp metadata error: {err[:400]}")
+            if any(k in err for k in ("age-restricted", "age restricted", "confirm your age")):
+                raise RuntimeError("연령 제한 영상 — YouTube 로그인 없이는 다운로드할 수 없습니다.")
+            elif any(k in err for k in ("Private video", "private video", "This video is private")):
+                raise RuntimeError("비공개 영상 — 영상 공개 여부를 확인해주세요.")
+            elif any(k in err for k in ("copyright", "Copyright", "removed by")):
+                raise RuntimeError("저작권으로 인해 삭제된 영상입니다.")
+            elif any(k in err for k in ("not available", "is unavailable", "Video unavailable", "403")):
+                raise RuntimeError("사용할 수 없는 영상입니다 (지역 제한 또는 삭제됨).")
+            elif any(k in err for k in ("Unable to extract", "Unsupported URL", "is not a valid URL")):
+                raise RuntimeError("유효하지 않은 YouTube URL입니다.")
+            else:
+                raise RuntimeError(f"메타데이터를 가져올 수 없습니다: {err[:200]}")
 
         info = json.loads(stdout.decode())
         video_id: str = info["id"]
@@ -70,7 +79,10 @@ async def process(supabase, project_id: str, source_url: str) -> None:
                 source_url,
             )
             if rc2 != 0:
-                raise RuntimeError(f"yt-dlp download error: {stderr2.decode(errors='replace')[:400]}")
+                err2 = stderr2.decode(errors="replace")
+                if any(k in err2 for k in ("age-restricted", "confirm your age")):
+                    raise RuntimeError("연령 제한 영상 — YouTube 로그인 없이는 다운로드할 수 없습니다.")
+                raise RuntimeError(f"다운로드 실패: {err2[:200]}")
 
             files = list(Path(tmpdir).iterdir())
             if not files:

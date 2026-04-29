@@ -126,7 +126,7 @@ export default function EditorClient({
         <div className="rounded-xl bg-red-950/40 p-6">
           <p className="text-[17px] font-semibold text-red-400">Import Failed</p>
           {project.import_error && (
-            <p className="mt-2 font-mono text-[13px] text-red-300/70">{project.import_error}</p>
+            <p className="mt-2 text-[14px] text-red-300/80 leading-snug">{project.import_error}</p>
           )}
           <ImportButton onClick={handleImport} loading={importing} label="Retry Import" />
           {error && <p className="mt-2 text-[14px] text-red-400">{error}</p>}
