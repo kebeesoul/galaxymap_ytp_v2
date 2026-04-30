@@ -19,6 +19,9 @@ interface Props {
   clipId: string
   initialSegments: Segment[]
   currentTime?: number
+  /** Clip's absolute start time in the source video — used to convert displayed timecodes
+   *  to clip-relative so they match the preview player's 0:00-based clock. */
+  clipStartSec?: number
   /** When true, skips the outer rounded card wrapper and h3 title (used inside a parent <details>) */
   noWrapper?: boolean
 }
@@ -29,7 +32,7 @@ let _localIdCounter = 0
 // 0.05s/px → 1s = 20px, fine enough for 0.1s nudges (2px) yet quick for ~5s reach (100px).
 const SECONDS_PER_PIXEL = 0.05
 
-export default function SubtitleEditor({ clipId, initialSegments, currentTime, noWrapper }: Props) {
+export default function SubtitleEditor({ clipId, initialSegments, currentTime, clipStartSec = 0, noWrapper }: Props) {
   const [segments, setSegments] = useState<LocalSegment[]>(() =>
     initialSegments.map(seg => ({
       localId: _localIdCounter++,
@@ -370,7 +373,7 @@ export default function SubtitleEditor({ clipId, initialSegments, currentTime, n
                         : 'text-[rgba(255,255,255,0.3)] hover:text-[#2997ff]'
                   }`}
                 >
-                  {formatTime(seg.start_sec)}
+                  {formatTime(seg.start_sec - clipStartSec)}
                 </button>
               )}
               <textarea
