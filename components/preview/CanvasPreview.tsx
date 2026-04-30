@@ -39,8 +39,11 @@ function CanvasPreview({ clip, segments, comments, layout, signedUrl, onTimeUpda
   onTimeUpdateRef.current = onTimeUpdate
 
   const [isPlaying, setIsPlaying] = useState(false)
-  const [displayFrame, setDisplayFrame] = useState(0)
   const wasPlayingRef = useRef(false)
+  // Seek bar and time label are updated via direct DOM mutation to avoid
+  // re-rendering the Player 30× per second (which restarts Remotion's Audio).
+  const rangeRef = useRef<HTMLInputElement>(null)
+  const timeLabelRef = useRef<HTMLSpanElement>(null)
 
   const durationInFrames = calcFrames(clip.start_sec, clip.end_sec)
   durationInFramesRef.current = durationInFrames
@@ -64,7 +67,11 @@ function CanvasPreview({ clip, segments, comments, layout, signedUrl, onTimeUpda
     let lastUpdate = 0
     const handleFrame = () => {
       const frame = player.getCurrentFrame()
-      setDisplayFrame(frame)
+      if (rangeRef.current) rangeRef.current.value = String(frame)
+      if (timeLabelRef.current) {
+        timeLabelRef.current.textContent =
+          `${formatMss(frame / FPS)} / ${formatMss(durationInFramesRef.current / FPS)}`
+      }
       const cb = onTimeUpdateRef.current
       if (!cb) return
       const now = performance.now()
@@ -102,9 +109,7 @@ function CanvasPreview({ clip, segments, comments, layout, signedUrl, onTimeUpda
   function handleSeekChange(e: React.ChangeEvent<HTMLInputElement>) {
     const player = playerRef.current
     if (!player) return
-    const frame = Number(e.target.value)
-    player.seekTo(frame)
-    setDisplayFrame(frame)
+    player.seekTo(Number(e.target.value))
   }
 
   function handleSeekPointerUp(e: React.PointerEvent<HTMLInputElement>) {
@@ -139,7 +144,6 @@ function CanvasPreview({ clip, segments, comments, layout, signedUrl, onTimeUpda
     loop: true,
   }
 
-  const displaySec = displayFrame / FPS
   const totalSec = durationInFrames / FPS
 
   return (
@@ -185,17 +189,18 @@ function CanvasPreview({ clip, segments, comments, layout, signedUrl, onTimeUpda
               {isPlaying ? '⏸' : '▶'}
             </button>
             <input
+              ref={rangeRef}
               type="range"
               min={0}
               max={durationInFrames - 1}
-              value={displayFrame}
+              defaultValue={0}
               onChange={handleSeekChange}
               onPointerDown={handleSeekPointerDown}
               onPointerUp={handleSeekPointerUp}
               className="flex-1 accent-[#0071e3]"
             />
-            <span className="shrink-0 font-mono text-[11px] text-white/40">
-              {formatMss(displaySec)} / {formatMss(totalSec)}
+            <span ref={timeLabelRef} className="shrink-0 font-mono text-[11px] text-white/40">
+              {formatMss(0)} / {formatMss(totalSec)}
             </span>
           </div>
         </div>

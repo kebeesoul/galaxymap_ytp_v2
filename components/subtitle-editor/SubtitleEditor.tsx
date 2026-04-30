@@ -125,6 +125,29 @@ export default function SubtitleEditor({ clipId, initialSegments, currentTime, c
     }, -1)
   }, [currentTime, segments])
 
+  function handleAddSubtitle() {
+    if (currentTime === undefined) return
+    const newLocalId = _localIdCounter++
+    setSegments(prev => {
+      const insertIdx = prev.findIndex(s => s.start_sec > currentTime)
+      const targetIdx = insertIdx === -1 ? prev.length : insertIdx
+      const endSec = prev[targetIdx]?.start_sec ?? currentTime + 3
+      const newSeg: LocalSegment = {
+        localId: newLocalId,
+        id: null,
+        text: '',
+        start_sec: currentTime,
+        end_sec: endSec,
+      }
+      const updated = [...prev]
+      updated.splice(targetIdx, 0, newSeg)
+      return updated
+    })
+    setTimeout(() => {
+      inputRefs.current.get(newLocalId)?.focus()
+    }, 0)
+  }
+
   // B4: Tap-to-sync — set start_sec, close gap with previous, then advance to next line
   function handleTapSync(idx: number) {
     if (currentTime === undefined) return
@@ -310,22 +333,30 @@ export default function SubtitleEditor({ clipId, initialSegments, currentTime, c
         )}
         <div className="flex items-center gap-2">
           {currentTime !== undefined && (
-            <button
-              onClick={() => {
-                setSyncMode(prev => {
-                  const next = !prev
-                  if (next) setSyncTapIdx(0)
-                  return next
-                })
-              }}
-              className={`rounded-lg px-3 py-1.5 text-[13px] text-white transition-colors ${
-                syncMode
-                  ? 'bg-red-500/80 ring-1 ring-red-400 hover:bg-red-400/80'
-                  : 'bg-[#272729] hover:bg-[#2a2a2d]'
-              }`}
-            >
-              {syncMode ? '● 싱크 중' : '싱크 맞추기'}
-            </button>
+            <>
+              <button
+                onClick={handleAddSubtitle}
+                className="rounded-lg bg-[#272729] px-3 py-1.5 text-[13px] text-white transition-colors hover:bg-[#2a2a2d]"
+              >
+                자막추가
+              </button>
+              <button
+                onClick={() => {
+                  setSyncMode(prev => {
+                    const next = !prev
+                    if (next) setSyncTapIdx(0)
+                    return next
+                  })
+                }}
+                className={`rounded-lg px-3 py-1.5 text-[13px] text-white transition-colors ${
+                  syncMode
+                    ? 'bg-red-500/80 ring-1 ring-red-400 hover:bg-red-400/80'
+                    : 'bg-[#272729] hover:bg-[#2a2a2d]'
+                }`}
+              >
+                {syncMode ? '● 싱크 중' : '싱크 맞추기'}
+              </button>
+            </>
           )}
           <button
             onClick={handleSave}
