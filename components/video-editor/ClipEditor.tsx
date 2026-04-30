@@ -302,7 +302,7 @@ export default function ClipEditor({
     return () => clearInterval(id)
   }, [project.yt_source_path, supabase])
 
-  // C6: Realtime render_status for all clips in this project
+  // C6: Realtime render_status + external deletes for all clips in this project
   useEffect(() => {
     const channel = supabase
       .channel(`project-${project.id}-clips-render`)
@@ -333,6 +333,16 @@ export default function ClipEditor({
             setRendering(prev => ({ ...prev, [row.id]: false }))
             setRenderErrors(prev => ({ ...prev, [row.id]: row.render_error ?? '렌더 실패' }))
           }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'DELETE', schema: 'public', table: 'clips', filter: `project_id=eq.${project.id}` },
+        (payload) => {
+          const deletedId = (payload.old as { id?: string }).id
+          if (!deletedId) return
+          stopPolling(deletedId)
+          setClips(prev => prev.filter(c => c.id !== deletedId))
         }
       )
       .subscribe()
@@ -812,7 +822,7 @@ export default function ClipEditor({
   async function handleDeleteClip(clipId: string) {
     if (!window.confirm('이 클립을 삭제하시겠습니까?')) return
     const res = await fetch(`/api/clips/${clipId}`, { method: 'DELETE' })
-    if (!res.ok) {
+    if (!res.ok && res.status !== 404) {
       const body = (await res.json().catch(() => ({}))) as { error?: string }
       alert(`클립 삭제 실패: ${body.error ?? `HTTP ${res.status}`}`)
       return
@@ -861,7 +871,7 @@ export default function ClipEditor({
     const ids = Array.from(selectedClipIds)
     const results = await Promise.all(
       ids.map(clipId =>
-        fetch(`/api/clips/${clipId}`, { method: 'DELETE' }).then(r => ({ clipId, ok: r.ok }))
+        fetch(`/api/clips/${clipId}`, { method: 'DELETE' }).then(r => ({ clipId, ok: r.ok || r.status === 404 }))
       )
     )
     const succeeded = results.filter(r => r.ok).map(r => r.clipId)

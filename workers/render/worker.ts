@@ -187,8 +187,14 @@ async function pollOnce(): Promise<void> {
   if (!claimed || claimed.length === 0) return
 
   console.log(`[JOB] ${clipId}`)
+  const RENDER_TIMEOUT_MS = 15 * 60 * 1000
   try {
-    await processJob(clipId)
+    await Promise.race([
+      processJob(clipId),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('render timeout (15 min)')), RENDER_TIMEOUT_MS)
+      ),
+    ])
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     console.error(`[ERR] ${clipId}: ${msg}`)
