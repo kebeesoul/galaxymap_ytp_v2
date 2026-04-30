@@ -202,6 +202,11 @@ export default function ClipEditor({
   const [liveSegsByClip, setLiveSegsByClip] = useState<Record<string, Array<{ text: string; start_sec: number; end_sec: number }>>>({})
   // Stable seek-and-play function refs per clip — populated by CanvasPreview, called from SubtitleEditor
   const seekAndPlayRefs = useRef<Map<string, { current: ((clipRelSec: number) => void) | null }>>(new Map())
+  // Toggle-play refs per clip — populated by CanvasPreview, called from spacebar handler
+  const togglePlayRefs = useRef<Map<string, { current: (() => void) | null }>>(new Map())
+  // Tracks which player (source video vs. preview) was most recently played — spacebar targets it
+  const lastActivePlayerRef = useRef<'source' | 'preview'>('source')
+  const lastActiveClipIdRef = useRef<string | null>(null)
 
   // C5: render progress 0–100 per clip
   const [renderProgressByClip, setRenderProgressByClip] = useState<Record<string, number>>(
@@ -509,12 +514,16 @@ export default function ClipEditor({
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
-      // A9: spacebar play/pause
+      // A9: spacebar play/pause — targets last-active player (source or preview)
       if (e.key === ' ') {
         e.preventDefault()
-        const v = videoRef.current
-        if (!v) return
-        v.paused ? v.play().catch(() => {}) : v.pause()
+        if (lastActivePlayerRef.current === 'preview' && lastActiveClipIdRef.current) {
+          togglePlayRefs.current.get(lastActiveClipIdRef.current)?.current?.()
+        } else {
+          const v = videoRef.current
+          if (!v) return
+          v.paused ? v.play().catch(() => {}) : v.pause()
+        }
         return
       }
       if (e.key === 'i' || e.key === 'I') setStartSec(videoRef.current?.currentTime ?? 0)
@@ -963,6 +972,54 @@ export default function ClipEditor({
     }
   }
 
+  // Stable props for CanvasPreview — prevents memo() from failing on every onTimeUpdate tick
+  const canvasClipsByClip = useMemo(() =>
+    Object.fromEntries(clips.map(c => [c.id, {
+      start_sec:      Number(c.start_sec),
+      end_sec:        Number(c.end_sec),
+      bgm_url:        bgmByClip[c.id]?.bgm_url ?? null,
+      bgm_volume:     bgmByClip[c.id]?.bgm_volume ?? c.bgm_volume,
+      original_volume: bgmByClip[c.id]?.original_volume ?? c.original_volume,
+      subtitle_style: subtitleStylesByClip[c.id] ?? null,
+      comment_style:  commentStylesByClip[c.id] ?? null,
+    }])),
+    [clips, bgmByClip, subtitleStylesByClip, commentStylesByClip]
+  )
+
+  const canvasSegsByClip = useMemo(() =>
+    Object.fromEntries(clips.map(c => {
+      const segs = segmentsByClip[c.id] ?? []
+      return [c.id, liveSegsByClip[c.id] ??
+        segs.map(s => ({ text: s.text, start_sec: s.start_sec, end_sec: s.end_sec }))]
+    })),
+    [clips, segmentsByClip, liveSegsByClip]
+  )
+
+  const canvasCommentsByClip = useMemo(() =>
+    Object.fromEntries(clips.map(c => {
+      const all = commentsByClip[c.id] ?? []
+      const sel = selectedCommentIdxByClip[c.id] ?? []
+      return [c.id, sel.length > 0 ? all.filter((_, i) => sel.includes(i)) : all]
+    })),
+    [clips, commentsByClip, selectedCommentIdxByClip]
+  )
+
+  const canvasTimeUpdatesByClip = useMemo(() =>
+    Object.fromEntries(clips.map(c => [
+      c.id,
+      (t: number) => setPreviewTimeByClip(prev => ({ ...prev, [c.id]: t })),
+    ])),
+    [clips]
+  )
+
+  const canvasActivateByClip = useMemo(() =>
+    Object.fromEntries(clips.map(c => [c.id, () => {
+      lastActivePlayerRef.current = 'preview'
+      lastActiveClipIdRef.current = c.id
+    }])),
+    [clips]
+  )
+
   const canSave = startSec !== null && endSec !== null && endSec > startSec
 
   return (
@@ -977,6 +1034,7 @@ export default function ClipEditor({
             controls
             preload="auto"
             onTimeUpdate={handleTimeUpdate}
+            onPlay={() => { lastActivePlayerRef.current = 'source' }}
           />
         ) : (
           <VideoPreview
@@ -1370,15 +1428,15 @@ export default function ClipEditor({
             const isTranscribing = transcribing[clip.id] ?? false
             const segments = segmentsByClip[clip.id] ?? []
 
-            // Lazy-init a stable seek-and-play ref for this clip
+            // Lazy-init stable refs for this clip
             if (!seekAndPlayRefs.current.has(clip.id)) {
               seekAndPlayRefs.current.set(clip.id, { current: null })
             }
+            if (!togglePlayRefs.current.has(clip.id)) {
+              togglePlayRefs.current.set(clip.id, { current: null })
+            }
             const seekAndPlayRef = seekAndPlayRefs.current.get(clip.id)!
-
-            // Prefer live subtitle edits; fall back to DB snapshot
-            const previewSegments = liveSegsByClip[clip.id] ??
-              segments.map(s => ({ text: s.text, start_sec: s.start_sec, end_sec: s.end_sec }))
+            const togglePlayRef = togglePlayRefs.current.get(clip.id)!
             const comments = rawCommentsByClip[clip.id] ?? []
             const allComments = commentsByClip[clip.id] ?? []
             const selectedCommentIdx = selectedCommentIdxByClip[clip.id] ?? []
@@ -1570,22 +1628,35 @@ export default function ClipEditor({
                           ))}
                         </div>
                       </div>
-                      {/* Font size */}
+                      {/* Font size — slider in % relative to 42px base */}
                       <div>
-                        <p className="mb-1.5 text-[11px] text-[rgba(255,255,255,0.3)]">
-                          폰트 크기{' '}
-                          <span className="text-white">{(subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE).fontSize}px</span>
-                        </p>
-                        <input
-                          type="range" min={24} max={72} step={2}
-                          value={(subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE).fontSize}
-                          onChange={e => setSubtitleStylesByClip(prev => ({
-                            ...prev,
-                            [clip.id]: { ...(prev[clip.id] ?? DEFAULT_SUBTITLE_STYLE), fontSize: Number(e.target.value) },
-                          }))}
-                          onMouseUp={() => handleSaveSubtitleStyle(clip.id, subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE)}
-                          className="w-full accent-[#0071e3]"
-                        />
+                        {(() => {
+                          const fontSize = (subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE).fontSize
+                          const fontPct = Math.round((fontSize / DEFAULT_SUBTITLE_STYLE.fontSize - 1) * 100)
+                          const fontPctLabel = fontPct > 0 ? `+${fontPct}%` : `${fontPct}%`
+                          return (
+                            <>
+                              <p className="mb-1.5 text-[11px] text-[rgba(255,255,255,0.3)]">
+                                폰트 크기{' '}
+                                <span className="text-white">{fontPctLabel}</span>
+                              </p>
+                              <input
+                                type="range" min={-20} max={50} step={5}
+                                value={fontPct}
+                                onChange={e => {
+                                  const pct = Number(e.target.value)
+                                  const px = Math.round(DEFAULT_SUBTITLE_STYLE.fontSize * (1 + pct / 100))
+                                  setSubtitleStylesByClip(prev => ({
+                                    ...prev,
+                                    [clip.id]: { ...(prev[clip.id] ?? DEFAULT_SUBTITLE_STYLE), fontSize: px },
+                                  }))
+                                }}
+                                onMouseUp={() => handleSaveSubtitleStyle(clip.id, subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE)}
+                                className="w-full accent-[#0071e3]"
+                              />
+                            </>
+                          )
+                        })()}
                       </div>
                       {/* Background opacity */}
                       <div>
@@ -1802,21 +1873,15 @@ export default function ClipEditor({
                 <div className="md:col-start-1 md:row-start-1 md:sticky md:top-4 md:self-start space-y-2">
                 {/* ⑤ 미리보기 */}
                 <CanvasPreview
-                  clip={{
-                    start_sec: Number(clip.start_sec),
-                    end_sec: Number(clip.end_sec),
-                    bgm_url: bgmByClip[clip.id]?.bgm_url ?? null,
-                    bgm_volume: bgmByClip[clip.id]?.bgm_volume ?? clip.bgm_volume,
-                    original_volume: bgmByClip[clip.id]?.original_volume ?? clip.original_volume,
-                    subtitle_style: subtitleStylesByClip[clip.id] ?? null,
-                    comment_style: commentStylesByClip[clip.id] ?? null,
-                  }}
-                  segments={previewSegments}
-                  comments={filteredComments}
+                  clip={canvasClipsByClip[clip.id]}
+                  segments={canvasSegsByClip[clip.id]}
+                  comments={canvasCommentsByClip[clip.id]}
                   layout={getLayoutForClip(templates, templateIdsByClip[clip.id] ?? null)}
                   signedUrl={signedUrl}
-                  onTimeUpdate={(t) => setPreviewTimeByClip(prev => ({ ...prev, [clip.id]: t }))}
+                  onTimeUpdate={canvasTimeUpdatesByClip[clip.id]}
                   seekAndPlayRef={seekAndPlayRef}
+                  togglePlayRef={togglePlayRef}
+                  onActivate={canvasActivateByClip[clip.id]}
                 />
 
                 {/* ⑥ 렌더 */}
