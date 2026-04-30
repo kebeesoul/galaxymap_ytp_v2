@@ -21,7 +21,7 @@ export default function SubtitleLayer({ segments, clipStartSec, style }: Props) 
 
   const absoluteSec = frame / fps + clipStartSec
   const active = segments.find(s => absoluteSec >= s.start_sec && absoluteSec < s.end_sec)
-  if (!active) return null
+  if (!active || !active.text.trim()) return null
 
   const segmentStartFrame = Math.round((active.start_sec - clipStartSec) * fps)
   const opacity = interpolate(frame - segmentStartFrame, [0, 4], [0, 1], { extrapolateRight: 'clamp' })

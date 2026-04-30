@@ -24,22 +24,31 @@ interface Props {
   onTimeUpdate?: (absSec: number) => void
   /** Mutable ref populated with a seek-and-play function for the preview player. */
   seekAndPlayRef?: React.MutableRefObject<SeekAndPlayFn | null>
+  /** Mutable ref populated with a play/pause toggle function. */
+  togglePlayRef?: React.MutableRefObject<(() => void) | null>
+  /** Called when the preview starts playing — used by parent to track last-active player. */
+  onActivate?: () => void
 }
 
 function calcFrames(startSec: number, endSec: number): number {
   return Math.max(1, Math.round((endSec - startSec) * FPS))
 }
 
-function CanvasPreview({ clip, segments, comments, layout, signedUrl, onTimeUpdate, seekAndPlayRef }: Props) {
+function CanvasPreview({ clip, segments, comments, layout, signedUrl, onTimeUpdate, seekAndPlayRef, togglePlayRef, onActivate }: Props) {
   const playerRef = useRef<PlayerRef>(null)
   const startSecRef = useRef(clip.start_sec)
   const onTimeUpdateRef = useRef(onTimeUpdate)
+  const onActivateRef = useRef(onActivate)
   const durationInFramesRef = useRef(0)
   startSecRef.current = clip.start_sec
   onTimeUpdateRef.current = onTimeUpdate
+  onActivateRef.current = onActivate
 
   const [isPlaying, setIsPlaying] = useState(false)
+  const isPlayingRef = useRef(false)
   const wasPlayingRef = useRef(false)
+  const [sizeMode, setSizeMode] = useState<'x1' | 'x2'>('x1')
+  const previewWrapRef = useRef<HTMLDivElement>(null)
   // Seek bar and time label are updated via direct DOM mutation to avoid
   // re-rendering the Player 30× per second (which restarts Remotion's Audio).
   const rangeRef = useRef<HTMLInputElement>(null)
@@ -61,6 +70,18 @@ function CanvasPreview({ clip, segments, comments, layout, signedUrl, onTimeUpda
     return () => { if (seekAndPlayRef) seekAndPlayRef.current = null }
   }, [seekAndPlayRef])
 
+  // Populate togglePlayRef so parent (spacebar handler) can toggle play/pause
+  useEffect(() => {
+    if (!togglePlayRef) return
+    togglePlayRef.current = () => {
+      const player = playerRef.current
+      if (!player) return
+      if (isPlayingRef.current) player.pause()
+      else player.play()
+    }
+    return () => { if (togglePlayRef) togglePlayRef.current = null }
+  }, [togglePlayRef])
+
   useEffect(() => {
     const player = playerRef.current
     if (!player) return
@@ -80,8 +101,15 @@ function CanvasPreview({ clip, segments, comments, layout, signedUrl, onTimeUpda
       lastUpdate = now
       cb(startSecRef.current + frame / FPS)
     }
-    const handlePlay = () => setIsPlaying(true)
-    const handlePause = () => setIsPlaying(false)
+    const handlePlay = () => {
+      setIsPlaying(true)
+      isPlayingRef.current = true
+      onActivateRef.current?.()
+    }
+    const handlePause = () => {
+      setIsPlaying(false)
+      isPlayingRef.current = false
+    }
     player.addEventListener('frameupdate', handleFrame)
     player.addEventListener('play', handlePlay)
     player.addEventListener('pause', handlePause)
@@ -145,6 +173,7 @@ function CanvasPreview({ clip, segments, comments, layout, signedUrl, onTimeUpda
   }
 
   const totalSec = durationInFrames / FPS
+  const maxW = sizeMode === 'x2' ? 'max-w-[600px]' : 'max-w-[300px]'
 
   return (
     <details className="group rounded-xl bg-[#1d1d1f]" open>
@@ -153,33 +182,38 @@ function CanvasPreview({ clip, segments, comments, layout, signedUrl, onTimeUpda
         <span className="transition-transform duration-200 group-open:rotate-180">▾</span>
       </summary>
       <div className="px-5 pb-4">
-        <div className="mx-auto max-w-[300px]">
-          {layout === 'LAYOUT_A' ? (
-            <Player
-              key={layout}
-              ref={playerRef}
-              {...commonPlayerProps}
-              component={LayoutA}
-              inputProps={{ clip, segments, comments, preview_path: signedUrl }}
-            />
-          ) : layout === 'LAYOUT_B' ? (
-            <Player
-              key={layout}
-              ref={playerRef}
-              {...commonPlayerProps}
-              component={LayoutB}
-              inputProps={{ clip, segments, preview_path: signedUrl }}
-            />
-          ) : (
-            <Player
-              key={layout}
-              ref={playerRef}
-              {...commonPlayerProps}
-              component={LayoutC}
-              inputProps={{ clip, comments, preview_path: signedUrl }}
-            />
-          )}
-          {/* Custom playback controls — avoids BGM stutter from Remotion's built-in seek bar */}
+        <div ref={previewWrapRef} className={`mx-auto ${maxW}`}>
+          {/* Clicking the video area toggles play/pause */}
+          <div className="relative cursor-pointer" onClick={handlePlayPause}>
+            {layout === 'LAYOUT_A' ? (
+              <Player
+                key={layout}
+                ref={playerRef}
+                {...commonPlayerProps}
+                component={LayoutA}
+                inputProps={{ clip, segments, comments, preview_path: signedUrl }}
+              />
+            ) : layout === 'LAYOUT_B' ? (
+              <Player
+                key={layout}
+                ref={playerRef}
+                {...commonPlayerProps}
+                component={LayoutB}
+                inputProps={{ clip, segments, preview_path: signedUrl }}
+              />
+            ) : (
+              <Player
+                key={layout}
+                ref={playerRef}
+                {...commonPlayerProps}
+                component={LayoutC}
+                inputProps={{ clip, comments, preview_path: signedUrl }}
+              />
+            )}
+            {/* Transparent overlay captures clicks without blocking the player's own pointer events */}
+            <div className="absolute inset-0" />
+          </div>
+          {/* Custom playback controls */}
           <div className="mt-2 flex items-center gap-2">
             <button
               type="button"
@@ -202,6 +236,29 @@ function CanvasPreview({ clip, segments, comments, layout, signedUrl, onTimeUpda
             <span ref={timeLabelRef} className="shrink-0 font-mono text-[11px] text-white/40">
               {formatMss(0)} / {formatMss(totalSec)}
             </span>
+            {/* Size toggle */}
+            <div className="ml-1 flex shrink-0 items-center rounded border border-white/10 text-[11px]">
+              {(['x1', 'x2'] as const).map(mode => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setSizeMode(mode)}
+                  className={`px-1.5 py-0.5 font-mono transition-colors ${
+                    sizeMode === mode ? 'bg-[#0071e3] text-white' : 'text-white/40 hover:text-white/60'
+                  }`}
+                >
+                  {mode}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => previewWrapRef.current?.requestFullscreen().catch(() => {})}
+                className="px-1.5 py-0.5 text-white/40 hover:text-white/60"
+                title="전체화면"
+              >
+                ⛶
+              </button>
+            </div>
           </div>
         </div>
       </div>

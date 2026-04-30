@@ -14,8 +14,11 @@ export async function DELETE(
     .eq('id', clipId)
     .single()
 
-  if (fetchError || !clip) {
-    return NextResponse.json({ error: 'clip not found' }, { status: 404 })
+  if (fetchError && (fetchError as { code?: string }).code !== 'PGRST116') {
+    return NextResponse.json({ error: fetchError.message }, { status: 500 })
+  }
+  if (!clip) {
+    return NextResponse.json({ deleted: { clip_id: clipId, sources_files: 0, renders_files: 0 } })
   }
 
   // DB delete first — CASCADE handles lyrics_segments and comments.
