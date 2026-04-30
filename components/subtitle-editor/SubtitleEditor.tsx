@@ -24,6 +24,10 @@ interface Props {
   clipStartSec?: number
   /** When true, skips the outer rounded card wrapper and h3 title (used inside a parent <details>) */
   noWrapper?: boolean
+  /** Called on every segments state change so the preview can show unsaved edits live. */
+  onSegmentsChange?: (segs: Array<{ text: string; start_sec: number; end_sec: number }>) => void
+  /** Called when user clicks or finishes dragging a timecode — seeks + plays the preview. */
+  onSeekAndPlay?: (clipRelSec: number) => void
 }
 
 let _localIdCounter = 0
@@ -32,7 +36,7 @@ let _localIdCounter = 0
 // 0.05s/px → 1s = 20px, fine enough for 0.1s nudges (2px) yet quick for ~5s reach (100px).
 const SECONDS_PER_PIXEL = 0.05
 
-export default function SubtitleEditor({ clipId, initialSegments, currentTime, clipStartSec = 0, noWrapper }: Props) {
+export default function SubtitleEditor({ clipId, initialSegments, currentTime, clipStartSec = 0, noWrapper, onSegmentsChange, onSeekAndPlay }: Props) {
   const [segments, setSegments] = useState<LocalSegment[]>(() =>
     initialSegments.map(seg => ({
       localId: _localIdCounter++,
@@ -55,10 +59,23 @@ export default function SubtitleEditor({ clipId, initialSegments, currentTime, c
   const inputRefs = useRef<Map<number, HTMLTextAreaElement>>(new Map())
   const tapButtonRefs = useRef<Map<number, HTMLButtonElement>>(new Map())
 
+  // Stable callback refs — avoid stale closure in effects
+  const onSegmentsChangeRef = useRef(onSegmentsChange)
+  const onSeekAndPlayRef = useRef(onSeekAndPlay)
+  const clipStartSecRef = useRef(clipStartSec)
+  onSegmentsChangeRef.current = onSegmentsChange
+  onSeekAndPlayRef.current = onSeekAndPlay
+  clipStartSecRef.current = clipStartSec
+
+  // Notify parent whenever segments change so the preview reflects unsaved edits
+  useEffect(() => {
+    onSegmentsChangeRef.current?.(segments.map(s => ({ text: s.text, start_sec: s.start_sec, end_sec: s.end_sec })))
+  }, [segments])
+
   // Drag-to-adjust state for timecodes: vertical drag changes start_sec.
   // Mouse up → earlier, mouse down → later. Previous segment's end_sec follows to avoid gaps.
   const [dragIdx, setDragIdx] = useState<number | null>(null)
-  const dragStateRef = useRef<{ idx: number; startY: number; startSec: number } | null>(null)
+  const dragStateRef = useRef<{ idx: number; startY: number; startSec: number; currentSec: number } | null>(null)
 
   useEffect(() => {
     if (dragIdx === null) return
@@ -67,6 +84,7 @@ export default function SubtitleEditor({ clipId, initialSegments, currentTime, c
       if (!s) return
       const deltaY = e.clientY - s.startY
       const newStart = Math.max(0, s.startSec + deltaY * SECONDS_PER_PIXEL)
+      s.currentSec = newStart
       setSegments(prev => {
         const updated = [...prev]
         updated[s.idx] = { ...updated[s.idx], start_sec: newStart }
@@ -75,8 +93,12 @@ export default function SubtitleEditor({ clipId, initialSegments, currentTime, c
       })
     }
     function handleUp() {
+      const state = dragStateRef.current
       dragStateRef.current = null
       setDragIdx(null)
+      if (state) {
+        onSeekAndPlayRef.current?.(state.currentSec - clipStartSecRef.current)
+      }
     }
     document.addEventListener('mousemove', handleMove)
     document.addEventListener('mouseup', handleUp)
@@ -89,7 +111,7 @@ export default function SubtitleEditor({ clipId, initialSegments, currentTime, c
   function handleTimecodeMouseDown(idx: number, e: React.MouseEvent<HTMLButtonElement>) {
     e.preventDefault()
     const seg = segments[idx]
-    dragStateRef.current = { idx, startY: e.clientY, startSec: seg.start_sec }
+    dragStateRef.current = { idx, startY: e.clientY, startSec: seg.start_sec, currentSec: seg.start_sec }
     setDragIdx(idx)
   }
 

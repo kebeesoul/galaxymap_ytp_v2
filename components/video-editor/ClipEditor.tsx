@@ -198,6 +198,11 @@ export default function ClipEditor({
     Object.fromEntries(initialClips.map(c => [c.id, parseCommentStyle(c.comment_style)]))
   )
 
+  // Live subtitle edits from SubtitleEditor — fed into CanvasPreview so unsaved changes show up immediately
+  const [liveSegsByClip, setLiveSegsByClip] = useState<Record<string, Array<{ text: string; start_sec: number; end_sec: number }>>>({})
+  // Stable seek-and-play function refs per clip — populated by CanvasPreview, called from SubtitleEditor
+  const seekAndPlayRefs = useRef<Map<string, { current: ((clipRelSec: number) => void) | null }>>(new Map())
+
   // C5: render progress 0–100 per clip
   const [renderProgressByClip, setRenderProgressByClip] = useState<Record<string, number>>(
     Object.fromEntries(initialClips.map(c => [c.id, c.render_progress ?? 0]))
@@ -1364,6 +1369,16 @@ export default function ClipEditor({
             const transcribeStatus = transcribeStatuses[clip.id]
             const isTranscribing = transcribing[clip.id] ?? false
             const segments = segmentsByClip[clip.id] ?? []
+
+            // Lazy-init a stable seek-and-play ref for this clip
+            if (!seekAndPlayRefs.current.has(clip.id)) {
+              seekAndPlayRefs.current.set(clip.id, { current: null })
+            }
+            const seekAndPlayRef = seekAndPlayRefs.current.get(clip.id)!
+
+            // Prefer live subtitle edits; fall back to DB snapshot
+            const previewSegments = liveSegsByClip[clip.id] ??
+              segments.map(s => ({ text: s.text, start_sec: s.start_sec, end_sec: s.end_sec }))
             const comments = rawCommentsByClip[clip.id] ?? []
             const allComments = commentsByClip[clip.id] ?? []
             const selectedCommentIdx = selectedCommentIdxByClip[clip.id] ?? []
@@ -1648,6 +1663,8 @@ export default function ClipEditor({
                           currentTime={previewTimeByClip[clip.id]}
                           clipStartSec={Number(clip.start_sec)}
                           noWrapper
+                          onSegmentsChange={(segs) => setLiveSegsByClip(prev => ({ ...prev, [clip.id]: segs }))}
+                          onSeekAndPlay={(relSec) => seekAndPlayRefs.current.get(clip.id)?.current?.(relSec)}
                         />
                       </div>
                     )}
@@ -1794,11 +1811,12 @@ export default function ClipEditor({
                     subtitle_style: subtitleStylesByClip[clip.id] ?? null,
                     comment_style: commentStylesByClip[clip.id] ?? null,
                   }}
-                  segments={segments}
+                  segments={previewSegments}
                   comments={filteredComments}
                   layout={getLayoutForClip(templates, templateIdsByClip[clip.id] ?? null)}
                   signedUrl={signedUrl}
                   onTimeUpdate={(t) => setPreviewTimeByClip(prev => ({ ...prev, [clip.id]: t }))}
+                  seekAndPlayRef={seekAndPlayRef}
                 />
 
                 {/* ⑥ 렌더 */}

@@ -1,15 +1,18 @@
 'use client'
 
-import { memo, useEffect, useRef } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import { Player, type PlayerRef } from '@remotion/player'
 import LayoutA from '@/remotion/compositions/LayoutA'
 import LayoutB from '@/remotion/compositions/LayoutB'
 import LayoutC from '@/remotion/compositions/LayoutC'
 import type { ClipInput, Segment, Comment } from '@/remotion/types'
+import { formatMss } from '@/lib/utils/time'
 
 const FPS = 30
 const COMP_WIDTH = 1080
 const COMP_HEIGHT = 1920
+
+export type SeekAndPlayFn = (clipRelSec: number) => void
 
 interface Props {
   clip: ClipInput
@@ -19,35 +22,98 @@ interface Props {
   signedUrl: string | null
   /** Called with absolute video time (clip.start_sec + preview frame time) on every frame update. */
   onTimeUpdate?: (absSec: number) => void
+  /** Mutable ref populated with a seek-and-play function for the preview player. */
+  seekAndPlayRef?: React.MutableRefObject<SeekAndPlayFn | null>
 }
 
 function calcFrames(startSec: number, endSec: number): number {
   return Math.max(1, Math.round((endSec - startSec) * FPS))
 }
 
-function CanvasPreview({ clip, segments, comments, layout, signedUrl, onTimeUpdate }: Props) {
+function CanvasPreview({ clip, segments, comments, layout, signedUrl, onTimeUpdate, seekAndPlayRef }: Props) {
   const playerRef = useRef<PlayerRef>(null)
   const startSecRef = useRef(clip.start_sec)
   const onTimeUpdateRef = useRef(onTimeUpdate)
+  const durationInFramesRef = useRef(0)
   startSecRef.current = clip.start_sec
   onTimeUpdateRef.current = onTimeUpdate
+
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [displayFrame, setDisplayFrame] = useState(0)
+  const wasPlayingRef = useRef(false)
+
+  const durationInFrames = calcFrames(clip.start_sec, clip.end_sec)
+  durationInFramesRef.current = durationInFrames
+
+  // Populate seekAndPlayRef so parent can trigger seek + play imperatively
+  useEffect(() => {
+    if (!seekAndPlayRef) return
+    seekAndPlayRef.current = (clipRelSec: number) => {
+      const player = playerRef.current
+      if (!player) return
+      const frame = Math.max(0, Math.min(durationInFramesRef.current - 1, Math.round(clipRelSec * FPS)))
+      player.seekTo(frame)
+      player.play()
+    }
+    return () => { if (seekAndPlayRef) seekAndPlayRef.current = null }
+  }, [seekAndPlayRef])
 
   useEffect(() => {
     const player = playerRef.current
     if (!player) return
     let lastUpdate = 0
-    const handler = () => {
+    const handleFrame = () => {
+      const frame = player.getCurrentFrame()
+      setDisplayFrame(frame)
       const cb = onTimeUpdateRef.current
       if (!cb) return
       const now = performance.now()
-      // Throttle to ~10 updates/sec — enough for active-line highlighting
+      // Throttle onTimeUpdate to ~10/sec — enough for active-line highlighting
       if (now - lastUpdate < 100) return
       lastUpdate = now
-      cb(startSecRef.current + player.getCurrentFrame() / FPS)
+      cb(startSecRef.current + frame / FPS)
     }
-    player.addEventListener('frameupdate', handler)
-    return () => player.removeEventListener('frameupdate', handler)
+    const handlePlay = () => setIsPlaying(true)
+    const handlePause = () => setIsPlaying(false)
+    player.addEventListener('frameupdate', handleFrame)
+    player.addEventListener('play', handlePlay)
+    player.addEventListener('pause', handlePause)
+    return () => {
+      player.removeEventListener('frameupdate', handleFrame)
+      player.removeEventListener('play', handlePlay)
+      player.removeEventListener('pause', handlePause)
+    }
   }, [signedUrl, layout])
+
+  function handlePlayPause() {
+    const player = playerRef.current
+    if (!player) return
+    if (isPlaying) player.pause()
+    else player.play()
+  }
+
+  function handleSeekPointerDown() {
+    const player = playerRef.current
+    if (!player) return
+    wasPlayingRef.current = isPlaying
+    player.pause()
+  }
+
+  function handleSeekChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const player = playerRef.current
+    if (!player) return
+    const frame = Number(e.target.value)
+    player.seekTo(frame)
+    setDisplayFrame(frame)
+  }
+
+  function handleSeekPointerUp(e: React.PointerEvent<HTMLInputElement>) {
+    const player = playerRef.current
+    if (!player) return
+    const frame = Number((e.target as HTMLInputElement).value)
+    player.seekTo(frame)
+    if (wasPlayingRef.current) player.play()
+  }
 
   if (!signedUrl) {
     return (
@@ -63,16 +129,18 @@ function CanvasPreview({ clip, segments, comments, layout, signedUrl, onTimeUpda
     )
   }
 
-  const durationInFrames = calcFrames(clip.start_sec, clip.end_sec)
   const commonPlayerProps = {
     durationInFrames,
     fps: FPS,
     compositionWidth: COMP_WIDTH,
     compositionHeight: COMP_HEIGHT,
     style: { width: '100%', borderRadius: 8 } as React.CSSProperties,
-    controls: true,
+    controls: false,
     loop: true,
   }
+
+  const displaySec = displayFrame / FPS
+  const totalSec = durationInFrames / FPS
 
   return (
     <details className="group rounded-xl bg-[#1d1d1f]" open>
@@ -107,6 +175,29 @@ function CanvasPreview({ clip, segments, comments, layout, signedUrl, onTimeUpda
               inputProps={{ clip, comments, preview_path: signedUrl }}
             />
           )}
+          {/* Custom playback controls — avoids BGM stutter from Remotion's built-in seek bar */}
+          <div className="mt-2 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handlePlayPause}
+              className="shrink-0 text-[16px] leading-none text-white/70 hover:text-white"
+            >
+              {isPlaying ? '⏸' : '▶'}
+            </button>
+            <input
+              type="range"
+              min={0}
+              max={durationInFrames - 1}
+              value={displayFrame}
+              onChange={handleSeekChange}
+              onPointerDown={handleSeekPointerDown}
+              onPointerUp={handleSeekPointerUp}
+              className="flex-1 accent-[#0071e3]"
+            />
+            <span className="shrink-0 font-mono text-[11px] text-white/40">
+              {formatMss(displaySec)} / {formatMss(totalSec)}
+            </span>
+          </div>
         </div>
       </div>
     </details>
