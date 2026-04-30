@@ -88,6 +88,7 @@ function CanvasPreview({ clip, segments, comments, layout, signedUrl, onTimeUpda
     let lastUpdate = 0
     const handleFrame = () => {
       const frame = player.getCurrentFrame()
+      if (frame < 0) return
       if (rangeRef.current) rangeRef.current.value = String(frame)
       if (timeLabelRef.current) {
         timeLabelRef.current.textContent =
