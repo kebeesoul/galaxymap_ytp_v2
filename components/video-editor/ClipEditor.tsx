@@ -1646,6 +1646,7 @@ export default function ClipEditor({
                           clipId={clip.id}
                           initialSegments={segments}
                           currentTime={previewTimeByClip[clip.id]}
+                          clipStartSec={Number(clip.start_sec)}
                           noWrapper
                         />
                       </div>
