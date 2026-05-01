@@ -76,13 +76,13 @@ async function getHqSignedUrl(
   tmpDir: string,
 ): Promise<string> {
   if (cachedPath) {
-    console.log(`[HQ cached] ${ytVideoId}`)
+    console.log(`[render] HQ source: cached — ${ytVideoId}`)
     const { data, error } = await supabase.storage.from('sources').createSignedUrl(cachedPath, 7200)
     if (error || !data?.signedUrl) throw new Error(`HQ signed url failed: ${error?.message ?? 'no url'}`)
     return data.signedUrl
   }
 
-  console.log(`[HQ download] ${ytVideoId} from ${sourceUrl}`)
+  console.log(`[render] HQ source: downloading now (fallback) — ${ytVideoId} from ${sourceUrl}`)
   const hqTmpPath = path.join(tmpDir, `hq_${ytVideoId}.mp4`)
   await downloadHqSource(sourceUrl, hqTmpPath)
 
