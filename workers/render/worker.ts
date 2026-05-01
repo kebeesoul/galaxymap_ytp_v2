@@ -171,16 +171,44 @@ async function processJob(clipId: string): Promise<void> {
       inputProps,
     })
 
+    const useHardwareEncoding = process.env.USE_VIDEOTOOLBOX !== 'false'
+    console.log(`[render] encoding: ${useHardwareEncoding ? 'h264_videotoolbox' : 'libx264 (software)'}`)
+
     let lastReportedPct = 0
     await renderMedia({
       composition,
       serveUrl,
       codec: 'h264',
-      crf: 12,
+      crf: useHardwareEncoding ? undefined : 12,
       pixelFormat: 'yuv420p',
       audioBitrate: '192k',
       outputLocation: outputPath,
       inputProps,
+      concurrency: 8,
+      overrideFfmpegCommand: useHardwareEncoding
+        ? ({ type, args }: { type: string; args: string[] }): string[] => {
+            if (type !== 'stitcher') return args
+            const cmd = [...args]
+
+            const codecIdx = cmd.indexOf('-c:v')
+            if (codecIdx !== -1) {
+              cmd[codecIdx + 1] = 'h264_videotoolbox'
+            }
+
+            const crfIdx = cmd.indexOf('-crf')
+            if (crfIdx !== -1) {
+              cmd.splice(crfIdx, 2)
+            }
+
+            const newCodecIdx = cmd.indexOf('-c:v')
+            if (newCodecIdx !== -1) {
+              cmd.splice(newCodecIdx + 2, 0, '-b:v', '10M', '-profile:v', 'high')
+            }
+
+            console.log(`[render] ffmpeg: ${cmd.join(' ')}`)
+            return cmd
+          }
+        : undefined,
       onProgress: ({ progress }) => {
         const pct = Math.round(progress * 100)
         if (pct - lastReportedPct >= 5) {
