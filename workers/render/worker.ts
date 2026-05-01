@@ -58,7 +58,7 @@ function extractLayout(config: unknown): CompositionId {
 
 async function downloadHqSource(sourceUrl: string, destPath: string): Promise<void> {
   await execFileAsync('yt-dlp', [
-    '--extractor-args', 'youtube:player_client=android,web',
+    '--extractor-args', 'youtube:player_client=ios,web',
     '-f', 'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best',
     '--merge-output-format', 'mp4',
     '--concurrent-fragments', '8',
@@ -76,13 +76,13 @@ async function getHqSignedUrl(
   tmpDir: string,
 ): Promise<string> {
   if (cachedPath) {
-    console.log(`[render] HQ source: cached — ${ytVideoId}`)
+    console.log(`[HQ cached] ${ytVideoId}`)
     const { data, error } = await supabase.storage.from('sources').createSignedUrl(cachedPath, 7200)
     if (error || !data?.signedUrl) throw new Error(`HQ signed url failed: ${error?.message ?? 'no url'}`)
     return data.signedUrl
   }
 
-  console.log(`[render] HQ source: downloading now (fallback) — ${ytVideoId} from ${sourceUrl}`)
+  console.log(`[HQ download] ${ytVideoId} from ${sourceUrl}`)
   const hqTmpPath = path.join(tmpDir, `hq_${ytVideoId}.mp4`)
   await downloadHqSource(sourceUrl, hqTmpPath)
 
@@ -141,9 +141,7 @@ async function processJob(clipId: string): Promise<void> {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'galaxymap-render-'))
   const outputPath = path.join(tmpDir, `${clipId}.mp4`)
 
-  console.time('[render] total')
   try {
-    console.time('[render] HQ source')
     const renderVideoUrl = await getHqSignedUrl(
       clip.project_id,
       project.source_url ?? '',
@@ -151,7 +149,6 @@ async function processJob(clipId: string): Promise<void> {
       (project as Record<string, unknown>).yt_hq_source_path as string | null ?? null,
       tmpDir,
     )
-    console.timeEnd('[render] HQ source')
 
     const inputProps = {
       clip: {
@@ -175,12 +172,9 @@ async function processJob(clipId: string): Promise<void> {
     })
 
     const useHardwareEncoding = process.env.USE_VIDEOTOOLBOX !== 'false'
-    const concurrencyValue = 8
-    console.log(`[render] codec: ${useHardwareEncoding ? 'h264_videotoolbox' : 'libx264'}`)
-    console.log(`[render] concurrency: ${concurrencyValue}`)
+    console.log(`[render] encoding: ${useHardwareEncoding ? 'h264_videotoolbox' : 'libx264 (software)'}`)
 
     let lastReportedPct = 0
-    console.time('[render] remotion render')
     await renderMedia({
       composition,
       serveUrl,
@@ -190,7 +184,7 @@ async function processJob(clipId: string): Promise<void> {
       audioBitrate: '192k',
       outputLocation: outputPath,
       inputProps,
-      concurrency: concurrencyValue,
+      concurrency: 8,
       overrideFfmpegCommand: useHardwareEncoding
         ? ({ type, args }: { type: string; args: string[] }): string[] => {
             if (type !== 'stitcher') return args
@@ -229,27 +223,13 @@ async function processJob(clipId: string): Promise<void> {
         }
       },
     })
-    console.timeEnd('[render] remotion render')
 
-    // Skip upload if cancelled while rendering
-    const { data: statusCheck } = await supabase
-      .from('clips')
-      .select('render_status')
-      .eq('id', clipId)
-      .single()
-    if (statusCheck?.render_status === 'cancelled') {
-      console.log(`[CANCELLED] ${clipId}`)
-      return
-    }
-
-    console.time('[render] supabase upload')
     const fileBuffer = await fs.readFile(outputPath)
     const renderPath = `${clipId}/${Date.now()}.mp4`
     const { error: uploadErr } = await supabase.storage
       .from('renders')
       .upload(renderPath, fileBuffer, { contentType: 'video/mp4', upsert: true })
     if (uploadErr) throw new Error(`upload failed: ${uploadErr.message}`)
-    console.timeEnd('[render] supabase upload')
 
     const { error: finalErr } = await supabase
       .from('clips')
@@ -264,7 +244,6 @@ async function processJob(clipId: string): Promise<void> {
 
     console.log(`[OK]  ${clipId}  → ${renderPath}`)
   } finally {
-    console.timeEnd('[render] total')
     await fs.rm(tmpDir, { recursive: true, force: true })
   }
 }

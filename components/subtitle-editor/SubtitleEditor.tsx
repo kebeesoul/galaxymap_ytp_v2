@@ -35,6 +35,8 @@ let _localIdCounter = 0
 // Drag sensitivity: how many seconds the timestamp moves per pixel of vertical mouse drag.
 // 0.05s/px → 1s = 20px, fine enough for 0.1s nudges (2px) yet quick for ~5s reach (100px).
 const SECONDS_PER_PIXEL = 0.05
+// Pixels to drag past before swapping rows in reorder mode
+const ROW_SWAP_PX = 28
 
 export default function SubtitleEditor({ clipId, initialSegments, currentTime, clipStartSec = 0, noWrapper, onSegmentsChange, onSeekAndPlay }: Props) {
   const [segments, setSegments] = useState<LocalSegment[]>(() =>
@@ -77,6 +79,10 @@ export default function SubtitleEditor({ clipId, initialSegments, currentTime, c
   const [dragIdx, setDragIdx] = useState<number | null>(null)
   const dragStateRef = useRef<{ idx: number; startY: number; startSec: number; currentSec: number } | null>(null)
 
+  // Drag-to-reorder: vertical drag on ⠿ handle swaps rows when crossing threshold
+  const [reorderActive, setReorderActive] = useState(false)
+  const reorderStateRef = useRef<{ idx: number; lastSwapY: number } | null>(null)
+
   useEffect(() => {
     if (dragIdx === null) return
     function handleMove(e: MouseEvent) {
@@ -113,6 +119,50 @@ export default function SubtitleEditor({ clipId, initialSegments, currentTime, c
     const seg = segments[idx]
     dragStateRef.current = { idx, startY: e.clientY, startSec: seg.start_sec, currentSec: seg.start_sec }
     setDragIdx(idx)
+  }
+
+  useEffect(() => {
+    if (!reorderActive) return
+    function handleMove(e: MouseEvent) {
+      const s = reorderStateRef.current
+      if (!s) return
+      const delta = e.clientY - s.lastSwapY
+      if (delta > ROW_SWAP_PX) {
+        setSegments(prev => {
+          if (s.idx >= prev.length - 1) return prev
+          const next = [...prev]
+          ;[next[s.idx], next[s.idx + 1]] = [next[s.idx + 1], next[s.idx]]
+          s.idx += 1
+          s.lastSwapY = e.clientY
+          return next
+        })
+      } else if (delta < -ROW_SWAP_PX) {
+        setSegments(prev => {
+          if (s.idx <= 0) return prev
+          const next = [...prev]
+          ;[next[s.idx], next[s.idx - 1]] = [next[s.idx - 1], next[s.idx]]
+          s.idx -= 1
+          s.lastSwapY = e.clientY
+          return next
+        })
+      }
+    }
+    function handleUp() {
+      reorderStateRef.current = null
+      setReorderActive(false)
+    }
+    document.addEventListener('mousemove', handleMove)
+    document.addEventListener('mouseup', handleUp)
+    return () => {
+      document.removeEventListener('mousemove', handleMove)
+      document.removeEventListener('mouseup', handleUp)
+    }
+  }, [reorderActive])
+
+  function handleReorderMouseDown(idx: number, e: React.MouseEvent) {
+    e.preventDefault()
+    reorderStateRef.current = { idx, lastSwapY: e.clientY }
+    setReorderActive(true)
   }
 
   const supabase = useMemo(() => createClient(), [])
@@ -390,6 +440,10 @@ export default function SubtitleEditor({ clipId, initialSegments, currentTime, c
         </p>
       ) : null}
 
+      {!syncMode && (
+        <p className="mb-1.5 text-[11px] text-[rgba(255,255,255,0.3)]">타임코드</p>
+      )}
+
       <div className="space-y-1">
         {segments.map((seg, idx) => {
           const isActive = idx === activeIdx
@@ -445,15 +499,25 @@ export default function SubtitleEditor({ clipId, initialSegments, currentTime, c
                 onKeyDown={e => handleKeyDown(idx, e)}
                 className="flex-1 resize-none rounded-lg bg-[#272729] px-3 py-2 text-[14px] text-white outline-none focus:ring-1 focus:ring-[#0071e3]"
               />
-              {segments.length > 1 && (
-                <button
-                  type="button"
-                  onClick={() => handleDeleteRow(idx)}
-                  title="이 줄 삭제"
-                  className="mt-2 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[rgba(255,255,255,0.2)] transition-colors hover:bg-red-500/10 hover:text-red-400"
-                >
-                  <span className="text-[14px] leading-none">−</span>
-                </button>
+              {!syncMode && segments.length > 1 && (
+                <div className="mt-2 flex shrink-0 items-center gap-0.5">
+                  <button
+                    type="button"
+                    onMouseDown={(e) => handleReorderMouseDown(idx, e)}
+                    title="드래그하여 순서 변경"
+                    className="flex h-7 w-6 cursor-grab items-center justify-center rounded-md text-[rgba(255,255,255,0.2)] transition-colors hover:text-[rgba(255,255,255,0.5)] active:cursor-grabbing"
+                  >
+                    <span className="text-[11px] leading-none tracking-[1px]">⠿</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteRow(idx)}
+                    title="이 줄 삭제"
+                    className="flex h-7 w-6 items-center justify-center rounded-md text-[rgba(255,255,255,0.2)] transition-colors hover:bg-red-500/10 hover:text-red-400"
+                  >
+                    <span className="text-[12px] leading-none">×</span>
+                  </button>
+                </div>
               )}
             </div>
           )
