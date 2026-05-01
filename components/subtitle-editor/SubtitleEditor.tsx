@@ -125,18 +125,23 @@ export default function SubtitleEditor({ clipId, initialSegments, currentTime, c
     }, -1)
   }, [currentTime, segments])
 
+  function handleDeleteRow(idx: number) {
+    setSegments(prev => prev.filter((_, i) => i !== idx))
+  }
+
   function handleAddSubtitle() {
     if (currentTime === undefined) return
+    const safeSec = Math.max(currentTime, clipStartSec)
     const newLocalId = _localIdCounter++
     setSegments(prev => {
-      const insertIdx = prev.findIndex(s => s.start_sec > currentTime)
+      const insertIdx = prev.findIndex(s => s.start_sec > safeSec)
       const targetIdx = insertIdx === -1 ? prev.length : insertIdx
-      const endSec = prev[targetIdx]?.start_sec ?? currentTime + 3
+      const endSec = prev[targetIdx]?.start_sec ?? safeSec + 3
       const newSeg: LocalSegment = {
         localId: newLocalId,
         id: null,
         text: '',
-        start_sec: currentTime,
+        start_sec: safeSec,
         end_sec: endSec,
       }
       const updated = [...prev]
@@ -440,6 +445,16 @@ export default function SubtitleEditor({ clipId, initialSegments, currentTime, c
                 onKeyDown={e => handleKeyDown(idx, e)}
                 className="flex-1 resize-none rounded-lg bg-[#272729] px-3 py-2 text-[14px] text-white outline-none focus:ring-1 focus:ring-[#0071e3]"
               />
+              {segments.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => handleDeleteRow(idx)}
+                  title="이 줄 삭제"
+                  className="mt-2 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[rgba(255,255,255,0.2)] transition-colors hover:bg-red-500/10 hover:text-red-400"
+                >
+                  <span className="text-[14px] leading-none">−</span>
+                </button>
+              )}
             </div>
           )
         })}
