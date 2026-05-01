@@ -170,13 +170,8 @@ export default function ClipEditor({
     })),
   ])))
 
-  const [transcribeStatuses, setTranscribeStatuses] = useState<Record<string, string | null>>(
-    Object.fromEntries(initialClips.map(c => [c.id, c.transcribe_status]))
-  )
   const [segmentsByClip, setSegmentsByClip] =
     useState<Record<string, LyricsSegment[]>>(initialSegmentsByClip)
-  const [transcribing, setTranscribing] = useState<Record<string, boolean>>({})
-  const [transcribeErrors, setTranscribeErrors] = useState<Record<string, string>>({})
 
   const [renderStatuses, setRenderStatuses] = useState<Record<string, string | null>>(
     Object.fromEntries(initialClips.map(c => [c.id, c.render_status]))
@@ -369,14 +364,6 @@ export default function ClipEditor({
           byClip[seg.clip_id].push(seg)
         }
         setSegmentsByClip(prev => ({ ...prev, ...byClip }))
-        setTranscribeStatuses(prev => {
-          const updated = { ...prev }
-          for (const clipId of Object.keys(byClip)) {
-            // Override any stale status (pending/failed) when segments actually exist in DB
-            updated[clipId] = 'success'
-          }
-          return updated
-        })
       }
       if (cmts) {
         const rawByClip: Record<string, Comment[]> = {}
@@ -742,13 +729,11 @@ export default function ClipEditor({
         const { data: segs } = await supabase.from('lyrics_segments').insert(rows).select()
         if (segs) {
           setSegmentsByClip(prev => ({ ...prev, [data.id]: segs }))
-          setTranscribeStatuses(prev => ({ ...prev, [data.id]: 'success' }))
         }
       }
 
       setClips(prev => [...prev, data])
       setLabelsByClip(prev => ({ ...prev, [data.id]: '' }))
-      setTranscribeStatuses(prev => ({ ...prev, [data.id]: prev[data.id] ?? null }))
       setRenderStatuses(prev => ({ ...prev, [data.id]: null }))
       setTemplateIdsByClip(prev => ({ ...prev, [data.id]: null }))
       setBgmByClip(prev => ({ ...prev, [data.id]: { bgm_url: null, bgm_volume: 0.3, original_volume: 1.0 } }))
@@ -813,7 +798,6 @@ export default function ClipEditor({
     }
     setClips(prev => [...prev, newClip])
     setLabelsByClip(prev => ({ ...prev, [newClip.id]: newClip.label ?? '' }))
-    setTranscribeStatuses(prev => ({ ...prev, [newClip.id]: segs.length > 0 ? 'success' : null }))
     setRenderStatuses(prev => ({ ...prev, [newClip.id]: null }))
     setTemplateIdsByClip(prev => ({ ...prev, [newClip.id]: newClip.template_id }))
     setBgmByClip(prev => ({ ...prev, [newClip.id]: { bgm_url: null, bgm_volume: 0.3, original_volume: 1.0 } }))
@@ -867,9 +851,6 @@ export default function ClipEditor({
       return n
     }
     setSegmentsByClip(cleanup)
-    setTranscribeStatuses(cleanup)
-    setTranscribing(cleanup)
-    setTranscribeErrors(cleanup)
     setRenderStatuses(cleanup)
     setRendering(cleanup)
     setRenderErrors(cleanup)
@@ -916,8 +897,7 @@ export default function ClipEditor({
       for (const id of succeeded) delete n[id]
       return n
     }
-    setSegmentsByClip(cleanup); setTranscribeStatuses(cleanup)
-    setTranscribing(cleanup); setTranscribeErrors(cleanup)
+    setSegmentsByClip(cleanup)
     setRenderStatuses(cleanup); setRendering(cleanup)
     setRenderErrors(cleanup); setRenderPaths(cleanup); setDownloading(cleanup)
     setLabelsByClip(cleanup); setTemplateIdsByClip(cleanup); setBgmByClip(cleanup)
@@ -942,32 +922,6 @@ export default function ClipEditor({
     }
   }
 
-  async function handleTranscribe(clipId: string) {
-    setTranscribing(prev => ({ ...prev, [clipId]: true }))
-    setTranscribeStatuses(prev => ({ ...prev, [clipId]: 'pending' }))
-    setTranscribeErrors(prev => {
-      const next = { ...prev }
-      delete next[clipId]
-      return next
-    })
-    try {
-      const res = await fetch('/api/transcribe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clip_id: clipId }),
-      })
-      const body = (await res.json()) as { segments?: LyricsSegment[]; error?: string }
-      if (!res.ok) throw new Error(body.error ?? 'Transcription failed')
-      setTranscribeStatuses(prev => ({ ...prev, [clipId]: 'success' }))
-      setSegmentsByClip(prev => ({ ...prev, [clipId]: body.segments ?? [] }))
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Transcription failed'
-      setTranscribeStatuses(prev => ({ ...prev, [clipId]: 'failed' }))
-      setTranscribeErrors(prev => ({ ...prev, [clipId]: msg }))
-    } finally {
-      setTranscribing(prev => ({ ...prev, [clipId]: false }))
-    }
-  }
 
 
   async function handleRender(clipId: string) {
@@ -1505,8 +1459,6 @@ export default function ClipEditor({
             </div>
           )}
           {clips.map((clip, i) => {
-            const transcribeStatus = transcribeStatuses[clip.id]
-            const isTranscribing = transcribing[clip.id] ?? false
             const segments = segmentsByClip[clip.id] ?? []
 
             // Lazy-init stable refs for this clip
@@ -1640,23 +1592,6 @@ export default function ClipEditor({
                         >
                           ✏︎
                         </button>
-                    {/* A7: show spinner only when actively transcribing; allow retry on stale pending */}
-                    <button
-                      onClick={() => handleTranscribe(clip.id)}
-                      disabled={isTranscribing}
-                      className="flex items-center gap-2 rounded-lg bg-[#272729] px-3 py-1.5 text-[13px] text-white transition-colors hover:bg-[#2a2a2d] disabled:opacity-40"
-                    >
-                      {isTranscribing ? (
-                        <>
-                          <span className="h-3 w-3 animate-spin rounded-full border border-white/30 border-t-white" />
-                          자막 추출 중…
-                        </>
-                      ) : transcribeStatus === 'pending' ? (
-                        '재시도'
-                      ) : (
-                        'Whisper 자막 추출'
-                      )}
-                    </button>
                     <button
                       onClick={() => handleDuplicateClip(clip.id)}
                       className="rounded-lg bg-[#272729] px-2.5 py-1.5 text-[13px] text-[rgba(255,255,255,0.4)] transition-colors hover:bg-[#2a2a2d] hover:text-white"
@@ -1800,13 +1735,7 @@ export default function ClipEditor({
                       </div>
                     </div>
 
-                    {transcribeStatus === 'failed' && (
-                      <p className="mb-3 text-[13px] text-red-400">
-                        {transcribeErrors[clip.id] ?? '자막 추출 실패'}
-                      </p>
-                    )}
-
-                    {transcribeStatus === 'success' && segments.length > 0 && (
+                    {segments.length > 0 && (
                       <div className="border-t border-[rgba(255,255,255,0.06)] pt-4">
                         <SubtitleEditor
                           key={`${clip.id}-${segments.length}`}
