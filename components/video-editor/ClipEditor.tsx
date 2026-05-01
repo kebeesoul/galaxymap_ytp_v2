@@ -332,6 +332,9 @@ export default function ClipEditor({
             stopPolling(row.id)
             setRendering(prev => ({ ...prev, [row.id]: false }))
             setRenderErrors(prev => ({ ...prev, [row.id]: row.render_error ?? '렌더 실패' }))
+          } else if (row.render_status === 'cancelled') {
+            stopPolling(row.id)
+            setRendering(prev => ({ ...prev, [row.id]: false }))
           }
         }
       )
@@ -400,10 +403,10 @@ export default function ClipEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Resume polling for pending renders on page load
+  // Resume polling for in-progress renders on page load
   useEffect(() => {
     for (const clip of initialClips) {
-      if (clip.render_status === 'pending') {
+      if (clip.render_status === 'pending' || clip.render_status === 'processing') {
         setRendering(prev => ({ ...prev, [clip.id]: true }))
         startPolling(clip.id)
       }
@@ -425,6 +428,25 @@ export default function ClipEditor({
 
       if (pollCountsRef.current[clipId] > POLL_MAX) {
         stopPolling(clipId)
+        // Final DB check before declaring timeout — render may have completed
+        try {
+          const res = await fetch(`/api/render/status?clip_id=${clipId}`)
+          if (res.ok) {
+            const data = (await res.json()) as StatusResponse
+            if (data.render_status === 'success') {
+              setRendering(prev => ({ ...prev, [clipId]: false }))
+              setRenderStatuses(prev => ({ ...prev, [clipId]: 'success' }))
+              if (data.render_path) setRenderPaths(prev => ({ ...prev, [clipId]: data.render_path! }))
+              return
+            }
+            if (data.render_status === 'failed') {
+              setRendering(prev => ({ ...prev, [clipId]: false }))
+              setRenderStatuses(prev => ({ ...prev, [clipId]: 'failed' }))
+              setRenderErrors(prev => ({ ...prev, [clipId]: data.render_error ?? '렌더 실패' }))
+              return
+            }
+          }
+        } catch { /* ignore */ }
         setRendering(prev => ({ ...prev, [clipId]: false }))
         setRenderStatuses(prev => ({ ...prev, [clipId]: 'failed' }))
         setRenderErrors(prev => ({ ...prev, [clipId]: '렌더 타임아웃 (5분 초과)' }))
@@ -454,6 +476,10 @@ export default function ClipEditor({
             ...prev,
             [clipId]: data.render_error ?? '렌더 실패',
           }))
+        } else if (data.render_status === 'cancelled') {
+          stopPolling(clipId)
+          setRendering(prev => ({ ...prev, [clipId]: false }))
+          setRenderStatuses(prev => ({ ...prev, [clipId]: 'cancelled' }))
         }
       } catch {
         // Network error — keep polling
@@ -963,6 +989,19 @@ export default function ClipEditor({
       setRenderErrors(prev => ({ ...prev, [clipId]: msg }))
       setRendering(prev => ({ ...prev, [clipId]: false }))
     }
+  }
+
+  async function handleCancelRender(clipId: string) {
+    stopPolling(clipId)
+    setRendering(prev => ({ ...prev, [clipId]: false }))
+    setRenderStatuses(prev => ({ ...prev, [clipId]: 'cancelled' }))
+    try {
+      await fetch('/api/render/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clip_id: clipId }),
+      })
+    } catch { /* ignore — UI already updated */ }
   }
 
   async function handleDownload(clipId: string, filename: string) {
@@ -1902,7 +1941,7 @@ export default function ClipEditor({
                       {renderStatus === 'success' && (
                         <span className="text-emerald-400">완료</span>
                       )}
-                      {(isRendering || renderStatus === 'pending') && (
+                      {(isRendering || renderStatus === 'pending' || renderStatus === 'processing') && (
                         <span className="h-3 w-3 animate-spin rounded-full border border-white/30 border-t-white" />
                       )}
                     </span>
@@ -1910,13 +1949,13 @@ export default function ClipEditor({
                   </summary>
 
                   <div className="px-5 pb-4">
-                    <div className="flex items-center">
+                    <div className="flex items-center gap-2">
                       <button
                         onClick={() => handleRender(clip.id)}
-                        disabled={isRendering || renderStatus === 'pending'}
+                        disabled={isRendering || renderStatus === 'pending' || renderStatus === 'processing'}
                         className="ml-auto flex items-center gap-2 rounded-lg bg-[#0071e3] px-4 py-1.5 text-[13px] text-white transition-colors hover:bg-[#0077ed] disabled:opacity-40"
                       >
-                        {isRendering || renderStatus === 'pending' ? (
+                        {isRendering || renderStatus === 'pending' || renderStatus === 'processing' ? (
                           <>
                             <span className="h-3 w-3 animate-spin rounded-full border border-white/30 border-t-white" />
                             렌더 중…
@@ -1927,10 +1966,18 @@ export default function ClipEditor({
                           '렌더 시작'
                         )}
                       </button>
+                      {(isRendering || renderStatus === 'pending' || renderStatus === 'processing') && (
+                        <button
+                          onClick={() => handleCancelRender(clip.id)}
+                          className="flex items-center rounded-lg border border-white/20 px-3 py-1.5 text-[13px] text-white/50 transition-colors hover:border-white/40 hover:text-white/80"
+                        >
+                          중지
+                        </button>
+                      )}
                     </div>
 
                     {/* C5: render progress bar */}
-                    {(isRendering || renderStatus === 'pending') && (
+                    {(isRendering || renderStatus === 'pending' || renderStatus === 'processing') && (
                       <div className="mt-3">
                         <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#272729]">
                           <div
@@ -1966,6 +2013,12 @@ export default function ClipEditor({
                     {renderStatus === 'failed' && (
                       <p className="mt-3 text-[12px] text-red-400">
                         {renderErrors[clip.id] ?? '렌더 실패'}
+                      </p>
+                    )}
+
+                    {renderStatus === 'cancelled' && (
+                      <p className="mt-3 text-[12px] text-[rgba(255,255,255,0.4)]">
+                        렌더가 중지되었습니다
                       </p>
                     )}
                   </div>

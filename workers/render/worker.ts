@@ -231,6 +231,17 @@ async function processJob(clipId: string): Promise<void> {
     })
     console.timeEnd('[render] remotion render')
 
+    // Skip upload if cancelled while rendering
+    const { data: statusCheck } = await supabase
+      .from('clips')
+      .select('render_status')
+      .eq('id', clipId)
+      .single()
+    if (statusCheck?.render_status === 'cancelled') {
+      console.log(`[CANCELLED] ${clipId}`)
+      return
+    }
+
     console.time('[render] supabase upload')
     const fileBuffer = await fs.readFile(outputPath)
     const renderPath = `${clipId}/${Date.now()}.mp4`
