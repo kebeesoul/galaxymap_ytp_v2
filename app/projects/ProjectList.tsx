@@ -204,7 +204,7 @@ export default function ProjectList({ initialProjects }: { initialProjects: Proj
             href="/export"
             className="rounded-lg border border-[rgba(0,0,0,0.12)] bg-white px-4 py-2 text-[17px] text-[#1d1d1f] transition-colors hover:bg-[#f5f5f7]"
           >
-            Export
+            Renders
           </Link>
           <Link
             href="/projects/new"

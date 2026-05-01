@@ -16,8 +16,11 @@ interface ProjectGroup {
   clips: ExportRow[]
 }
 
-export default function ExportList({ rows }: { rows: ExportRow[] }) {
+export default function ExportList({ rows: initialRows }: { rows: ExportRow[] }) {
+  const [rows, setRows] = useState<ExportRow[]>(initialRows)
   const [downloading, setDownloading] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState<string | null>(null)
+  const [deletingGroup, setDeletingGroup] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const groups = useMemo<ProjectGroup[]>(() => {
@@ -62,6 +65,40 @@ export default function ExportList({ rows }: { rows: ExportRow[] }) {
     }
   }
 
+  async function handleDeleteClip(clipId: string) {
+    setDeleting(clipId)
+    setError(null)
+    try {
+      const res = await fetch(`/api/clips/${clipId}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const body = (await res.json()) as { error?: string }
+        throw new Error(body.error ?? 'delete failed')
+      }
+      setRows(prev => prev.filter(r => r.clip_id !== clipId))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'delete failed')
+    } finally {
+      setDeleting(null)
+    }
+  }
+
+  async function handleDeleteGroup(projectId: string) {
+    const clipIds = groups.find(g => g.project_id === projectId)?.clips.map(c => c.clip_id) ?? []
+    if (clipIds.length === 0) return
+    setDeletingGroup(projectId)
+    setError(null)
+    try {
+      await Promise.all(
+        clipIds.map(id => fetch(`/api/clips/${id}`, { method: 'DELETE' }))
+      )
+      setRows(prev => prev.filter(r => r.project_id !== projectId))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'delete failed')
+    } finally {
+      setDeletingGroup(null)
+    }
+  }
+
   return (
     <>
       <div className="mb-12 flex items-center justify-between">
@@ -69,7 +106,7 @@ export default function ExportList({ rows }: { rows: ExportRow[] }) {
           className="text-[40px] font-semibold leading-[1.10] text-[#1d1d1f]"
           style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", Helvetica, Arial, sans-serif' }}
         >
-          Export
+          Renders
         </h1>
         <Link href="/projects" className="text-[14px] text-[#0066cc] hover:underline">
           ← Projects
@@ -84,7 +121,7 @@ export default function ExportList({ rows }: { rows: ExportRow[] }) {
         <div className="rounded-2xl bg-white py-24 text-center shadow-[rgba(0,0,0,0.08)_0px_2px_12px]">
           <p className="text-[17px] text-[rgba(0,0,0,0.48)]">렌더 완료된 클립이 아직 없습니다.</p>
           <p className="mt-2 text-[14px] text-[rgba(0,0,0,0.4)]">
-            에디터에서 ‘렌더 시작’ 버튼을 누르면 로컬 워커가 인코딩 후 여기에 표시됩니다.
+            에디터에서 '렌더 시작' 버튼을 누르면 로컬 워커가 인코딩 후 여기에 표시됩니다.
           </p>
         </div>
       ) : (
@@ -110,9 +147,18 @@ export default function ExportList({ rows }: { rows: ExportRow[] }) {
                   </p>
                   <p className="mt-0.5 text-[14px] text-[rgba(0,0,0,0.6)]">{g.artist}</p>
                 </div>
-                <span className="shrink-0 rounded-full bg-[#f5f5f7] px-3 py-1 text-[12px] text-[rgba(0,0,0,0.6)]">
-                  {g.clips.length} clip{g.clips.length === 1 ? '' : 's'}
-                </span>
+                <div className="flex shrink-0 items-center gap-3">
+                  <span className="rounded-full bg-[#f5f5f7] px-3 py-1 text-[12px] text-[rgba(0,0,0,0.6)]">
+                    {g.clips.length} clip{g.clips.length === 1 ? '' : 's'}
+                  </span>
+                  <button
+                    onClick={() => handleDeleteGroup(g.project_id)}
+                    disabled={deletingGroup === g.project_id}
+                    className="rounded-lg border border-red-200 px-3 py-1.5 text-[13px] text-red-500 transition-colors hover:bg-red-50 disabled:opacity-40"
+                  >
+                    {deletingGroup === g.project_id ? '삭제 중…' : '전체 삭제'}
+                  </button>
+                </div>
               </div>
 
               <ul>
@@ -131,10 +177,17 @@ export default function ExportList({ rows }: { rows: ExportRow[] }) {
                     </div>
                     <button
                       onClick={() => handleDownload(c)}
-                      disabled={downloading === c.clip_id}
+                      disabled={downloading === c.clip_id || deleting === c.clip_id}
                       className="rounded-lg bg-[#0071e3] px-4 py-2 text-[14px] text-white transition-colors hover:bg-[#0077ed] disabled:opacity-40"
                     >
                       {downloading === c.clip_id ? '다운로드 중…' : '다운로드'}
+                    </button>
+                    <button
+                      onClick={() => handleDeleteClip(c.clip_id)}
+                      disabled={deleting === c.clip_id || downloading === c.clip_id}
+                      className="rounded-lg border border-red-200 px-3 py-2 text-[14px] text-red-500 transition-colors hover:bg-red-50 disabled:opacity-40"
+                    >
+                      {deleting === c.clip_id ? '삭제 중…' : '삭제'}
                     </button>
                   </li>
                 ))}
