@@ -199,7 +199,7 @@ export default function ClipEditor({
   )
 
   // Live subtitle edits from SubtitleEditor — fed into CanvasPreview so unsaved changes show up immediately
-  const [liveSegsByClip, setLiveSegsByClip] = useState<Record<string, Array<{ text: string; start_sec: number; end_sec: number }>>>({})
+  const [liveSegsByClip, setLiveSegsByClip] = useState<Record<string, Array<{ id: string | null; text: string; start_sec: number; end_sec: number }>>>({})
   // Stable seek-and-play function refs per clip — populated by CanvasPreview, called from SubtitleEditor
   const seekAndPlayRefs = useRef<Map<string, { current: ((clipRelSec: number) => void) | null }>>(new Map())
   // Toggle-play refs per clip — populated by CanvasPreview, called from spacebar handler
@@ -430,19 +430,22 @@ export default function ClipEditor({
         stopPolling(clipId)
         // Final DB check before declaring timeout — render may have completed
         try {
-          const res = await fetch(`/api/render/status?clip_id=${clipId}`)
-          if (res.ok) {
-            const data = (await res.json()) as StatusResponse
-            if (data.render_status === 'success') {
+          const { data: clipRow } = await supabase
+            .from('clips')
+            .select('render_status, render_path, render_error, render_progress')
+            .eq('id', clipId)
+            .single()
+          if (clipRow) {
+            if (clipRow.render_status === 'success') {
               setRendering(prev => ({ ...prev, [clipId]: false }))
               setRenderStatuses(prev => ({ ...prev, [clipId]: 'success' }))
-              if (data.render_path) setRenderPaths(prev => ({ ...prev, [clipId]: data.render_path! }))
+              if (clipRow.render_path) setRenderPaths(prev => ({ ...prev, [clipId]: clipRow.render_path! }))
               return
             }
-            if (data.render_status === 'failed') {
+            if (clipRow.render_status === 'failed') {
               setRendering(prev => ({ ...prev, [clipId]: false }))
               setRenderStatuses(prev => ({ ...prev, [clipId]: 'failed' }))
-              setRenderErrors(prev => ({ ...prev, [clipId]: data.render_error ?? '렌더 실패' }))
+              setRenderErrors(prev => ({ ...prev, [clipId]: clipRow.render_error ?? '렌더 실패' }))
               return
             }
           }
@@ -454,29 +457,32 @@ export default function ClipEditor({
       }
 
       try {
-        const res = await fetch(`/api/render/status?clip_id=${clipId}`)
-        if (!res.ok) return
-        const data = (await res.json()) as StatusResponse
+        const { data: clipRow } = await supabase
+          .from('clips')
+          .select('render_status, render_path, render_error, render_progress')
+          .eq('id', clipId)
+          .single()
+        if (!clipRow) return
 
-        if (data.render_progress !== undefined) {
-          setRenderProgressByClip(prev => ({ ...prev, [clipId]: data.render_progress! }))
+        if (clipRow.render_progress !== undefined && clipRow.render_progress !== null) {
+          setRenderProgressByClip(prev => ({ ...prev, [clipId]: clipRow.render_progress! }))
         }
-        if (data.render_status === 'success') {
+        if (clipRow.render_status === 'success') {
           stopPolling(clipId)
           setRendering(prev => ({ ...prev, [clipId]: false }))
           setRenderStatuses(prev => ({ ...prev, [clipId]: 'success' }))
-          if (data.render_path) {
-            setRenderPaths(prev => ({ ...prev, [clipId]: data.render_path! }))
+          if (clipRow.render_path) {
+            setRenderPaths(prev => ({ ...prev, [clipId]: clipRow.render_path! }))
           }
-        } else if (data.render_status === 'failed') {
+        } else if (clipRow.render_status === 'failed') {
           stopPolling(clipId)
           setRendering(prev => ({ ...prev, [clipId]: false }))
           setRenderStatuses(prev => ({ ...prev, [clipId]: 'failed' }))
           setRenderErrors(prev => ({
             ...prev,
-            [clipId]: data.render_error ?? '렌더 실패',
+            [clipId]: clipRow.render_error ?? '렌더 실패',
           }))
-        } else if (data.render_status === 'cancelled') {
+        } else if (clipRow.render_status === 'cancelled') {
           stopPolling(clipId)
           setRendering(prev => ({ ...prev, [clipId]: false }))
           setRenderStatuses(prev => ({ ...prev, [clipId]: 'cancelled' }))
@@ -973,6 +979,32 @@ export default function ClipEditor({
       return next
     })
     stopPolling(clipId)
+
+    // Auto-save unsaved timecode edits before rendering
+    const liveSegs = liveSegsByClip[clipId]
+    if (liveSegs && liveSegs.length > 0) {
+      try {
+        const toUpdate = liveSegs.filter(s => s.id !== null)
+        const toInsert = liveSegs.filter(s => s.id === null).map((s, i) => ({
+          clip_id: clipId,
+          text: s.text,
+          start_sec: s.start_sec,
+          end_sec: s.end_sec,
+          order: i,
+        }))
+        await Promise.all([
+          ...toUpdate.map(s =>
+            supabase
+              .from('lyrics_segments')
+              .update({ text: s.text, start_sec: s.start_sec, end_sec: s.end_sec })
+              .eq('id', s.id!)
+          ),
+          ...(toInsert.length > 0
+            ? [supabase.from('lyrics_segments').insert(toInsert)]
+            : []),
+        ])
+      } catch { /* non-fatal — proceed with render */ }
+    }
 
     try {
       const res = await fetch('/api/render', {

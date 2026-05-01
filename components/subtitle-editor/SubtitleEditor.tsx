@@ -25,7 +25,7 @@ interface Props {
   /** When true, skips the outer rounded card wrapper and h3 title (used inside a parent <details>) */
   noWrapper?: boolean
   /** Called on every segments state change so the preview can show unsaved edits live. */
-  onSegmentsChange?: (segs: Array<{ text: string; start_sec: number; end_sec: number }>) => void
+  onSegmentsChange?: (segs: Array<{ id: string | null; text: string; start_sec: number; end_sec: number }>) => void
   /** Called when user clicks or finishes dragging a timecode — seeks + plays the preview. */
   onSeekAndPlay?: (clipRelSec: number) => void
 }
@@ -69,7 +69,7 @@ export default function SubtitleEditor({ clipId, initialSegments, currentTime, c
 
   // Notify parent whenever segments change so the preview reflects unsaved edits
   useEffect(() => {
-    onSegmentsChangeRef.current?.(segments.map(s => ({ text: s.text, start_sec: s.start_sec, end_sec: s.end_sec })))
+    onSegmentsChangeRef.current?.(segments.map(s => ({ id: s.id, text: s.text, start_sec: s.start_sec, end_sec: s.end_sec })))
   }, [segments])
 
   // Drag-to-adjust state for timecodes: vertical drag changes start_sec.
