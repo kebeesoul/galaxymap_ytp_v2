@@ -2,8 +2,12 @@ import { createClient } from '@supabase/supabase-js'
 import { bundle } from '@remotion/bundler'
 import { renderMedia, selectComposition } from '@remotion/renderer'
 import { promises as fs, existsSync, readFileSync } from 'fs'
+import { execFile } from 'child_process'
+import { promisify } from 'util'
 import path from 'path'
 import os from 'os'
+
+const execFileAsync = promisify(execFile)
 
 const REPO_ROOT = process.cwd()
 const ENV_PATH = path.join(REPO_ROOT, '.env.local')
@@ -52,6 +56,49 @@ function extractLayout(config: unknown): CompositionId {
   return 'LayoutA'
 }
 
+async function downloadHqSource(sourceUrl: string, destPath: string): Promise<void> {
+  await execFileAsync('yt-dlp', [
+    '--extractor-args', 'youtube:player_client=ios,web',
+    '-f', 'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best',
+    '--merge-output-format', 'mp4',
+    '--no-playlist',
+    '-o', destPath,
+    sourceUrl,
+  ], { timeout: 600_000 })
+}
+
+async function getHqSignedUrl(
+  projectId: string,
+  sourceUrl: string,
+  ytVideoId: string,
+  cachedPath: string | null,
+  tmpDir: string,
+): Promise<string> {
+  if (cachedPath) {
+    console.log(`[HQ cached] ${ytVideoId}`)
+    const { data, error } = await supabase.storage.from('sources').createSignedUrl(cachedPath, 7200)
+    if (error || !data?.signedUrl) throw new Error(`HQ signed url failed: ${error?.message ?? 'no url'}`)
+    return data.signedUrl
+  }
+
+  console.log(`[HQ download] ${ytVideoId} from ${sourceUrl}`)
+  const hqTmpPath = path.join(tmpDir, `hq_${ytVideoId}.mp4`)
+  await downloadHqSource(sourceUrl, hqTmpPath)
+
+  const hqBuffer = await fs.readFile(hqTmpPath)
+  const hqStoragePath = `hq/${ytVideoId}.mp4`
+  const { error: uploadErr } = await supabase.storage
+    .from('sources')
+    .upload(hqStoragePath, hqBuffer, { contentType: 'video/mp4', upsert: true })
+  if (uploadErr) throw new Error(`HQ upload failed: ${uploadErr.message}`)
+
+  await supabase.from('projects').update({ yt_hq_source_path: hqStoragePath }).eq('id', projectId)
+
+  const { data, error } = await supabase.storage.from('sources').createSignedUrl(hqStoragePath, 7200)
+  if (error || !data?.signedUrl) throw new Error(`HQ signed url failed: ${error?.message ?? 'no url'}`)
+  return data.signedUrl
+}
+
 async function processJob(clipId: string): Promise<void> {
   const { data: clip, error: clipErr } = await supabase
     .from('clips')
@@ -63,7 +110,7 @@ async function processJob(clipId: string): Promise<void> {
 
   const { data: project } = await supabase
     .from('projects')
-    .select('yt_source_path')
+    .select('yt_source_path, yt_hq_source_path, yt_video_id, source_url')
     .eq('id', clip.project_id)
     .single()
   if (!project?.yt_source_path) throw new Error('project preview source missing')
@@ -89,44 +136,48 @@ async function processJob(clipId: string): Promise<void> {
     (templateRes as { data: { config_json: unknown } | null }).data?.config_json,
   )
 
-  const { data: previewSigned, error: signErr } = await supabase.storage
-    .from('sources')
-    .createSignedUrl(project.yt_source_path, 7200)
-  if (signErr || !previewSigned?.signedUrl) {
-    throw new Error(`signed url failed: ${signErr?.message ?? 'no url'}`)
-  }
-
-  const inputProps = {
-    clip: {
-      start_sec: clip.start_sec,
-      end_sec: clip.end_sec,
-      bgm_url: clip.bgm_url,
-      bgm_volume: clip.bgm_volume ?? 0.3,
-      original_volume: clip.original_volume ?? 1.0,
-      subtitle_style: clip.subtitle_style,
-      comment_style: clip.comment_style,
-    },
-    segments: segments ?? [],
-    comments: comments ?? [],
-    preview_path: previewSigned.signedUrl,
-  }
-
   const serveUrl = await ensureBundle()
-  const composition = await selectComposition({
-    serveUrl,
-    id: compositionId,
-    inputProps,
-  })
-
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'galaxymap-render-'))
   const outputPath = path.join(tmpDir, `${clipId}.mp4`)
 
   try {
+    const renderVideoUrl = await getHqSignedUrl(
+      clip.project_id,
+      project.source_url ?? '',
+      project.yt_video_id ?? '',
+      (project as Record<string, unknown>).yt_hq_source_path as string | null ?? null,
+      tmpDir,
+    )
+
+    const inputProps = {
+      clip: {
+        start_sec: clip.start_sec,
+        end_sec: clip.end_sec,
+        bgm_url: clip.bgm_url,
+        bgm_volume: clip.bgm_volume ?? 0.3,
+        original_volume: clip.original_volume ?? 1.0,
+        subtitle_style: clip.subtitle_style,
+        comment_style: clip.comment_style,
+      },
+      segments: segments ?? [],
+      comments: comments ?? [],
+      preview_path: renderVideoUrl,
+    }
+
+    const composition = await selectComposition({
+      serveUrl,
+      id: compositionId,
+      inputProps,
+    })
+
     let lastReportedPct = 0
     await renderMedia({
       composition,
       serveUrl,
       codec: 'h264',
+      crf: 12,
+      pixelFormat: 'yuv420p',
+      audioBitrate: '192k',
       outputLocation: outputPath,
       inputProps,
       onProgress: ({ progress }) => {
