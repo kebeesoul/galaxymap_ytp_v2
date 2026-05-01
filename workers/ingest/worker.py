@@ -83,6 +83,7 @@ async def process(supabase, project_id: str, source_url: str) -> None:
                 300,
                 "-f",
                 "best[height<=360][ext=mp4]/best[height<=480][ext=mp4]/worst[ext=mp4]/worst",
+                "--concurrent-fragments", "8",
                 "--no-playlist",
                 "-o", out_tmpl,
                 source_url,
