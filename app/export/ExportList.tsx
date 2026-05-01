@@ -1,7 +1,8 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { formatMmss } from '@/lib/utils/time'
 import type { ExportRow } from './page'
@@ -17,11 +18,61 @@ interface ProjectGroup {
 }
 
 export default function ExportList({ rows: initialRows }: { rows: ExportRow[] }) {
+  const router = useRouter()
   const [rows, setRows] = useState<ExportRow[]>(initialRows)
   const [downloading, setDownloading] = useState<string | null>(null)
   const [deleting, setDeleting] = useState<string | null>(null)
   const [deletingGroup, setDeletingGroup] = useState<string | null>(null)
+  const [deletingAll, setDeletingAll] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Issue 2: sync local state when router.refresh() delivers new server props
+  useEffect(() => {
+    setRows(initialRows)
+  }, [initialRows])
+
+  // Issue 3: Realtime — auto-append clips whose render_status just became 'success'
+  useEffect(() => {
+    const channel = supabase
+      .channel('renders-realtime')
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'clips', filter: 'render_status=eq.success' },
+        async (payload) => {
+          const clip = payload.new as Record<string, unknown>
+          const clipId = clip.id as string
+          const renderPath = clip.render_path as string | null
+          const projectId = clip.project_id as string | null
+          if (!renderPath || !projectId) return
+
+          const { data: project } = await supabase
+            .from('projects')
+            .select('id, artist, song_title, yt_thumbnail_url')
+            .eq('id', projectId)
+            .single()
+          if (!project) return
+
+          setRows(prev => {
+            if (prev.some(r => r.clip_id === clipId)) return prev
+            const newRow: ExportRow = {
+              clip_id: clipId,
+              clip_label: (clip.label as string | null) ?? null,
+              start_sec: clip.start_sec as number,
+              end_sec: clip.end_sec as number,
+              render_path: renderPath,
+              project_id: projectId,
+              artist: project.artist,
+              song_title: project.song_title,
+              thumbnail_url: project.yt_thumbnail_url,
+            }
+            return [...prev, newRow]
+          })
+        }
+      )
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [])
 
   const groups = useMemo<ProjectGroup[]>(() => {
     const map = new Map<string, ProjectGroup>()
@@ -88,9 +139,7 @@ export default function ExportList({ rows: initialRows }: { rows: ExportRow[] })
     setDeletingGroup(projectId)
     setError(null)
     try {
-      await Promise.all(
-        clipIds.map(id => fetch(`/api/clips/${id}`, { method: 'DELETE' }))
-      )
+      await Promise.all(clipIds.map(id => fetch(`/api/clips/${id}`, { method: 'DELETE' })))
       setRows(prev => prev.filter(r => r.project_id !== projectId))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'delete failed')
@@ -99,18 +148,52 @@ export default function ExportList({ rows: initialRows }: { rows: ExportRow[] })
     }
   }
 
+  // Issue 1: delete ALL renders across all projects with confirmation
+  async function handleDeleteAll() {
+    if (!confirm('모든 렌더 파일을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) return
+    setDeletingAll(true)
+    setError(null)
+    try {
+      await Promise.all(rows.map(r => fetch(`/api/clips/${r.clip_id}`, { method: 'DELETE' })))
+      setRows([])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'delete failed')
+    } finally {
+      setDeletingAll(false)
+    }
+  }
+
   return (
     <>
       <div className="mb-12 flex items-center justify-between">
-        <h1
-          className="text-[40px] font-semibold leading-[1.10] text-[#1d1d1f]"
-          style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", Helvetica, Arial, sans-serif' }}
+        {/* Issue 2: click to refresh */}
+        <button
+          type="button"
+          onClick={() => router.refresh()}
+          className="transition-opacity hover:opacity-60"
+          title="클릭하여 새로고침"
         >
-          Renders
-        </h1>
-        <Link href="/projects" className="text-[14px] text-[#0066cc] hover:underline">
-          ← Projects
-        </Link>
+          <h1
+            className="cursor-pointer text-[40px] font-semibold leading-[1.10] text-[#1d1d1f]"
+            style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", Helvetica, Arial, sans-serif' }}
+          >
+            Renders
+          </h1>
+        </button>
+        <div className="flex items-center gap-3">
+          {rows.length > 0 && (
+            <button
+              onClick={handleDeleteAll}
+              disabled={deletingAll}
+              className="rounded-lg border border-red-200 px-4 py-2 text-[14px] text-red-500 transition-colors hover:bg-red-50 disabled:opacity-40"
+            >
+              {deletingAll ? '삭제 중…' : '전체 삭제'}
+            </button>
+          )}
+          <Link href="/projects" className="text-[14px] text-[#0066cc] hover:underline">
+            ← Projects
+          </Link>
+        </div>
       </div>
 
       {error && (
@@ -153,7 +236,7 @@ export default function ExportList({ rows: initialRows }: { rows: ExportRow[] })
                   </span>
                   <button
                     onClick={() => handleDeleteGroup(g.project_id)}
-                    disabled={deletingGroup === g.project_id}
+                    disabled={deletingGroup === g.project_id || deletingAll}
                     className="rounded-lg border border-red-200 px-3 py-1.5 text-[13px] text-red-500 transition-colors hover:bg-red-50 disabled:opacity-40"
                   >
                     {deletingGroup === g.project_id ? '삭제 중…' : '전체 삭제'}
@@ -177,14 +260,14 @@ export default function ExportList({ rows: initialRows }: { rows: ExportRow[] })
                     </div>
                     <button
                       onClick={() => handleDownload(c)}
-                      disabled={downloading === c.clip_id || deleting === c.clip_id}
+                      disabled={downloading === c.clip_id || deleting === c.clip_id || deletingAll}
                       className="rounded-lg bg-[#0071e3] px-4 py-2 text-[14px] text-white transition-colors hover:bg-[#0077ed] disabled:opacity-40"
                     >
                       {downloading === c.clip_id ? '다운로드 중…' : '다운로드'}
                     </button>
                     <button
                       onClick={() => handleDeleteClip(c.clip_id)}
-                      disabled={deleting === c.clip_id || downloading === c.clip_id}
+                      disabled={deleting === c.clip_id || downloading === c.clip_id || deletingAll}
                       className="rounded-lg border border-red-200 px-3 py-2 text-[14px] text-red-500 transition-colors hover:bg-red-50 disabled:opacity-40"
                     >
                       {deleting === c.clip_id ? '삭제 중…' : '삭제'}
