@@ -141,7 +141,9 @@ async function processJob(clipId: string): Promise<void> {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'galaxymap-render-'))
   const outputPath = path.join(tmpDir, `${clipId}.mp4`)
 
+  console.time('[render] total')
   try {
+    console.time('[render] HQ source')
     const renderVideoUrl = await getHqSignedUrl(
       clip.project_id,
       project.source_url ?? '',
@@ -149,6 +151,7 @@ async function processJob(clipId: string): Promise<void> {
       (project as Record<string, unknown>).yt_hq_source_path as string | null ?? null,
       tmpDir,
     )
+    console.timeEnd('[render] HQ source')
 
     const inputProps = {
       clip: {
@@ -172,9 +175,12 @@ async function processJob(clipId: string): Promise<void> {
     })
 
     const useHardwareEncoding = process.env.USE_VIDEOTOOLBOX !== 'false'
-    console.log(`[render] encoding: ${useHardwareEncoding ? 'h264_videotoolbox' : 'libx264 (software)'}`)
+    const concurrencyValue = 8
+    console.log(`[render] codec: ${useHardwareEncoding ? 'h264_videotoolbox' : 'libx264'}`)
+    console.log(`[render] concurrency: ${concurrencyValue}`)
 
     let lastReportedPct = 0
+    console.time('[render] remotion render')
     await renderMedia({
       composition,
       serveUrl,
@@ -184,7 +190,7 @@ async function processJob(clipId: string): Promise<void> {
       audioBitrate: '192k',
       outputLocation: outputPath,
       inputProps,
-      concurrency: 8,
+      concurrency: concurrencyValue,
       overrideFfmpegCommand: useHardwareEncoding
         ? ({ type, args }: { type: string; args: string[] }): string[] => {
             if (type !== 'stitcher') return args
@@ -223,13 +229,16 @@ async function processJob(clipId: string): Promise<void> {
         }
       },
     })
+    console.timeEnd('[render] remotion render')
 
+    console.time('[render] supabase upload')
     const fileBuffer = await fs.readFile(outputPath)
     const renderPath = `${clipId}/${Date.now()}.mp4`
     const { error: uploadErr } = await supabase.storage
       .from('renders')
       .upload(renderPath, fileBuffer, { contentType: 'video/mp4', upsert: true })
     if (uploadErr) throw new Error(`upload failed: ${uploadErr.message}`)
+    console.timeEnd('[render] supabase upload')
 
     const { error: finalErr } = await supabase
       .from('clips')
@@ -244,6 +253,7 @@ async function processJob(clipId: string): Promise<void> {
 
     console.log(`[OK]  ${clipId}  → ${renderPath}`)
   } finally {
+    console.timeEnd('[render] total')
     await fs.rm(tmpDir, { recursive: true, force: true })
   }
 }
