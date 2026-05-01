@@ -58,7 +58,7 @@ function extractLayout(config: unknown): CompositionId {
 
 async function downloadHqSource(sourceUrl: string, destPath: string): Promise<void> {
   await execFileAsync('yt-dlp', [
-    '--extractor-args', 'youtube:player_client=ios,web',
+    '--extractor-args', 'youtube:player_client=android,web',
     '-f', 'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best',
     '--merge-output-format', 'mp4',
     '--concurrent-fragments', '8',
