@@ -182,6 +182,7 @@ export default function ClipEditor({
     Object.fromEntries(initialClips.flatMap(c => (c.render_path ? [[c.id, c.render_path]] : [])))
   )
   const [downloading, setDownloading] = useState<Record<string, boolean>>({})
+  const [renderPresetsByClip, setRenderPresetsByClip] = useState<Record<string, 'fast' | 'balanced' | 'quality'>>({})
 
   // C1: subtitle style per clip
   const [subtitleStylesByClip, setSubtitleStylesByClip] = useState<Record<string, SubtitleStyle>>(
@@ -964,7 +965,7 @@ export default function ClipEditor({
       const res = await fetch('/api/render', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clip_id: clipId }),
+        body: JSON.stringify({ clip_id: clipId, preset: renderPresetsByClip[clipId] ?? 'balanced' }),
       })
       const body = (await res.json()) as { queued?: boolean; error?: string }
       if (!res.ok) throw new Error(body.error ?? 'Render failed')
@@ -1910,6 +1911,25 @@ export default function ClipEditor({
                   </summary>
 
                   <div className="px-5 pb-4">
+                    {/* Render quality preset selector */}
+                    <div className="mb-3 flex rounded-lg bg-[#272729] p-0.5">
+                      {(['fast', 'balanced', 'quality'] as const).map((p) => (
+                        <button
+                          key={p}
+                          type="button"
+                          onClick={() => setRenderPresetsByClip(prev => ({ ...prev, [clip.id]: p }))}
+                          disabled={isRendering || renderStatus === 'pending' || renderStatus === 'processing'}
+                          className={`flex-1 rounded-md py-1.5 text-[12px] transition-colors disabled:opacity-40 ${
+                            (renderPresetsByClip[clip.id] ?? 'balanced') === p
+                              ? 'bg-[#0071e3] text-white'
+                              : 'bg-transparent text-[rgba(255,255,255,0.5)] hover:bg-[#2a2a2d]'
+                          }`}
+                        >
+                          {p === 'fast' ? '빠름' : p === 'balanced' ? '균형' : '고품질'}
+                        </button>
+                      ))}
+                    </div>
+
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => handleRender(clip.id)}

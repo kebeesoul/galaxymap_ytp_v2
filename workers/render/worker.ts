@@ -47,6 +47,13 @@ function ensureBundle(): Promise<string> {
 
 type CompositionId = 'LayoutA' | 'LayoutB' | 'LayoutC'
 
+const RENDER_PRESETS = {
+  fast:     { useHardware: true,  bitrate: '8M',    crf: undefined, concurrency: 12, audioBitrate: '192k' },
+  balanced: { useHardware: false, bitrate: undefined, crf: 12,       concurrency: 8,  audioBitrate: '192k' },
+  quality:  { useHardware: false, bitrate: undefined, crf: 10,       concurrency: 6,  audioBitrate: '192k' },
+} as const
+type RenderPreset = keyof typeof RENDER_PRESETS
+
 function extractLayout(config: unknown): CompositionId {
   if (config && typeof config === 'object' && !Array.isArray(config)) {
     const layout = (config as Record<string, unknown>).layout
@@ -171,21 +178,23 @@ async function processJob(clipId: string): Promise<void> {
       inputProps,
     })
 
-    const useHardwareEncoding = process.env.USE_VIDEOTOOLBOX !== 'false'
-    console.log(`[render] encoding: ${useHardwareEncoding ? 'h264_videotoolbox' : 'libx264 (software)'}`)
+    const rawPreset = ((clip as Record<string, unknown>).render_preset as RenderPreset) ?? 'balanced'
+    const preset = rawPreset in RENDER_PRESETS ? rawPreset : 'balanced'
+    const presetCfg = RENDER_PRESETS[preset]
+    console.log(`[render] preset: ${preset} — ${presetCfg.useHardware ? 'h264_videotoolbox' : 'libx264'} crf=${presetCfg.crf ?? 'n/a'} concurrency=${presetCfg.concurrency}`)
 
     let lastReportedPct = 0
     await renderMedia({
       composition,
       serveUrl,
       codec: 'h264',
-      crf: useHardwareEncoding ? undefined : 12,
+      crf: presetCfg.crf,
       pixelFormat: 'yuv420p',
-      audioBitrate: '192k',
+      audioBitrate: presetCfg.audioBitrate,
       outputLocation: outputPath,
       inputProps,
-      concurrency: 8,
-      overrideFfmpegCommand: useHardwareEncoding
+      concurrency: presetCfg.concurrency,
+      overrideFfmpegCommand: presetCfg.useHardware
         ? ({ type, args }: { type: string; args: string[] }): string[] => {
             if (type !== 'stitcher') return args
             const cmd = [...args]
@@ -200,9 +209,9 @@ async function processJob(clipId: string): Promise<void> {
               cmd.splice(crfIdx, 2)
             }
 
-            const newCodecIdx = cmd.indexOf('-c:v')
-            if (newCodecIdx !== -1) {
-              cmd.splice(newCodecIdx + 2, 0, '-b:v', '10M', '-profile:v', 'high')
+            const insertAt = cmd.indexOf('-c:v')
+            if (insertAt !== -1) {
+              cmd.splice(insertAt + 2, 0, '-b:v', presetCfg.bitrate as string, '-profile:v', 'high')
             }
 
             console.log(`[render] ffmpeg: ${cmd.join(' ')}`)
