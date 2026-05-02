@@ -108,7 +108,36 @@ async def process(supabase, project_id: str, source_url: str) -> None:
                     file_options={"content-type": "video/mp4", "upsert": "true"},
                 )
 
-        supabase.table("projects").update({
+            # HQ source for render — non-blocking, failure does not affect import completion
+            hq_storage_path: str | None = None
+            try:
+                hq_out = str(Path(tmpdir) / f"{video_id}_hq.%(ext)s")
+                rc3, _, stderr3 = await _run(
+                    600,
+                    "-f", "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
+                    "--merge-output-format", "mp4",
+                    "--concurrent-fragments", "8",
+                    "--no-playlist",
+                    "-o", hq_out,
+                    source_url,
+                )
+                if rc3 == 0:
+                    hq_file = Path(tmpdir) / f"{video_id}_hq.mp4"
+                    if hq_file.exists():
+                        with open(hq_file, "rb") as f:
+                            supabase.storage.from_("sources").upload(
+                                path=f"hq/{video_id}.mp4",
+                                file=f.read(),
+                                file_options={"content-type": "video/mp4", "upsert": "true"},
+                            )
+                        hq_storage_path = f"hq/{video_id}.mp4"
+                        print(f"[HQ]  {project_id}  {hq_storage_path}")
+                else:
+                    print(f"[HQ WARN] {project_id}  HQ download failed (non-fatal): {stderr3.decode(errors='replace')[:200]}")
+            except Exception as exc:
+                print(f"[HQ WARN] {project_id}  HQ download error (non-fatal): {exc}")
+
+        update_payload: dict = {
             "import_status": "success",
             "yt_video_id": video_id,
             "yt_title": title,
@@ -116,7 +145,10 @@ async def process(supabase, project_id: str, source_url: str) -> None:
             "yt_thumbnail_url": thumbnail_url,
             "yt_source_path": storage_path,
             "import_error": None,
-        }).eq("id", project_id).execute()
+        }
+        if hq_storage_path:
+            update_payload["yt_hq_source_path"] = hq_storage_path
+        supabase.table("projects").update(update_payload).eq("id", project_id).execute()
         print(f"[OK]  {project_id}  {title}")
 
     except Exception as exc:
