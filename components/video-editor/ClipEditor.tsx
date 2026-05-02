@@ -99,7 +99,7 @@ interface Props {
 }
 
 const POLL_INTERVAL_MS = 3_000
-const POLL_MAX = 100
+const POLL_MAX = 300
 
 interface StatusResponse {
   render_status?: string | null
@@ -440,7 +440,7 @@ export default function ClipEditor({
         } catch { /* ignore */ }
         setRendering(prev => ({ ...prev, [clipId]: false }))
         setRenderStatuses(prev => ({ ...prev, [clipId]: 'failed' }))
-        setRenderErrors(prev => ({ ...prev, [clipId]: '렌더 타임아웃 (5분 초과)' }))
+        setRenderErrors(prev => ({ ...prev, [clipId]: '렌더 타임아웃 (15분 초과)' }))
         return
       }
 
