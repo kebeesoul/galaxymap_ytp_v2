@@ -1,39 +1,97 @@
 'use client'
 
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import WaveSurfer from 'wavesurfer.js'
+import RegionsPlugin from 'wavesurfer.js/plugins/regions'
 import { createClient } from '@/lib/supabase/client'
 
 interface BgmState {
   bgm_url: string | null
-  bgm_volume: number  // 0~1
+  bgm_volume: number    // 0~1
   original_volume: number  // 0~1
+  bgm_start_sec: number
 }
 
 interface Props {
   clipId: string
+  clipDuration: number
   initialBgmUrl: string | null
-  initialBgmVolume: number   // 0~1 from DB
+  initialBgmVolume: number       // 0~1 from DB
   initialOriginalVolume: number  // 0~1 from DB
+  initialBgmStartSec?: number
   onSave?: (state: BgmState) => void
+  onVolumeChange?: (state: { bgm_volume: number; original_volume: number }) => void
 }
 
 export default function BgmEditor({
   clipId,
+  clipDuration,
   initialBgmUrl,
   initialBgmVolume,
   initialOriginalVolume,
+  initialBgmStartSec = 0,
   onSave,
+  onVolumeChange,
 }: Props) {
   const [bgmUrl, setBgmUrl] = useState(initialBgmUrl ?? '')
   // Display as 0-100 integers; DB stores 0-1
   const [bgmVol, setBgmVol] = useState(Math.round(initialBgmVolume * 100))
   const [origVol, setOrigVol] = useState(Math.round(initialOriginalVolume * 100))
+  const [bgmStartSec, setBgmStartSec] = useState(initialBgmStartSec)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  const waveContainerRef = useRef<HTMLDivElement>(null)
+  const wsRef = useRef<WaveSurfer | null>(null)
   const supabase = useMemo(() => createClient(), [])
+
+  // Build/rebuild WaveSurfer whenever the BGM URL changes
+  useEffect(() => {
+    if (!bgmUrl || !waveContainerRef.current) {
+      wsRef.current?.destroy()
+      wsRef.current = null
+      return
+    }
+
+    wsRef.current?.destroy()
+
+    const regionsPlugin = RegionsPlugin.create()
+    const ws = WaveSurfer.create({
+      container: waveContainerRef.current,
+      waveColor: 'rgba(255,255,255,0.22)',
+      progressColor: 'rgba(0,113,227,0.55)',
+      height: 52,
+      interact: false,
+      plugins: [regionsPlugin],
+    })
+
+    ws.load(bgmUrl)
+
+    ws.on('ready', () => {
+      const start = Math.min(bgmStartSec, Math.max(0, ws.getDuration() - clipDuration))
+      regionsPlugin.addRegion({
+        start,
+        end: start + clipDuration,
+        drag: true,
+        resize: false,
+        color: 'rgba(0,113,227,0.22)',
+      })
+    })
+
+    regionsPlugin.on('region-updated', (region) => {
+      const clamped = Math.max(0, region.start)
+      setBgmStartSec(clamped)
+    })
+
+    wsRef.current = ws
+    return () => {
+      ws.destroy()
+      wsRef.current = null
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bgmUrl])
 
   async function handleUpload(file: File) {
     setUploading(true)
@@ -46,6 +104,7 @@ export default function BgmEditor({
       const data = (await res.json()) as { url?: string; error?: string }
       if (!res.ok) throw new Error(data.error ?? '업로드 실패')
       setBgmUrl(data.url ?? '')
+      setBgmStartSec(0)
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : '업로드 실패')
     } finally {
@@ -60,6 +119,7 @@ export default function BgmEditor({
       bgm_url: bgmUrl.trim() || null,
       bgm_volume: bgmVol / 100,
       original_volume: origVol / 100,
+      bgm_start_sec: bgmStartSec,
     }
     const { error } = await supabase.from('clips').update(payload).eq('id', clipId)
     if (error) {
@@ -123,10 +183,37 @@ export default function BgmEditor({
 
         {uploadError && <p className="mb-3 text-[12px] text-red-400">{uploadError}</p>}
 
+        {/* BGM waveform + region selector */}
+        {bgmUrl && (
+          <div className="mb-4">
+            <div
+              ref={waveContainerRef}
+              className="overflow-hidden rounded-lg bg-[#111]"
+            />
+            <p className="mt-1 text-right font-mono text-[11px] text-[rgba(255,255,255,0.4)]">
+              시작: {bgmStartSec.toFixed(1)}s
+            </p>
+          </div>
+        )}
+
         {/* Volume sliders */}
         <div className="space-y-3">
-          <VolumeSlider label="원본 볼륨" value={origVol} onChange={setOrigVol} />
-          <VolumeSlider label="BGM 볼륨" value={bgmVol} onChange={setBgmVol} />
+          <VolumeSlider
+            label="원본 볼륨"
+            value={origVol}
+            onChange={v => {
+              setOrigVol(v)
+              onVolumeChange?.({ bgm_volume: bgmVol / 100, original_volume: v / 100 })
+            }}
+          />
+          <VolumeSlider
+            label="BGM 볼륨"
+            value={bgmVol}
+            onChange={v => {
+              setBgmVol(v)
+              onVolumeChange?.({ bgm_volume: v / 100, original_volume: origVol / 100 })
+            }}
+          />
         </div>
 
         {saveError && <p className="mt-3 text-[12px] text-red-400">{saveError}</p>}

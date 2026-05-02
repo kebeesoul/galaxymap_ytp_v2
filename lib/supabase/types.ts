@@ -7,6 +7,7 @@ export type Database = {
         Row: {
           bgm_url: string | null
           bgm_volume: number
+          bgm_start_sec: number | null
           created_at: string | null
           end_sec: number
           id: string
@@ -26,6 +27,7 @@ export type Database = {
         Insert: {
           bgm_url?: string | null
           bgm_volume?: number
+          bgm_start_sec?: number | null
           created_at?: string | null
           end_sec: number
           id?: string
@@ -45,6 +47,7 @@ export type Database = {
         Update: {
           bgm_url?: string | null
           bgm_volume?: number
+          bgm_start_sec?: number | null
           created_at?: string | null
           end_sec?: number
           id?: string

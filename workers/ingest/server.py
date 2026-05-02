@@ -6,6 +6,7 @@ Endpoints:
 Start: uvicorn server:app --host 0.0.0.0 --port 8001
 """
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -37,12 +38,14 @@ async def upload_bgm(clip_id: str = Form(...), file: UploadFile = File(...)):
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
     content = await file.read()
-    storage_path = f"bgm/{clip_id}.mp3"
+    suffix = Path(file.filename or "audio.mp3").suffix or ".mp3"
+    storage_path = f"bgm/{clip_id}{suffix}"
+    content_type = file.content_type or "audio/mpeg"
 
     supabase.storage.from_("sources").upload(
         path=storage_path,
         file=content,
-        file_options={"content-type": "audio/mpeg", "upsert": "true"},
+        file_options={"content-type": content_type, "upsert": "true"},
     )
 
     # Generate a long-lived signed URL (1 year) so Remotion can access the file at render time

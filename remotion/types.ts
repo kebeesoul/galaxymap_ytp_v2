@@ -46,6 +46,7 @@ export interface ClipInput {
   bgm_url?: string | null
   bgm_volume?: number
   original_volume?: number
+  bgm_start_sec?: number
   subtitle_style?: SubtitleStyle | null
   comment_style?: CommentStyle | null
 }

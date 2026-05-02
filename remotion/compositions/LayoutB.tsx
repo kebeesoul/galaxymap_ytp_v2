@@ -19,6 +19,7 @@ export default function LayoutB({ clip, segments, preview_path }: LayoutBProps) 
         bgmUrl={clip.bgm_url}
         bgmVolume={clip.bgm_volume}
         originalVolume={clip.original_volume}
+        bgmStartSec={clip.bgm_start_sec ?? 0}
       />
       <SubtitleLayer segments={segments} clipStartSec={clip.start_sec} style={clip.subtitle_style} />
     </AbsoluteFill>
