@@ -169,6 +169,7 @@ async function processJob(clipId: string): Promise<void> {
         bgm_url: clip.bgm_url,
         bgm_volume: clip.bgm_volume ?? 0.3,
         original_volume: clip.original_volume ?? 1.0,
+        bgm_start_sec: (clip as Record<string, unknown>).bgm_start_sec as number ?? 0,
         subtitle_style: clip.subtitle_style,
         comment_style: clip.comment_style,
       },

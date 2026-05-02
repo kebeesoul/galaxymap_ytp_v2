@@ -153,10 +153,12 @@ export default function ClipEditor({
     bgm_url: string | null
     bgm_volume: number
     original_volume: number
+    bgm_start_sec: number
   }>>(Object.fromEntries(initialClips.map(c => [c.id, {
     bgm_url: c.bgm_url,
     bgm_volume: c.bgm_volume,
     original_volume: c.original_volume,
+    bgm_start_sec: (c as Record<string, unknown>).bgm_start_sec as number ?? 0,
   }])))
 
   const [commentsByClip, setCommentsByClip] = useState<
@@ -737,7 +739,7 @@ export default function ClipEditor({
       setLabelsByClip(prev => ({ ...prev, [data.id]: '' }))
       setRenderStatuses(prev => ({ ...prev, [data.id]: null }))
       setTemplateIdsByClip(prev => ({ ...prev, [data.id]: null }))
-      setBgmByClip(prev => ({ ...prev, [data.id]: { bgm_url: null, bgm_volume: 0.3, original_volume: 1.0 } }))
+      setBgmByClip(prev => ({ ...prev, [data.id]: { bgm_url: null, bgm_volume: 0.3, original_volume: 1.0, bgm_start_sec: 0 } }))
       setCommentsByClip(prev => ({ ...prev, [data.id]: [] }))
       setRawCommentsByClip(prev => ({ ...prev, [data.id]: [] }))
       setSelectedCommentIdxByClip(prev => ({ ...prev, [data.id]: [] }))
@@ -801,7 +803,7 @@ export default function ClipEditor({
     setLabelsByClip(prev => ({ ...prev, [newClip.id]: newClip.label ?? '' }))
     setRenderStatuses(prev => ({ ...prev, [newClip.id]: null }))
     setTemplateIdsByClip(prev => ({ ...prev, [newClip.id]: newClip.template_id }))
-    setBgmByClip(prev => ({ ...prev, [newClip.id]: { bgm_url: null, bgm_volume: 0.3, original_volume: 1.0 } }))
+    setBgmByClip(prev => ({ ...prev, [newClip.id]: { bgm_url: null, bgm_volume: 0.3, original_volume: 1.0, bgm_start_sec: 0 } }))
     setCommentsByClip(prev => ({ ...prev, [newClip.id]: [] }))
     setRawCommentsByClip(prev => ({ ...prev, [newClip.id]: [] }))
     setSelectedCommentIdxByClip(prev => ({ ...prev, [newClip.id]: [] }))
@@ -1016,6 +1018,7 @@ export default function ClipEditor({
       bgm_url:        bgmByClip[c.id]?.bgm_url ?? null,
       bgm_volume:     bgmByClip[c.id]?.bgm_volume ?? c.bgm_volume,
       original_volume: bgmByClip[c.id]?.original_volume ?? c.original_volume,
+      bgm_start_sec:  bgmByClip[c.id]?.bgm_start_sec ?? (c as Record<string, unknown>).bgm_start_sec as number ?? 0,
       subtitle_style: subtitleStylesByClip[c.id] ?? null,
       comment_style:  commentStylesByClip[c.id] ?? null,
     }])),
@@ -1873,10 +1876,18 @@ export default function ClipEditor({
                 {/* ④ BGM */}
                 <BgmEditor
                   clipId={clip.id}
+                  clipDuration={clip.end_sec - clip.start_sec}
                   initialBgmUrl={clip.bgm_url}
                   initialBgmVolume={clip.bgm_volume}
                   initialOriginalVolume={clip.original_volume}
+                  initialBgmStartSec={(clip as Record<string, unknown>).bgm_start_sec as number ?? 0}
                   onSave={(state) => setBgmByClip(prev => ({ ...prev, [clip.id]: state }))}
+                  onVolumeChange={(state) =>
+                    setBgmByClip(prev => {
+                      const cur = prev[clip.id] ?? { bgm_url: clip.bgm_url ?? null, bgm_volume: clip.bgm_volume ?? 0.3, original_volume: clip.original_volume ?? 1.0, bgm_start_sec: (clip as Record<string, unknown>).bgm_start_sec as number ?? 0 }
+                      return { ...prev, [clip.id]: { ...cur, ...state } }
+                    })
+                  }
                 />
                 </div>
 

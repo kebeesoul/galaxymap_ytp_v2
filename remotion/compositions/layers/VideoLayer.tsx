@@ -7,6 +7,7 @@ interface Props {
   bgmUrl?: string | null
   bgmVolume?: number
   originalVolume?: number
+  bgmStartSec?: number
 }
 
 export default function VideoLayer({
@@ -16,6 +17,7 @@ export default function VideoLayer({
   bgmUrl,
   bgmVolume = 0.3,
   originalVolume = 1.0,
+  bgmStartSec = 0,
 }: Props) {
   const { fps } = useVideoConfig()
   return (
@@ -27,7 +29,14 @@ export default function VideoLayer({
         style={{ width: '100%', height: '100%', objectFit: 'cover' }}
         volume={originalVolume}
       />
-      {bgmUrl ? <Audio src={bgmUrl} volume={bgmVolume} loop /> : null}
+      {bgmUrl ? (
+        <Audio
+          src={bgmUrl}
+          volume={bgmVolume}
+          loop
+          startFrom={Math.round(bgmStartSec * fps)}
+        />
+      ) : null}
     </>
   )
 }
