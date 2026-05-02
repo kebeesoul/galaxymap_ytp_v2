@@ -100,6 +100,9 @@ async def process(supabase, project_id: str, source_url: str) -> None:
             if not files:
                 raise RuntimeError("Download produced no output file")
 
+            preview_size = files[0].stat().st_size
+            print(f"[PREVIEW] size: {preview_size:,} bytes")
+
             storage_path = f"preview/{video_id}.mp4"
             with open(files[0], "rb") as f:
                 supabase.storage.from_("sources").upload(
@@ -109,10 +112,12 @@ async def process(supabase, project_id: str, source_url: str) -> None:
                 )
 
             # HQ source for render — non-blocking, failure does not affect import completion
+            # Must use 'web' client (not 'ios') to access DASH adaptive streams for 1080p
             hq_storage_path: str | None = None
             try:
                 hq_out = str(Path(tmpdir) / f"{video_id}_hq.%(ext)s")
-                rc3, _, stderr3 = await _run(
+                rc3, _, stderr3 = await _run_with_client(
+                    "web",
                     600,
                     "-f", "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
                     "--merge-output-format", "mp4",
@@ -124,12 +129,18 @@ async def process(supabase, project_id: str, source_url: str) -> None:
                 if rc3 == 0:
                     hq_file = Path(tmpdir) / f"{video_id}_hq.mp4"
                     if hq_file.exists():
+                        hq_size = hq_file.stat().st_size
+                        print(f"[HQ]      size: {hq_size:,} bytes")
+                        if hq_size == preview_size:
+                            print("[HQ WARN] sizes identical — format selection may have failed")
                         with open(hq_file, "rb") as f:
-                            supabase.storage.from_("sources").upload(
+                            upload_resp = supabase.storage.from_("sources").upload(
                                 path=f"hq/{video_id}.mp4",
                                 file=f.read(),
                                 file_options={"content-type": "video/mp4", "upsert": "true"},
                             )
+                        if getattr(upload_resp, "error", None):
+                            raise RuntimeError(f"HQ upload failed: {upload_resp.error}")
                         hq_storage_path = f"hq/{video_id}.mp4"
                         print(f"[HQ]  {project_id}  {hq_storage_path}")
                 else:
