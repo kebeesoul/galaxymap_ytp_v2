@@ -111,11 +111,24 @@ async def process(supabase, project_id: str, source_url: str) -> None:
                     file_options={"content-type": "video/mp4", "upsert": "true"},
                 )
 
-            # HQ source for render — non-blocking, failure does not affect import completion
-            # Must use 'web' client (not 'ios') to access DASH adaptive streams for 1080p
-            hq_storage_path: str | None = None
+        # Mark import as success immediately — project is usable for editing now.
+        # HQ download below is non-blocking; its path is patched in separately.
+        supabase.table("projects").update({
+            "import_status": "success",
+            "yt_video_id": video_id,
+            "yt_title": title,
+            "yt_duration_sec": duration_sec,
+            "yt_thumbnail_url": thumbnail_url,
+            "yt_source_path": storage_path,
+            "import_error": None,
+        }).eq("id", project_id).execute()
+        print(f"[OK]  {project_id}  {title}")
+
+        # HQ source for render — non-blocking, failure does not affect import completion.
+        # Must use 'web' client (not 'ios') to access DASH adaptive streams for 1080p.
+        with tempfile.TemporaryDirectory() as hq_tmpdir:
             try:
-                hq_out = str(Path(tmpdir) / f"{video_id}_hq.%(ext)s")
+                hq_out = str(Path(hq_tmpdir) / f"{video_id}_hq.%(ext)s")
                 rc3, _, stderr3 = await _run_with_client(
                     "web",
                     600,
@@ -127,7 +140,7 @@ async def process(supabase, project_id: str, source_url: str) -> None:
                     source_url,
                 )
                 if rc3 == 0:
-                    hq_file = Path(tmpdir) / f"{video_id}_hq.mp4"
+                    hq_file = Path(hq_tmpdir) / f"{video_id}_hq.mp4"
                     if hq_file.exists():
                         hq_size = hq_file.stat().st_size
                         print(f"[HQ]      size: {hq_size:,} bytes")
@@ -142,25 +155,12 @@ async def process(supabase, project_id: str, source_url: str) -> None:
                         if getattr(upload_resp, "error", None):
                             raise RuntimeError(f"HQ upload failed: {upload_resp.error}")
                         hq_storage_path = f"hq/{video_id}.mp4"
+                        supabase.table("projects").update({"yt_hq_source_path": hq_storage_path}).eq("id", project_id).execute()
                         print(f"[HQ]  {project_id}  {hq_storage_path}")
                 else:
                     print(f"[HQ WARN] {project_id}  HQ download failed (non-fatal): {stderr3.decode(errors='replace')[:200]}")
             except Exception as exc:
                 print(f"[HQ WARN] {project_id}  HQ download error (non-fatal): {exc}")
-
-        update_payload: dict = {
-            "import_status": "success",
-            "yt_video_id": video_id,
-            "yt_title": title,
-            "yt_duration_sec": duration_sec,
-            "yt_thumbnail_url": thumbnail_url,
-            "yt_source_path": storage_path,
-            "import_error": None,
-        }
-        if hq_storage_path:
-            update_payload["yt_hq_source_path"] = hq_storage_path
-        supabase.table("projects").update(update_payload).eq("id", project_id).execute()
-        print(f"[OK]  {project_id}  {title}")
 
     except Exception as exc:
         supabase.table("projects").update({

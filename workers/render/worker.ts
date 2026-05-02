@@ -90,6 +90,7 @@ async function getHqSignedUrl(
   }
 
   console.log(`[HQ download] ${ytVideoId} from ${sourceUrl}`)
+  console.log('[render] HQ cache: MISS — downloading now')
   const hqTmpPath = path.join(tmpDir, `hq_${ytVideoId}.mp4`)
   await downloadHqSource(sourceUrl, hqTmpPath)
 
@@ -108,6 +109,7 @@ async function getHqSignedUrl(
 }
 
 async function processJob(clipId: string): Promise<void> {
+  console.time('[render] total')
   const { data: clip, error: clipErr } = await supabase
     .from('clips')
     .select('*')
@@ -115,6 +117,7 @@ async function processJob(clipId: string): Promise<void> {
     .single()
   if (clipErr || !clip) throw new Error(`clip not found: ${clipErr?.message}`)
   if (!clip.project_id) throw new Error('clip has no project_id')
+  console.log(`[render] job start | clip_id: ${clipId} | project_id: ${clip.project_id}`)
 
   const { data: project } = await supabase
     .from('projects')
@@ -149,6 +152,7 @@ async function processJob(clipId: string): Promise<void> {
   const outputPath = path.join(tmpDir, `${clipId}.mp4`)
 
   try {
+    console.time('[render] HQ source fetch')
     const renderVideoUrl = await getHqSignedUrl(
       clip.project_id,
       project.source_url ?? '',
@@ -156,6 +160,7 @@ async function processJob(clipId: string): Promise<void> {
       (project as Record<string, unknown>).yt_hq_source_path as string | null ?? null,
       tmpDir,
     )
+    console.timeEnd('[render] HQ source fetch')
 
     const inputProps = {
       clip: {
@@ -181,9 +186,10 @@ async function processJob(clipId: string): Promise<void> {
     const rawPreset = ((clip as Record<string, unknown>).render_preset as RenderPreset) ?? 'balanced'
     const preset = rawPreset in RENDER_PRESETS ? rawPreset : 'balanced'
     const presetCfg = RENDER_PRESETS[preset]
-    console.log(`[render] preset: ${preset} — ${presetCfg.useHardware ? 'h264_videotoolbox' : 'libx264'} crf=${presetCfg.crf ?? 'n/a'} concurrency=${presetCfg.concurrency}`)
+    console.log(`[render] preset: ${preset} | codec: ${presetCfg.useHardware ? 'h264_videotoolbox' : 'libx264'} | crf: ${presetCfg.crf ?? 'n/a'} | concurrency: ${presetCfg.concurrency}`)
 
     let lastReportedPct = 0
+    console.time('[render] remotion render')
     await renderMedia({
       composition,
       serveUrl,
@@ -214,7 +220,7 @@ async function processJob(clipId: string): Promise<void> {
               cmd.splice(insertAt + 2, 0, '-b:v', presetCfg.bitrate as string, '-profile:v', 'high')
             }
 
-            console.log(`[render] ffmpeg: ${cmd.join(' ')}`)
+            console.log(`[render] ffmpeg override applied: ${cmd.slice(0, 12).join(' ')}`)
             return cmd
           }
         : undefined,
@@ -233,6 +239,8 @@ async function processJob(clipId: string): Promise<void> {
       },
     })
 
+    console.timeEnd('[render] remotion render')
+
     const fileBuffer = await fs.readFile(outputPath)
 
     const sanitize = (s: string) =>
@@ -249,10 +257,12 @@ async function processJob(clipId: string): Promise<void> {
     const songTitle = (project as Record<string, unknown>).song_title as string ?? ''
     const filename = `${sanitize(artist)}_${sanitize(songTitle)}_render${nn}.mp4`
     const renderPath = `${clip.project_id}/${filename}`
+    console.time('[render] storage upload')
     const { error: uploadErr } = await supabase.storage
       .from('renders')
       .upload(renderPath, fileBuffer, { contentType: 'video/mp4', upsert: true })
     if (uploadErr) throw new Error(`upload failed: ${uploadErr.message}`)
+    console.timeEnd('[render] storage upload')
 
     const { error: finalErr } = await supabase
       .from('clips')
@@ -265,6 +275,7 @@ async function processJob(clipId: string): Promise<void> {
       .eq('id', clipId)
     if (finalErr) throw new Error(`final update failed: ${finalErr.message}`)
 
+    console.timeEnd('[render] total')
     console.log(`[OK]  ${clipId}  → ${renderPath}`)
   } finally {
     await fs.rm(tmpDir, { recursive: true, force: true })
