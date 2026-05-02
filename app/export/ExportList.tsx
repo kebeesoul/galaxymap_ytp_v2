@@ -103,12 +103,7 @@ export default function ExportList({ rows: initialRows }: { rows: ExportRow[] })
       if (signErr || !data?.signedUrl) {
         throw new Error(signErr?.message ?? 'failed to get download url')
       }
-      const filename = `${row.artist} - ${row.song_title}${row.clip_label ? ` (${row.clip_label})` : ''}.mp4`
-        .replace(/[/\\?%*:|"<>]/g, '_')
-      const a = document.createElement('a')
-      a.href = data.signedUrl
-      a.download = filename
-      a.click()
+      window.open(data.signedUrl, '_blank', 'noopener,noreferrer')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'download failed')
     } finally {
@@ -139,7 +134,9 @@ export default function ExportList({ rows: initialRows }: { rows: ExportRow[] })
     setDeletingGroup(projectId)
     setError(null)
     try {
-      await Promise.all(clipIds.map(id => fetch(`/api/clips/${id}`, { method: 'DELETE' })))
+      const responses = await Promise.all(clipIds.map(id => fetch(`/api/clips/${id}`, { method: 'DELETE' })))
+      const failed = responses.filter(r => !r.ok)
+      if (failed.length > 0) throw new Error(`${failed.length}개 클립 삭제 실패`)
       setRows(prev => prev.filter(r => r.project_id !== projectId))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'delete failed')
@@ -154,7 +151,9 @@ export default function ExportList({ rows: initialRows }: { rows: ExportRow[] })
     setDeletingAll(true)
     setError(null)
     try {
-      await Promise.all(rows.map(r => fetch(`/api/clips/${r.clip_id}`, { method: 'DELETE' })))
+      const responses = await Promise.all(rows.map(r => fetch(`/api/clips/${r.clip_id}`, { method: 'DELETE' })))
+      const failed = responses.filter(r => !r.ok)
+      if (failed.length > 0) throw new Error(`${failed.length}개 클립 삭제 실패`)
       setRows([])
     } catch (err) {
       setError(err instanceof Error ? err.message : 'delete failed')
@@ -177,7 +176,7 @@ export default function ExportList({ rows: initialRows }: { rows: ExportRow[] })
             className="cursor-pointer text-[40px] font-semibold leading-[1.10] text-[#1d1d1f]"
             style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", Helvetica, Arial, sans-serif' }}
           >
-            Renders
+            Renders Dashboard
           </h1>
         </button>
         <div className="flex items-center gap-3">
