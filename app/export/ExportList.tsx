@@ -97,9 +97,10 @@ export default function ExportList({ rows: initialRows }: { rows: ExportRow[] })
     setDownloading(row.clip_id)
     setError(null)
     try {
+      const filename = row.render_path.split('/').pop() ?? `${row.clip_id}.mp4`
       const { data, error: signErr } = await supabase.storage
         .from('renders')
-        .createSignedUrl(row.render_path, 300)
+        .createSignedUrl(row.render_path, 300, { download: filename })
       if (signErr || !data?.signedUrl) {
         throw new Error(signErr?.message ?? 'failed to get download url')
       }
@@ -121,6 +122,7 @@ export default function ExportList({ rows: initialRows }: { rows: ExportRow[] })
         throw new Error(body.error ?? 'delete failed')
       }
       setRows(prev => prev.filter(r => r.clip_id !== clipId))
+      router.refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'delete failed')
     } finally {
@@ -138,6 +140,7 @@ export default function ExportList({ rows: initialRows }: { rows: ExportRow[] })
       const failed = responses.filter(r => !r.ok)
       if (failed.length > 0) throw new Error(`${failed.length}개 클립 삭제 실패`)
       setRows(prev => prev.filter(r => r.project_id !== projectId))
+      router.refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'delete failed')
     } finally {
@@ -155,6 +158,7 @@ export default function ExportList({ rows: initialRows }: { rows: ExportRow[] })
       const failed = responses.filter(r => !r.ok)
       if (failed.length > 0) throw new Error(`${failed.length}개 클립 삭제 실패`)
       setRows([])
+      router.refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'delete failed')
     } finally {
