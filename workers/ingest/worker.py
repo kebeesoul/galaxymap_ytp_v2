@@ -132,7 +132,7 @@ async def process(supabase, project_id: str, source_url: str) -> None:
                 rc3, _, stderr3 = await _run_with_client(
                     "web",
                     600,
-                    "-f", "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
+                    "-f", "bestvideo[height>=720][height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height>=720][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height>=720]+bestaudio",
                     "--merge-output-format", "mp4",
                     "--concurrent-fragments", "8",
                     "--no-playlist",
@@ -143,20 +143,21 @@ async def process(supabase, project_id: str, source_url: str) -> None:
                     hq_file = Path(hq_tmpdir) / f"{video_id}_hq.mp4"
                     if hq_file.exists():
                         hq_size = hq_file.stat().st_size
-                        print(f"[HQ]      size: {hq_size:,} bytes")
-                        if hq_size == preview_size:
-                            print("[HQ WARN] sizes identical — format selection may have failed")
-                        with open(hq_file, "rb") as f:
-                            upload_resp = supabase.storage.from_("sources").upload(
-                                path=f"hq/{video_id}.mp4",
-                                file=f.read(),
-                                file_options={"content-type": "video/mp4", "upsert": "true"},
-                            )
-                        if getattr(upload_resp, "error", None):
-                            raise RuntimeError(f"HQ upload failed: {upload_resp.error}")
-                        hq_storage_path = f"hq/{video_id}.mp4"
-                        supabase.table("projects").update({"yt_hq_source_path": hq_storage_path}).eq("id", project_id).execute()
-                        print(f"[HQ]  {project_id}  {hq_storage_path}")
+                        print(f"[HQ]      size: {hq_size:,} bytes  preview: {preview_size:,} bytes  ratio: {hq_size/max(preview_size,1):.2f}x")
+                        if hq_size <= preview_size * 1.5:
+                            print(f"[HQ ERROR] {project_id}  HQ ({hq_size:,}) not significantly larger than preview ({preview_size:,}) — likely same quality, skipping")
+                        else:
+                            with open(hq_file, "rb") as f:
+                                upload_resp = supabase.storage.from_("sources").upload(
+                                    path=f"hq/{video_id}.mp4",
+                                    file=f.read(),
+                                    file_options={"content-type": "video/mp4", "upsert": "true"},
+                                )
+                            if getattr(upload_resp, "error", None):
+                                raise RuntimeError(f"HQ upload failed: {upload_resp.error}")
+                            hq_storage_path = f"hq/{video_id}.mp4"
+                            supabase.table("projects").update({"yt_hq_source_path": hq_storage_path}).eq("id", project_id).execute()
+                            print(f"[HQ]  {project_id}  {hq_storage_path}")
                 else:
                     print(f"[HQ WARN] {project_id}  HQ download failed (non-fatal): {stderr3.decode(errors='replace')[:200]}")
             except Exception as exc:

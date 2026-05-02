@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import type { Tables } from '@/lib/supabase/types'
 
@@ -48,13 +49,14 @@ export default function ProjectList({ initialProjects }: { initialProjects: Proj
   const [projects, setProjects] = useState(initialProjects)
   const [deleting, setDeleting] = useState<string | null>(null)
   const [deletingAll, setDeletingAll] = useState(false)
+  const router = useRouter()
   const supabase = useMemo(() => createClient(), [])
 
   // On mount, fetch fresh data from the API to ensure the list is always in
   // sync with the DB — the SSR snapshot can be stale if Realtime missed an
   // INSERT event (e.g. project created before the subscription was active).
   useEffect(() => {
-    fetch('/api/projects')
+    fetch('/api/projects', { cache: 'no-store' })
       .then(r => r.ok ? r.json() as Promise<Project[]> : Promise.reject())
       .then(data => {
         setProjects(prev => {
@@ -155,9 +157,7 @@ export default function ProjectList({ initialProjects }: { initialProjects: Proj
     }
     setProjects(prev => prev.filter(p => p.id !== id))
     setDeleting(null)
-    // No router.refresh() — calling it causes useEffect([initialProjects]) to overwrite
-    // local state with a server snapshot that may still contain the just-deleted row,
-    // making the project reappear. Realtime DELETE handles server-side confirmation.
+    router.refresh()
   }
 
   async function handleDeleteAll() {
@@ -174,6 +174,7 @@ export default function ProjectList({ initialProjects }: { initialProjects: Proj
     const deletedIds = new Set(snapshot.filter((_, i) => results[i] === null).map(p => p.id))
     setProjects(prev => prev.filter(p => !deletedIds.has(p.id)))
     setDeletingAll(false)
+    router.refresh()
   }
 
   return (
