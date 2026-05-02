@@ -118,7 +118,7 @@ async function processJob(clipId: string): Promise<void> {
 
   const { data: project } = await supabase
     .from('projects')
-    .select('yt_source_path, yt_hq_source_path, yt_video_id, source_url')
+    .select('yt_source_path, yt_hq_source_path, yt_video_id, source_url, artist, song_title')
     .eq('id', clip.project_id)
     .single()
   if (!project?.yt_source_path) throw new Error('project preview source missing')
@@ -234,7 +234,21 @@ async function processJob(clipId: string): Promise<void> {
     })
 
     const fileBuffer = await fs.readFile(outputPath)
-    const renderPath = `${clipId}/${Date.now()}.mp4`
+
+    const sanitize = (s: string) =>
+      s.replace(/\s+/g, '_').replace(/[/\\:*?"<>|]/g, '').slice(0, 50)
+
+    const { data: projectClips } = await supabase
+      .from('clips')
+      .select('id')
+      .eq('project_id', clip.project_id)
+      .order('start_sec', { ascending: true })
+    const clipIndex = (projectClips ?? []).findIndex(c => c.id === clipId) + 1
+    const nn = String(clipIndex > 0 ? clipIndex : 1).padStart(2, '0')
+    const artist = (project as Record<string, unknown>).artist as string ?? ''
+    const songTitle = (project as Record<string, unknown>).song_title as string ?? ''
+    const filename = `${sanitize(artist)}_${sanitize(songTitle)}_render${nn}.mp4`
+    const renderPath = `${clip.project_id}/${filename}`
     const { error: uploadErr } = await supabase.storage
       .from('renders')
       .upload(renderPath, fileBuffer, { contentType: 'video/mp4', upsert: true })
