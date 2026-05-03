@@ -1,4 +1,4 @@
-import { generateJson } from '@/lib/llm/gemini'
+import { generateJson } from '@/lib/llm/anthropic'
 import {
   RecommendResponseSchema,
   ReplacementSchema,
