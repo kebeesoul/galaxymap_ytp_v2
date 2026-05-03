@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import WaveSurfer from 'wavesurfer.js'
 import RegionsPlugin from 'wavesurfer.js/plugins/regions'
 import type { Region } from 'wavesurfer.js/plugins/regions'
-import { formatTime } from '@/lib/utils/time'
+import { formatTime, formatMmss } from '@/lib/utils/time'
 
 interface Props {
   /** Existing <video> element — WaveSurfer attaches to it (no extra HTTP request). */
@@ -190,7 +190,7 @@ export default function WaveformEditor({
           </button>
           {!loading && (
             <span className="font-mono text-[13px] tabular-nums text-white">
-              {String(Math.floor(currentTime / 60)).padStart(2, '0')}:{String(Math.floor(currentTime % 60)).padStart(2, '0')}
+              {formatMmss(currentTime)}
             </span>
           )}
         </div>
