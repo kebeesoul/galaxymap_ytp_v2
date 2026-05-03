@@ -28,7 +28,7 @@ export async function generateJson<T>(
 
   const result = await geminiLite.generateContent({
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    generationConfig: { temperature },
+    generationConfig: { temperature, responseMimeType: 'application/json' },
   })
   const text = result.response.text()
 
