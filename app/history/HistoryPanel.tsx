@@ -61,6 +61,7 @@ export default function HistoryPanel({ initialProjects, initialRenders }: Props)
   const [deletingAllProjects, setDeletingAllProjects] = useState(false)
   const [deletingAllRenders, setDeletingAllRenders] = useState(false)
   const [downloadingRender, setDownloadingRender] = useState<string | null>(null)
+  const [openingRender, setOpeningRender] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [editBlockedId, setEditBlockedId] = useState<string | null>(null)
   const router = useRouter()
@@ -156,6 +157,22 @@ export default function HistoryPanel({ initialProjects, initialRenders }: Props)
     setRenders([])
     router.refresh()
     setDeletingAllRenders(false)
+  }
+
+  async function handleOpenVideo(render: HistoryRender) {
+    setOpeningRender(render.clip_id)
+    setError(null)
+    try {
+      const { data, error: signErr } = await supabase.storage
+        .from('renders')
+        .createSignedUrl(render.render_path, 3600)
+      if (signErr || !data?.signedUrl) throw new Error(signErr?.message ?? 'URL 생성 실패')
+      window.open(data.signedUrl, '_blank', 'noopener,noreferrer')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'open failed')
+    } finally {
+      setOpeningRender(null)
+    }
   }
 
   async function handleDownload(render: HistoryRender) {
@@ -261,7 +278,13 @@ export default function HistoryPanel({ initialProjects, initialRenders }: Props)
               return (
                 <div key={r.clip_id} className="rounded-xl bg-[#1d1d1f] px-4 py-3">
                   <div className="mb-1.5 flex items-start justify-between gap-2">
-                    <span className="break-all text-[12px] font-mono text-white">{filename}</span>
+                    <button
+                      onClick={() => handleOpenVideo(r)}
+                      disabled={openingRender === r.clip_id}
+                      className="break-all text-left text-[12px] font-mono text-[#2997ff] underline-offset-2 hover:underline disabled:opacity-50"
+                    >
+                      {openingRender === r.clip_id ? '열기 중…' : filename}
+                    </button>
                     <div className="flex shrink-0 items-center gap-1.5">
                       <button
                         onClick={() => handleDownload(r)}
