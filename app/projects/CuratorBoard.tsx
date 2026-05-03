@@ -1,7 +1,6 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import {
   TOPIC_OPTIONS, ERA_OPTIONS, GENRE_OPTIONS, isModulationValid,
@@ -21,6 +20,7 @@ interface RecommendSlot {
   role: string
   popularity_estimate: number | null
   yt_video_id: string | null
+  yt_title: string | null
 }
 
 interface RecommendResponse {
@@ -79,6 +79,7 @@ export default function CuratorBoard({ tonePresets }: { tonePresets: TonePreset[
   const [savedMemo, setSavedMemo] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [importing, setImporting] = useState(false)
 
   // Manual input
   const [manualArtist, setManualArtist] = useState('')
@@ -226,6 +227,25 @@ export default function CuratorBoard({ tonePresets }: { tonePresets: TonePreset[
     setTimeout(() => setCopied(false), 2000)
   }
 
+  async function handleImportVideo() {
+    if (!selectedProjectId) return
+    setImporting(true)
+    setMemoError(null)
+    try {
+      const res = await fetch('/api/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_id: selectedProjectId }),
+      })
+      const data = (await res.json()) as { queued?: boolean; error?: string }
+      if (!res.ok) throw new Error(data.error ?? 'Import 실패')
+      window.location.href = '/history'
+    } catch (err) {
+      setMemoError(err instanceof Error ? err.message : 'Import 실패')
+      setImporting(false)
+    }
+  }
+
   const selectClass = 'w-full rounded-lg bg-[#272729] px-3 py-2 text-[13px] text-white outline-none focus:ring-1 focus:ring-[#0071e3]'
 
   return (
@@ -296,6 +316,11 @@ export default function CuratorBoard({ tonePresets }: { tonePresets: TonePreset[
                     <p className="text-[11px] text-[rgba(255,255,255,0.35)]">
                       {[rec.release_year, rec.genre].filter(Boolean).join(' · ')}
                     </p>
+                    {rec.yt_title && (
+                      <p className="mt-0.5 text-[10px] text-[rgba(255,255,255,0.25)]">
+                        ▶ {rec.yt_title}
+                      </p>
+                    )}
                   </div>
                   <button
                     onClick={() => handlePick(rec)}
@@ -449,12 +474,13 @@ export default function CuratorBoard({ tonePresets }: { tonePresets: TonePreset[
 
               {savedMemo && selectedProjectId && (
                 <div>
-                  <Link
-                    href={`/editor/${selectedProjectId}`}
-                    className="inline-block rounded-lg bg-[#272729] px-4 py-2 text-[13px] text-white transition-colors hover:bg-[#2a2a2d]"
+                  <button
+                    onClick={handleImportVideo}
+                    disabled={importing}
+                    className="rounded-lg bg-[#0071e3] px-4 py-2 text-[13px] text-white transition-colors hover:bg-[#0077ed] disabled:opacity-40"
                   >
-                    에디터에서 열기 →
-                  </Link>
+                    {importing ? '가져오는 중…' : 'Import Video'}
+                  </button>
                 </div>
               )}
             </div>

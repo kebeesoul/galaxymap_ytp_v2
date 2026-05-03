@@ -1,11 +1,14 @@
 interface YouTubeSearchResult {
   videoId: string | null
+  ytTitle: string | null
   query: string
 }
 
 /**
- * Search YouTube for a track and return the first result's video ID.
- * Returns null if no results or API error.
+ * Search YouTube for a track and return the best-matching video ID.
+ * Fetches up to 5 results and requires the artist name to appear in the
+ * video title — prevents hallucinated songs from passing verification.
+ * Returns null if no matching result is found.
  */
 export async function searchYouTube(
   artist: string,
@@ -22,32 +25,52 @@ export async function searchYouTube(
   url.searchParams.set('part', 'snippet')
   url.searchParams.set('q', query)
   url.searchParams.set('type', 'video')
-  url.searchParams.set('maxResults', '1')
+  url.searchParams.set('maxResults', '5')
   url.searchParams.set('videoEmbeddable', 'true')
 
   const res = await fetch(url.toString())
 
   if (!res.ok) {
     console.error(`[youtube-search] HTTP ${res.status} for query: ${query}`)
-    return { videoId: null, query }
+    return { videoId: null, ytTitle: null, query }
   }
 
   const data: unknown = await res.json()
 
-  // Defensive parsing — YouTube response shape
   if (
     !data ||
     typeof data !== 'object' ||
     !('items' in data) ||
     !Array.isArray((data as { items: unknown }).items)
   ) {
-    return { videoId: null, query }
+    return { videoId: null, ytTitle: null, query }
   }
 
-  const items = (data as { items: Array<{ id?: { videoId?: string } }> }).items
+  type YTItem = { id?: { videoId?: string }; snippet?: { title?: string } }
+  const items = (data as { items: YTItem[] }).items
 
-  if (items.length === 0) return { videoId: null, query }
+  if (items.length === 0) return { videoId: null, ytTitle: null, query }
 
-  const videoId = items[0]?.id?.videoId ?? null
-  return { videoId, query }
+  // Require the artist name (any single token ≥ 2 chars) to appear in the video
+  // title — filters out completely unrelated results returned for hallucinated songs.
+  const artistTokens = artist
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(t => t.length >= 2)
+
+  for (const item of items) {
+    const videoId = item.id?.videoId ?? null
+    const ytTitle = item.snippet?.title ?? null
+    if (!videoId || !ytTitle) continue
+
+    const titleLower = ytTitle.toLowerCase()
+    const artistMatches = artistTokens.some(token => titleLower.includes(token))
+    if (artistMatches) {
+      return { videoId, ytTitle, query }
+    }
+  }
+
+  // No result passed artist validation — treat as not found
+  console.warn(`[youtube-search] no artist-matching result for: ${query}`)
+  return { videoId: null, ytTitle: null, query }
 }
