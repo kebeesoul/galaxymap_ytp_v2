@@ -19,11 +19,24 @@ SUPABASE_URL = os.environ.get("NEXT_PUBLIC_SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY", "")
 POLL_INTERVAL = 3
 
+# Optional cookies file — mount workers/ingest/cookies.txt into container at /app/cookies.txt.
+# Required when running inside Docker where YouTube bot-detection blocks unauthenticated
+# requests.  Export from Chrome via "Get cookies.txt LOCALLY" extension (Netscape format).
+_COOKIES_FILE = Path("/app/cookies.txt")
+
+
+def _cookies_args() -> list[str]:
+    """Return --cookies arg only when a non-empty cookies file is present."""
+    if _COOKIES_FILE.exists() and _COOKIES_FILE.stat().st_size > 100:
+        return ["--cookies", str(_COOKIES_FILE)]
+    return []
+
 
 async def _run_with_client(client: str, timeout: int, *args: str) -> tuple[int, bytes, bytes]:
     proc = await asyncio.create_subprocess_exec(
         "yt-dlp",
         "--extractor-args", f"youtube:player_client={client}",
+        *_cookies_args(),
         *args,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -33,14 +46,22 @@ async def _run_with_client(client: str, timeout: int, *args: str) -> tuple[int, 
 
 
 async def _run(timeout: int, *args: str) -> tuple[int, bytes, bytes]:
-    # Primary: ios,web bypasses PO token requirement (YouTube bot detection).
-    rc, stdout, stderr = await _run_with_client("ios,web", timeout, *args)
-    if rc != 0:
+    # Retry chain for YouTube bot-detection / availability issues:
+    # 1. ios,web  — bypasses PO token requirement (works on most public videos)
+    # 2. android  — different UA; Docker environments often succeed here when ios fails
+    # 3. tv_embedded — skips age-gate; used as last resort
+    for client in ("ios,web", "android", "tv_embedded"):
+        rc, stdout, stderr = await _run_with_client(client, timeout, *args)
+        if rc == 0:
+            return rc, stdout, stderr
         err = stderr.decode(errors="replace")
-        # tv_embedded player skips YouTube's age-gate — retry only for that error.
-        if any(k in err for k in ("age-restricted", "age restricted", "confirm your age", "Sign in to confirm")):
-            rc, stdout, stderr = await _run_with_client("tv_embedded", timeout, *args)
-    return rc, stdout, stderr
+        print(f"[YT-DLP] client={client} rc={rc} err={err[:200]}", flush=True)
+        # Don't retry age-gate with non-tv_embedded — tv_embedded handles that
+        if any(k in err for k in ("age-restricted", "age restricted", "confirm your age")):
+            if client != "tv_embedded":
+                continue
+            break
+    return rc, stdout, stderr  # type: ignore[possibly-undefined]
 
 
 async def process(supabase, project_id: str, source_url: str) -> None:
@@ -143,7 +164,8 @@ async def main() -> None:
     # Reset any jobs stuck in 'processing' from a previous crash
     supabase.table("projects").update({"import_status": "pending"}).eq("import_status", "processing").execute()
 
-    print(f"galaxymap ingest worker — polling every {POLL_INTERVAL}s")
+    cookies_status = f"cookies={_COOKIES_FILE} ({'active' if _cookies_args() else 'not found'})"
+    print(f"galaxymap ingest worker — polling every {POLL_INTERVAL}s | {cookies_status}")
     while True:
         try:
             result = (
