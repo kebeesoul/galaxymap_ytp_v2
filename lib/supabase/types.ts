@@ -16,6 +16,7 @@ export type Database = {
           project_id: string | null
           render_error: string | null
           render_path: string | null
+          render_preset: string | null
           render_progress: number
           render_status: string | null
           start_sec: number
@@ -36,6 +37,7 @@ export type Database = {
           project_id?: string | null
           render_error?: string | null
           render_path?: string | null
+          render_preset?: string | null
           render_progress?: number
           render_status?: string | null
           start_sec: number
@@ -56,6 +58,7 @@ export type Database = {
           project_id?: string | null
           render_error?: string | null
           render_path?: string | null
+          render_preset?: string | null
           render_progress?: number
           render_status?: string | null
           start_sec?: number
@@ -151,6 +154,9 @@ export type Database = {
         Row: {
           artist: string
           created_at: string | null
+          description_base: string | null
+          description_styled: string | null
+          description_tone: string | null
           id: string
           import_error: string | null
           import_status: string | null
@@ -161,6 +167,7 @@ export type Database = {
           song_title: string
           source_url: string
           yt_duration_sec: number | null
+          yt_hq_source_path: string | null
           yt_source_path: string | null
           yt_thumbnail_url: string | null
           yt_title: string | null
@@ -169,6 +176,9 @@ export type Database = {
         Insert: {
           artist: string
           created_at?: string | null
+          description_base?: string | null
+          description_styled?: string | null
+          description_tone?: string | null
           id?: string
           import_error?: string | null
           import_status?: string | null
@@ -179,6 +189,7 @@ export type Database = {
           song_title: string
           source_url: string
           yt_duration_sec?: number | null
+          yt_hq_source_path?: string | null
           yt_source_path?: string | null
           yt_thumbnail_url?: string | null
           yt_title?: string | null
@@ -187,6 +198,9 @@ export type Database = {
         Update: {
           artist?: string
           created_at?: string | null
+          description_base?: string | null
+          description_styled?: string | null
+          description_tone?: string | null
           id?: string
           import_error?: string | null
           import_status?: string | null
@@ -197,12 +211,114 @@ export type Database = {
           song_title?: string
           source_url?: string
           yt_duration_sec?: number | null
+          yt_hq_source_path?: string | null
           yt_source_path?: string | null
           yt_thumbnail_url?: string | null
           yt_title?: string | null
           yt_video_id?: string | null
         }
         Relationships: []
+      }
+      tone_presets: {
+        Row: {
+          description: string
+          id: string
+          is_active: boolean
+          key: string
+          label: string
+          reference_text: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          description: string
+          id?: string
+          is_active?: boolean
+          key: string
+          label: string
+          reference_text?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          description?: string
+          id?: string
+          is_active?: boolean
+          key?: string
+          label?: string
+          reference_text?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      track_recommendations: {
+        Row: {
+          artist: string
+          batch_id: string
+          created_at: string | null
+          era: string | null
+          genre: string | null
+          genre_filter: string | null
+          id: string
+          popularity_estimate: number | null
+          rank: number
+          reason: string | null
+          release_year: number | null
+          role: string
+          song_title: string
+          topic: string | null
+          used: boolean | null
+          used_project_id: string | null
+          yt_search_status: string
+          yt_video_id: string | null
+        }
+        Insert: {
+          artist: string
+          batch_id: string
+          created_at?: string | null
+          era?: string | null
+          genre?: string | null
+          genre_filter?: string | null
+          id?: string
+          popularity_estimate?: number | null
+          rank: number
+          reason?: string | null
+          release_year?: number | null
+          role: string
+          song_title: string
+          topic?: string | null
+          used?: boolean | null
+          used_project_id?: string | null
+          yt_search_status?: string
+          yt_video_id?: string | null
+        }
+        Update: {
+          artist?: string
+          batch_id?: string
+          created_at?: string | null
+          era?: string | null
+          genre?: string | null
+          genre_filter?: string | null
+          id?: string
+          popularity_estimate?: number | null
+          rank?: number
+          reason?: string | null
+          release_year?: number | null
+          role?: string
+          song_title?: string
+          topic?: string | null
+          used?: boolean | null
+          used_project_id?: string | null
+          yt_search_status?: string
+          yt_video_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'track_recommendations_used_project_id_fkey'
+            columns: ['used_project_id']
+            isOneToOne: false
+            referencedRelation: 'projects'
+            referencedColumns: ['id']
+          },
+        ]
       }
       templates: {
         Row: {

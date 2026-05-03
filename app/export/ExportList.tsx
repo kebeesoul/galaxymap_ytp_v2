@@ -5,7 +5,17 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { formatMmss } from '@/lib/utils/time'
-import type { ExportRow } from './page'
+export interface ExportRow {
+  clip_id: string
+  clip_label: string | null
+  start_sec: number
+  end_sec: number
+  render_path: string
+  project_id: string
+  artist: string
+  song_title: string
+  thumbnail_url: string | null
+}
 
 const supabase = createClient()
 
