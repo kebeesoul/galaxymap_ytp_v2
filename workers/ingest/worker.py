@@ -73,19 +73,17 @@ async def process(supabase, project_id: str, source_url: str) -> None:
         duration_sec: int = int(info.get("duration") or 0)
         thumbnail_url: str = info.get("thumbnail", "")
 
-        # Download a small, browser-friendly mp4 for preview.
-        # Cap at 360p and prefer pre-muxed mp4 (H.264 + AAC) so the browser can
-        # decode it without re-encoding — required for smooth 1× playback while
-        # WaveSurfer is reading the same media element.
+        # Download a single 1080p mp4 — used for both editor preview and final render.
+        # Falls back to next-best resolution if 1080p is unavailable.
+        # No [ext=mp4] restriction: YouTube 1080p is often webm/VP9/AV1; ffmpeg merges to mp4.
         with tempfile.TemporaryDirectory() as tmpdir:
-            out_tmpl = str(Path(tmpdir) / "%(id)s.%(ext)s")
+            out_tmpl = str(Path(tmpdir) / f"{video_id}.%(ext)s")
             rc2, _, stderr2 = await _run(
-                300,
+                600,
                 "-f",
-                "best[height<=360][ext=mp4]/best[height<=480][ext=mp4]/worst[ext=mp4]/worst",
+                "bestvideo[height<=1080]+bestaudio/best[height<=1080]/bestvideo+bestaudio/best",
+                "--merge-output-format", "mp4",
                 "--concurrent-fragments", "8",
-                "--external-downloader", "aria2c",
-                "--external-downloader-args", "aria2c:-x8 -k1M -s8",
                 "--no-playlist",
                 "-o", out_tmpl,
                 source_url,
@@ -96,23 +94,25 @@ async def process(supabase, project_id: str, source_url: str) -> None:
                     raise RuntimeError("연령 제한 영상 — YouTube 로그인 없이는 다운로드할 수 없습니다.")
                 raise RuntimeError(f"다운로드 실패: {err2[:200]}")
 
-            files = list(Path(tmpdir).iterdir())
-            if not files:
-                raise RuntimeError("Download produced no output file")
+            merged = Path(tmpdir) / f"{video_id}.mp4"
+            if not merged.exists():
+                # If yt-dlp did not produce mp4 (rare), pick whatever it left.
+                files = [f for f in Path(tmpdir).iterdir() if f.is_file()]
+                if not files:
+                    raise RuntimeError("Download produced no output file")
+                merged = files[0]
 
-            preview_size = files[0].stat().st_size
-            print(f"[PREVIEW] size: {preview_size:,} bytes")
+            source_size = merged.stat().st_size
+            print(f"[SOURCE] size: {source_size:,} bytes")
 
             storage_path = f"preview/{video_id}.mp4"
-            with open(files[0], "rb") as f:
+            with open(merged, "rb") as f:
                 supabase.storage.from_("sources").upload(
                     path=storage_path,
                     file=f.read(),
                     file_options={"content-type": "video/mp4", "upsert": "true"},
                 )
 
-        # Mark import as success immediately — project is usable for editing now.
-        # HQ download below is non-blocking; its path is patched in separately.
         supabase.table("projects").update({
             "import_status": "success",
             "yt_video_id": video_id,
@@ -123,45 +123,6 @@ async def process(supabase, project_id: str, source_url: str) -> None:
             "import_error": None,
         }).eq("id", project_id).execute()
         print(f"[OK]  {project_id}  {title}")
-
-        # HQ source for render — non-blocking, failure does not affect import completion.
-        # Must use 'web' client (not 'ios') to access DASH adaptive streams for 1080p.
-        with tempfile.TemporaryDirectory() as hq_tmpdir:
-            try:
-                hq_out = str(Path(hq_tmpdir) / f"{video_id}_hq.%(ext)s")
-                rc3, _, stderr3 = await _run_with_client(
-                    "web",
-                    600,
-                    "-f", "bestvideo[height>=720][height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height>=720][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height>=720]+bestaudio",
-                    "--merge-output-format", "mp4",
-                    "--concurrent-fragments", "8",
-                    "--no-playlist",
-                    "-o", hq_out,
-                    source_url,
-                )
-                if rc3 == 0:
-                    hq_file = Path(hq_tmpdir) / f"{video_id}_hq.mp4"
-                    if hq_file.exists():
-                        hq_size = hq_file.stat().st_size
-                        print(f"[HQ]      size: {hq_size:,} bytes  preview: {preview_size:,} bytes  ratio: {hq_size/max(preview_size,1):.2f}x")
-                        if hq_size <= preview_size * 1.5:
-                            print(f"[HQ ERROR] {project_id}  HQ ({hq_size:,}) not significantly larger than preview ({preview_size:,}) — likely same quality, skipping")
-                        else:
-                            with open(hq_file, "rb") as f:
-                                upload_resp = supabase.storage.from_("sources").upload(
-                                    path=f"hq/{video_id}.mp4",
-                                    file=f.read(),
-                                    file_options={"content-type": "video/mp4", "upsert": "true"},
-                                )
-                            if getattr(upload_resp, "error", None):
-                                raise RuntimeError(f"HQ upload failed: {upload_resp.error}")
-                            hq_storage_path = f"hq/{video_id}.mp4"
-                            supabase.table("projects").update({"yt_hq_source_path": hq_storage_path}).eq("id", project_id).execute()
-                            print(f"[HQ]  {project_id}  {hq_storage_path}")
-                else:
-                    print(f"[HQ WARN] {project_id}  HQ download failed (non-fatal): {stderr3.decode(errors='replace')[:200]}")
-            except Exception as exc:
-                print(f"[HQ WARN] {project_id}  HQ download error (non-fatal): {exc}")
 
     except Exception as exc:
         supabase.table("projects").update({

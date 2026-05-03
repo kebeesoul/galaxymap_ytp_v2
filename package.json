@@ -15,7 +15,7 @@
     "render-worker": "tsx workers/render/worker.ts"
   },
   "dependencies": {
-    "@google/generative-ai": "^0.24.1",
+    "@anthropic-ai/sdk": "^0.92.0",
     "@remotion/bundler": "^4.0.451",
     "@remotion/cli": "^4.0.451",
     "@remotion/player": "^4.0.451",

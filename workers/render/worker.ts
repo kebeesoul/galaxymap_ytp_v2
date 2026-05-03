@@ -2,12 +2,8 @@ import { createClient } from '@supabase/supabase-js'
 import { bundle } from '@remotion/bundler'
 import { renderMedia, selectComposition } from '@remotion/renderer'
 import { promises as fs, existsSync, readFileSync } from 'fs'
-import { execFile } from 'child_process'
-import { promisify } from 'util'
 import path from 'path'
 import os from 'os'
-
-const execFileAsync = promisify(execFile)
 
 const REPO_ROOT = process.cwd()
 const ENV_PATH = path.join(REPO_ROOT, '.env.local')
@@ -63,51 +59,6 @@ function extractLayout(config: unknown): CompositionId {
   return 'LayoutA'
 }
 
-async function downloadHqSource(sourceUrl: string, destPath: string): Promise<void> {
-  await execFileAsync('yt-dlp', [
-    '--extractor-args', 'youtube:player_client=ios,web',
-    '-f', 'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best',
-    '--merge-output-format', 'mp4',
-    '--concurrent-fragments', '8',
-    '--no-playlist',
-    '-o', destPath,
-    sourceUrl,
-  ], { timeout: 600_000 })
-}
-
-async function getHqSignedUrl(
-  projectId: string,
-  sourceUrl: string,
-  ytVideoId: string,
-  cachedPath: string | null,
-  tmpDir: string,
-): Promise<string> {
-  if (cachedPath) {
-    console.log(`[HQ cached] ${ytVideoId}`)
-    const { data, error } = await supabase.storage.from('sources').createSignedUrl(cachedPath, 7200)
-    if (error || !data?.signedUrl) throw new Error(`HQ signed url failed: ${error?.message ?? 'no url'}`)
-    return data.signedUrl
-  }
-
-  console.log(`[HQ download] ${ytVideoId} from ${sourceUrl}`)
-  console.log('[render] HQ cache: MISS — downloading now')
-  const hqTmpPath = path.join(tmpDir, `hq_${ytVideoId}.mp4`)
-  await downloadHqSource(sourceUrl, hqTmpPath)
-
-  const hqBuffer = await fs.readFile(hqTmpPath)
-  const hqStoragePath = `hq/${ytVideoId}.mp4`
-  const { error: uploadErr } = await supabase.storage
-    .from('sources')
-    .upload(hqStoragePath, hqBuffer, { contentType: 'video/mp4', upsert: true })
-  if (uploadErr) throw new Error(`HQ upload failed: ${uploadErr.message}`)
-
-  await supabase.from('projects').update({ yt_hq_source_path: hqStoragePath }).eq('id', projectId)
-
-  const { data, error } = await supabase.storage.from('sources').createSignedUrl(hqStoragePath, 7200)
-  if (error || !data?.signedUrl) throw new Error(`HQ signed url failed: ${error?.message ?? 'no url'}`)
-  return data.signedUrl
-}
-
 async function processJob(clipId: string): Promise<void> {
   console.time('[render] total')
   const { data: clip, error: clipErr } = await supabase
@@ -121,10 +72,10 @@ async function processJob(clipId: string): Promise<void> {
 
   const { data: project } = await supabase
     .from('projects')
-    .select('yt_source_path, yt_hq_source_path, yt_video_id, source_url, artist, song_title')
+    .select('yt_source_path, yt_video_id, source_url, artist, song_title')
     .eq('id', clip.project_id)
     .single()
-  if (!project?.yt_source_path) throw new Error('project preview source missing')
+  if (!project?.yt_source_path) throw new Error('project source missing')
 
   const [{ data: segments }, { data: comments }, templateRes] = await Promise.all([
     supabase
@@ -152,15 +103,15 @@ async function processJob(clipId: string): Promise<void> {
   const outputPath = path.join(tmpDir, `${clipId}.mp4`)
 
   try {
-    console.time('[render] HQ source fetch')
-    const renderVideoUrl = await getHqSignedUrl(
-      clip.project_id,
-      project.source_url ?? '',
-      project.yt_video_id ?? '',
-      (project as Record<string, unknown>).yt_hq_source_path as string | null ?? null,
-      tmpDir,
-    )
-    console.timeEnd('[render] HQ source fetch')
+    console.time('[render] source signed url')
+    const { data: signed, error: signErr } = await supabase.storage
+      .from('sources')
+      .createSignedUrl(project.yt_source_path, 7200)
+    if (signErr || !signed?.signedUrl) {
+      throw new Error(`source signed url failed: ${signErr?.message ?? 'no url'}`)
+    }
+    const renderVideoUrl = signed.signedUrl
+    console.timeEnd('[render] source signed url')
 
     const inputProps = {
       clip: {

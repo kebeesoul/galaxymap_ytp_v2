@@ -1,7 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
-import Link from 'next/link'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
@@ -32,7 +31,7 @@ interface Props {
 const STATUS_COLORS: Record<string, string> = {
   pending: 'bg-[#272729] text-[rgba(255,255,255,0.5)]',
   processing: 'bg-[#0071e3]/20 text-[#2997ff]',
-  completed: 'bg-green-900/30 text-green-400',
+  success: 'bg-green-900/30 text-green-400',
   failed: 'bg-red-900/30 text-red-400',
 }
 
@@ -62,9 +61,46 @@ export default function HistoryPanel({ initialProjects, initialRenders }: Props)
   const [deletingAllProjects, setDeletingAllProjects] = useState(false)
   const [deletingAllRenders, setDeletingAllRenders] = useState(false)
   const [downloadingRender, setDownloadingRender] = useState<string | null>(null)
+  const [openingRender, setOpeningRender] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [editBlockedId, setEditBlockedId] = useState<string | null>(null)
   const router = useRouter()
   const supabase = useMemo(() => createClient(), [])
+
+  // Poll for pending/processing projects every 3s until resolved
+  const projectsRef = useRef(projects)
+  projectsRef.current = projects
+  const hasPending = projects.some(
+    p => p.import_status === 'pending' || p.import_status === 'processing'
+  )
+  useEffect(() => {
+    if (!hasPending) return
+    const timer = setInterval(async () => {
+      const ids = projectsRef.current
+        .filter(p => p.import_status === 'pending' || p.import_status === 'processing')
+        .map(p => p.id)
+      if (ids.length === 0) return
+      const { data } = await supabase
+        .from('projects')
+        .select('id, import_status')
+        .in('id', ids)
+      if (!data) return
+      setProjects(prev => prev.map(p => {
+        const u = data.find(d => d.id === p.id)
+        return u && u.import_status !== p.import_status ? { ...p, import_status: u.import_status } : p
+      }))
+    }, 3000)
+    return () => clearInterval(timer)
+  }, [hasPending, supabase])
+
+  function handleEditClick(p: HistoryProject) {
+    if (p.import_status === 'success') {
+      router.push(`/editor/${p.id}`)
+    } else {
+      setEditBlockedId(p.id)
+      setTimeout(() => setEditBlockedId(null), 3000)
+    }
+  }
 
   async function handleDeleteProject(id: string) {
     setDeletingProject(id)
@@ -123,6 +159,22 @@ export default function HistoryPanel({ initialProjects, initialRenders }: Props)
     setDeletingAllRenders(false)
   }
 
+  async function handleOpenVideo(render: HistoryRender) {
+    setOpeningRender(render.clip_id)
+    setError(null)
+    try {
+      const { data, error: signErr } = await supabase.storage
+        .from('renders')
+        .createSignedUrl(render.render_path, 3600)
+      if (signErr || !data?.signedUrl) throw new Error(signErr?.message ?? 'URL 생성 실패')
+      window.open(data.signedUrl, '_blank', 'noopener,noreferrer')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'open failed')
+    } finally {
+      setOpeningRender(null)
+    }
+  }
+
   async function handleDownload(render: HistoryRender) {
     setDownloadingRender(render.clip_id)
     setError(null)
@@ -168,12 +220,12 @@ export default function HistoryPanel({ initialProjects, initialRenders }: Props)
                     {p.artist} – {p.song_title}
                   </span>
                   <div className="flex shrink-0 items-center gap-1.5">
-                    <Link
-                      href={`/editor/${p.id}`}
+                    <button
+                      onClick={() => handleEditClick(p)}
                       className="rounded-md bg-[#272729] px-2 py-1 text-[11px] text-[rgba(255,255,255,0.6)] hover:text-white"
                     >
                       편집
-                    </Link>
+                    </button>
                     <button
                       onClick={() => handleDeleteProject(p.id)}
                       disabled={deletingProject === p.id}
@@ -183,6 +235,11 @@ export default function HistoryPanel({ initialProjects, initialRenders }: Props)
                     </button>
                   </div>
                 </div>
+                {editBlockedId === p.id && (
+                  <p className="mb-1.5 text-[11px] text-[rgba(255,255,255,0.45)]">
+                    파일 생성 중입니다. 잠시만 기다리세요.
+                  </p>
+                )}
                 <div className="flex items-center gap-2">
                   <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${STATUS_COLORS[p.import_status ?? ''] ?? STATUS_COLORS.pending}`}>
                     {p.import_status ?? 'pending'}
@@ -221,7 +278,13 @@ export default function HistoryPanel({ initialProjects, initialRenders }: Props)
               return (
                 <div key={r.clip_id} className="rounded-xl bg-[#1d1d1f] px-4 py-3">
                   <div className="mb-1.5 flex items-start justify-between gap-2">
-                    <span className="break-all text-[12px] font-mono text-white">{filename}</span>
+                    <button
+                      onClick={() => handleOpenVideo(r)}
+                      disabled={openingRender === r.clip_id}
+                      className="break-all text-left text-[12px] font-mono text-[#2997ff] underline-offset-2 hover:underline disabled:opacity-50"
+                    >
+                      {openingRender === r.clip_id ? '열기 중…' : filename}
+                    </button>
                     <div className="flex shrink-0 items-center gap-1.5">
                       <button
                         onClick={() => handleDownload(r)}

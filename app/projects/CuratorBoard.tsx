@@ -127,7 +127,12 @@ export default function CuratorBoard({ tonePresets }: { tonePresets: TonePreset[
       const res = await fetch('/api/curator/recommend', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topic, era, genre }),
+        body: JSON.stringify({
+          topic,
+          era,
+          genre,
+          exclude: recs.map(r => ({ artist: r.artist, song_title: r.song_title })),
+        }),
       })
       const data = (await res.json()) as RecommendResponse & { error?: string }
       if (!res.ok) throw new Error(data.error ?? '추천 실패')
