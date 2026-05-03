@@ -16,9 +16,8 @@ export default async function HistoryPage() {
         .order('created_at', { ascending: false }),
       supabase
         .from('clips')
-        .select('id, render_path, render_preset, start_sec, end_sec, project_id')
-        .eq('render_status', 'success')
-        .not('render_path', 'is', null)
+        .select('id, render_path, render_preset, render_status, start_sec, end_sec, project_id')
+        .not('render_status', 'is', null)
         .order('id'),
       supabase.from('projects').select('id, artist, song_title'),
     ])
@@ -26,13 +25,14 @@ export default async function HistoryPage() {
   const projectById = new Map((projectForClips ?? []).map(p => [p.id, p]))
 
   const renders: HistoryRender[] = (clipRows ?? []).flatMap(c => {
-    if (!c.render_path || !c.project_id) return []
+    if (!c.project_id) return []
     const proj = projectById.get(c.project_id)
     if (!proj) return []
     return [{
       clip_id: c.id,
-      render_path: c.render_path,
+      render_path: c.render_path ?? null,
       render_preset: c.render_preset,
+      render_status: c.render_status,
       start_sec: c.start_sec,
       end_sec: c.end_sec,
       project_id: c.project_id,
