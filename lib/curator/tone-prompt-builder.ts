@@ -4,10 +4,6 @@ interface TonePresetData {
   reference_text: string | null
 }
 
-/**
- * Auto-generate system prompt for tone transformation
- * based on tone_presets row data. Spec v4 Section 11.
- */
 export function buildToneSystemPrompt(preset: TonePresetData): string {
   const reference = preset.reference_text?.trim() || '[참고 샘플 미작성]'
 
@@ -23,8 +19,8 @@ ${reference}
 톤 특성: ${preset.description}
 
 변환 규칙:
-- artist, song_title, source_url은 절대 변경하지 말 것
-- 사실 정보(연도, 장르 등)도 변경하지 말 것
-- 톤만 변환할 것
-- 응답은 JSON 형식: { "text": "변환된 메모" }`
+- artist, song_title은 절대 변경하지 말 것
+- 베이스 메모에 있는 사실(연도, 장르, 인물, 수록 앨범 등)만 사용할 것
+- 베이스 메모에 없는 새로운 사실을 추가하지 말 것 — 확인되지 않은 수상 이력, 차트 순위, 협업자 등 일체 금지
+- 톤(문체·호흡·어조)만 바꿀 것, 내용 추가·삭제 금지`
 }

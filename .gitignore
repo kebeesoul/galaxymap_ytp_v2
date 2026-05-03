@@ -48,5 +48,5 @@ venv/
 *.egg-info/
 dist/
 
-# yt-dlp Netscape cookie auth (sensitive, never commit)
+# yt-dlp cookies (sensitive — never commit)
 workers/ingest/cookies.txt
