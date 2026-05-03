@@ -125,14 +125,13 @@ async def process(supabase, project_id: str, source_url: str) -> None:
         print(f"[OK]  {project_id}  {title}")
 
         # HQ source for render — non-blocking, failure does not affect import completion.
-        # Must use 'web' client (not 'ios') to access DASH adaptive streams for 1080p.
+        # No [ext=mp4] restriction: YouTube 1080p is often webm/AV1/VP9; ffmpeg merges to mp4.
         with tempfile.TemporaryDirectory() as hq_tmpdir:
             try:
                 hq_out = str(Path(hq_tmpdir) / f"{video_id}_hq.%(ext)s")
-                rc3, _, stderr3 = await _run_with_client(
-                    "web",
+                rc3, _, stderr3 = await _run(
                     600,
-                    "-f", "bestvideo[height>=720][height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height>=720][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height>=720]+bestaudio",
+                    "-f", "bestvideo[height<=1080]+bestaudio/bestvideo+bestaudio/best",
                     "--merge-output-format", "mp4",
                     "--concurrent-fragments", "8",
                     "--no-playlist",
@@ -143,23 +142,22 @@ async def process(supabase, project_id: str, source_url: str) -> None:
                     hq_file = Path(hq_tmpdir) / f"{video_id}_hq.mp4"
                     if hq_file.exists():
                         hq_size = hq_file.stat().st_size
-                        print(f"[HQ]      size: {hq_size:,} bytes  preview: {preview_size:,} bytes  ratio: {hq_size/max(preview_size,1):.2f}x")
-                        if hq_size <= preview_size * 1.5:
-                            print(f"[HQ ERROR] {project_id}  HQ ({hq_size:,}) not significantly larger than preview ({preview_size:,}) — likely same quality, skipping")
-                        else:
-                            with open(hq_file, "rb") as f:
-                                upload_resp = supabase.storage.from_("sources").upload(
-                                    path=f"hq/{video_id}.mp4",
-                                    file=f.read(),
-                                    file_options={"content-type": "video/mp4", "upsert": "true"},
-                                )
-                            if getattr(upload_resp, "error", None):
-                                raise RuntimeError(f"HQ upload failed: {upload_resp.error}")
-                            hq_storage_path = f"hq/{video_id}.mp4"
-                            supabase.table("projects").update({"yt_hq_source_path": hq_storage_path}).eq("id", project_id).execute()
-                            print(f"[HQ]  {project_id}  {hq_storage_path}")
+                        print(f"[HQ]  size: {hq_size:,} bytes  preview: {preview_size:,} bytes  ratio: {hq_size/max(preview_size,1):.2f}x")
+                        with open(hq_file, "rb") as f:
+                            upload_resp = supabase.storage.from_("sources").upload(
+                                path=f"hq/{video_id}.mp4",
+                                file=f.read(),
+                                file_options={"content-type": "video/mp4", "upsert": "true"},
+                            )
+                        if getattr(upload_resp, "error", None):
+                            raise RuntimeError(f"HQ upload failed: {upload_resp.error}")
+                        hq_storage_path = f"hq/{video_id}.mp4"
+                        supabase.table("projects").update({"yt_hq_source_path": hq_storage_path}).eq("id", project_id).execute()
+                        print(f"[HQ]  {project_id}  {hq_storage_path}")
+                    else:
+                        print(f"[HQ WARN] {project_id}  merged file not found after rc=0")
                 else:
-                    print(f"[HQ WARN] {project_id}  HQ download failed (non-fatal): {stderr3.decode(errors='replace')[:200]}")
+                    print(f"[HQ WARN] {project_id}  download failed: {stderr3.decode(errors='replace')[:500]}")
             except Exception as exc:
                 print(f"[HQ WARN] {project_id}  HQ download error (non-fatal): {exc}")
 

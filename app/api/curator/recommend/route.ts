@@ -13,6 +13,7 @@ const BodySchema = z.object({
   topic: z.enum(['all', 'love', 'selflove', 'nostalgia', 'dance']),
   era: z.enum(['all', '2020s', '2010s', '2000s', 'pre2000s']),
   genre: z.enum(['all', 'hiphopRnb', 'balladIndie', 'kpop', 'rock']),
+  exclude: z.array(z.object({ artist: z.string(), song_title: z.string() })).optional(),
 })
 
 interface SlotResult {
@@ -49,7 +50,12 @@ export async function POST(req: Request) {
   // Step 1: Get initial 3 recommendations
   let candidates: Recommendation[]
   try {
-    candidates = await recommendTracks({ topic: topic as TopicKey, era: era as EraKey, genre: genre as GenreKey })
+    candidates = await recommendTracks({
+      topic: topic as TopicKey,
+      era: era as EraKey,
+      genre: genre as GenreKey,
+      excludeSongs: parsed.data.exclude,
+    })
   } catch (err) {
     return NextResponse.json(
       { error: `LLM recommendation failed: ${err instanceof Error ? err.message : String(err)}` },
