@@ -14,8 +14,9 @@ export interface HistoryProject {
 
 export interface HistoryRender {
   clip_id: string
-  render_path: string
+  render_path: string | null
   render_preset: string | null
+  render_status: string | null
   start_sec: number
   end_sec: number
   project_id: string
@@ -41,6 +42,13 @@ const PRESET_COLORS: Record<string, string> = {
   quality: 'bg-purple-900/30 text-purple-400',
 }
 
+const RENDER_STATUS_COLORS: Record<string, string> = {
+  pending: 'bg-[#272729] text-[rgba(255,255,255,0.5)]',
+  processing: 'bg-[#0071e3]/20 text-[#2997ff]',
+  success: 'bg-green-900/30 text-green-400',
+  failed: 'bg-red-900/30 text-red-400',
+}
+
 function formatDate(iso: string | null) {
   if (!iso) return '—'
   return new Date(iso).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -56,6 +64,10 @@ function formatDuration(start: number, end: number) {
 export default function HistoryPanel({ initialProjects, initialRenders }: Props) {
   const [projects, setProjects] = useState(initialProjects)
   const [renders, setRenders] = useState(initialRenders)
+
+  // Sync state when server component re-renders after router.refresh()
+  useEffect(() => { setProjects(initialProjects) }, [initialProjects])
+  useEffect(() => { setRenders(initialRenders) }, [initialRenders])
   const [deletingProject, setDeletingProject] = useState<string | null>(null)
   const [deletingRender, setDeletingRender] = useState<string | null>(null)
   const [deletingAllProjects, setDeletingAllProjects] = useState(false)
@@ -92,6 +104,33 @@ export default function HistoryPanel({ initialProjects, initialRenders }: Props)
     }, 3000)
     return () => clearInterval(timer)
   }, [hasPending, supabase])
+
+  // Poll for pending/processing renders every 3s until resolved
+  const rendersRef = useRef(renders)
+  rendersRef.current = renders
+  const hasPendingRenders = renders.some(
+    r => r.render_status === 'pending' || r.render_status === 'processing'
+  )
+  useEffect(() => {
+    if (!hasPendingRenders) return
+    const timer = setInterval(async () => {
+      const ids = rendersRef.current
+        .filter(r => r.render_status === 'pending' || r.render_status === 'processing')
+        .map(r => r.clip_id)
+      if (ids.length === 0) return
+      const { data } = await supabase
+        .from('clips')
+        .select('id, render_status, render_path, render_preset')
+        .in('id', ids)
+      if (!data) return
+      setRenders(prev => prev.map(r => {
+        const u = data.find(d => d.id === r.clip_id)
+        if (!u || u.render_status === r.render_status) return r
+        return { ...r, render_status: u.render_status, render_path: u.render_path ?? r.render_path, render_preset: u.render_preset ?? r.render_preset }
+      }))
+    }, 3000)
+    return () => clearInterval(timer)
+  }, [hasPendingRenders, supabase])
 
   function handleEditClick(p: HistoryProject) {
     if (p.import_status === 'success') {
@@ -160,6 +199,7 @@ export default function HistoryPanel({ initialProjects, initialRenders }: Props)
   }
 
   async function handleOpenVideo(render: HistoryRender) {
+    if (!render.render_path) return
     setOpeningRender(render.clip_id)
     setError(null)
     try {
@@ -176,6 +216,7 @@ export default function HistoryPanel({ initialProjects, initialRenders }: Props)
   }
 
   async function handleDownload(render: HistoryRender) {
+    if (!render.render_path) return
     setDownloadingRender(render.clip_id)
     setError(null)
     try {
@@ -274,25 +315,34 @@ export default function HistoryPanel({ initialProjects, initialRenders }: Props)
         ) : (
           <div className="space-y-2">
             {renders.map(r => {
-              const filename = r.render_path.split('/').pop() ?? r.clip_id
+              const isDone = r.render_status === 'success'
+              const filename = r.render_path?.split('/').pop() ?? `${r.artist} – ${r.song_title}`
               return (
                 <div key={r.clip_id} className="rounded-xl bg-[#1d1d1f] px-4 py-3">
                   <div className="mb-1.5 flex items-start justify-between gap-2">
-                    <button
-                      onClick={() => handleOpenVideo(r)}
-                      disabled={openingRender === r.clip_id}
-                      className="break-all text-left text-[12px] font-mono text-[#2997ff] underline-offset-2 hover:underline disabled:opacity-50"
-                    >
-                      {openingRender === r.clip_id ? '열기 중…' : filename}
-                    </button>
-                    <div className="flex shrink-0 items-center gap-1.5">
+                    {isDone ? (
                       <button
-                        onClick={() => handleDownload(r)}
-                        disabled={downloadingRender === r.clip_id}
-                        className="rounded-md bg-[#0071e3] px-2 py-1 text-[11px] text-white hover:bg-[#0077ed] disabled:opacity-30"
+                        onClick={() => handleOpenVideo(r)}
+                        disabled={openingRender === r.clip_id}
+                        className="break-all text-left text-[12px] font-mono text-[#2997ff] underline-offset-2 hover:underline disabled:opacity-50"
                       >
-                        {downloadingRender === r.clip_id ? '…' : '다운로드'}
+                        {openingRender === r.clip_id ? '열기 중…' : filename}
                       </button>
+                    ) : (
+                      <span className="text-[13px] font-medium text-white">
+                        {r.artist} – {r.song_title}
+                      </span>
+                    )}
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      {isDone && (
+                        <button
+                          onClick={() => handleDownload(r)}
+                          disabled={downloadingRender === r.clip_id}
+                          className="rounded-md bg-[#0071e3] px-2 py-1 text-[11px] text-white hover:bg-[#0077ed] disabled:opacity-30"
+                        >
+                          {downloadingRender === r.clip_id ? '…' : '다운로드'}
+                        </button>
+                      )}
                       <button
                         onClick={() => handleDeleteRender(r.clip_id)}
                         disabled={deletingRender === r.clip_id}
@@ -303,6 +353,9 @@ export default function HistoryPanel({ initialProjects, initialRenders }: Props)
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
+                    <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${RENDER_STATUS_COLORS[r.render_status ?? ''] ?? RENDER_STATUS_COLORS.pending}`}>
+                      {r.render_status ?? 'pending'}
+                    </span>
                     {r.render_preset && (
                       <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${PRESET_COLORS[r.render_preset] ?? PRESET_COLORS.balanced}`}>
                         {r.render_preset}
