@@ -51,18 +51,33 @@ export async function DELETE(
     if (clip.render_path) rendersPaths.push(clip.render_path)
   }
 
-  // Null out track_recommendations references before delete to avoid FK violation.
-  // The FK was created without ON DELETE SET NULL so we handle it manually.
-  await supabase
+  // Null out track_recommendations references before delete. The original FK was
+  // created without ON DELETE SET NULL — migration 20260503000004 fixes that, but
+  // we still null manually so this works even on DBs missing the migration.
+  const { error: nullError } = await supabase
     .from('track_recommendations')
     .update({ used_project_id: null })
     .eq('used_project_id', projectId)
+  if (nullError) {
+    console.error('[delete project] track_recommendations null-out failed:', nullError)
+    return NextResponse.json(
+      { error: `track_recommendations 정리 실패: ${nullError.message}` },
+      { status: 500 },
+    )
+  }
 
   // DB delete — CASCADE wipes clips, lyrics_segments, comments. If this
   // fails we never touch storage, so the project stays consistent.
   const { error: deleteError } = await supabase.from('projects').delete().eq('id', projectId)
   if (deleteError) {
-    return NextResponse.json({ error: deleteError.message }, { status: 500 })
+    console.error('[delete project] projects.delete failed:', deleteError)
+    const hint = deleteError.message.toLowerCase().includes('foreign key')
+      ? ' (FK 위반 — Supabase SQL Editor에서 마이그레이션 20260503000004를 실행했는지 확인하세요)'
+      : ''
+    return NextResponse.json(
+      { error: `${deleteError.message}${hint}` },
+      { status: 500 },
+    )
   }
 
   // Storage cleanup is best-effort: a missing file should not bubble up as an
