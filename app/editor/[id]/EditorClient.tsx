@@ -61,8 +61,8 @@ export default function EditorClient({
         const body = (await res.json()) as { error?: string }
         throw new Error(body.error ?? 'Import failed')
       }
-      // 202 received — refresh immediately to show pending state, then polling takes over
-      router.refresh()
+      // Redirect back to curator — import runs in background, history shows progress
+      router.push('/projects')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error')
     } finally {
