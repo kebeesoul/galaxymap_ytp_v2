@@ -51,7 +51,14 @@ export async function DELETE(
     if (clip.render_path) rendersPaths.push(clip.render_path)
   }
 
-  // DB delete first — CASCADE wipes clips, lyrics_segments, comments. If this
+  // Null out track_recommendations references before delete to avoid FK violation.
+  // The FK was created without ON DELETE SET NULL so we handle it manually.
+  await supabase
+    .from('track_recommendations')
+    .update({ used_project_id: null })
+    .eq('used_project_id', projectId)
+
+  // DB delete — CASCADE wipes clips, lyrics_segments, comments. If this
   // fails we never touch storage, so the project stays consistent.
   const { error: deleteError } = await supabase.from('projects').delete().eq('id', projectId)
   if (deleteError) {
