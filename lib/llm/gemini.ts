@@ -17,6 +17,19 @@ export const geminiLite = genAI?.getGenerativeModel({
   },
 })
 
+// Rate-limit: free tier cap is ~20 req/day; keep under 3 req/min (≥21 s gap)
+const MIN_INTERVAL_MS = 21_000
+let lastRequestAt = 0
+
+async function rateLimitedWait() {
+  const now = Date.now()
+  const elapsed = now - lastRequestAt
+  if (elapsed < MIN_INTERVAL_MS) {
+    await new Promise(resolve => setTimeout(resolve, MIN_INTERVAL_MS - elapsed))
+  }
+  lastRequestAt = Date.now()
+}
+
 export async function generateJson<T>(
   prompt: string,
   schema: z.ZodType<T>,
@@ -25,6 +38,8 @@ export async function generateJson<T>(
   if (!geminiLite) {
     throw new Error('Gemini client not initialized — GEMINI_API_KEY missing')
   }
+
+  await rateLimitedWait()
 
   const result = await geminiLite.generateContent({
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
