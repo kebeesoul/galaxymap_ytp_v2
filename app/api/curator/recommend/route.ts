@@ -96,6 +96,7 @@ export async function POST(req: Request) {
           .from('track_recommendations')
           .update({
             yt_video_id: result.videoId ?? undefined,
+            yt_title: result.ytTitle ?? undefined,
             yt_search_status: result.videoId ? 'found' : 'not_found',
           })
           .eq('id', row.id)
@@ -156,6 +157,7 @@ export async function POST(req: Request) {
           .from('track_recommendations')
           .update({
             yt_video_id: result.videoId ?? undefined,
+            yt_title: result.ytTitle ?? undefined,
             yt_search_status: result.videoId ? 'found' : 'not_found',
           })
           .eq('id', repInserted.id)
@@ -177,7 +179,7 @@ export async function POST(req: Request) {
   // Step 5: Fetch final 'found' rows for this batch
   const { data: foundRows, error: fetchError } = await supabase
     .from('track_recommendations')
-    .select('id, rank, artist, song_title, release_year, genre, reason, role, popularity_estimate, yt_video_id')
+    .select('id, rank, artist, song_title, release_year, genre, reason, role, popularity_estimate, yt_video_id, yt_title')
     .eq('batch_id', batchId)
     .eq('yt_search_status', 'found')
     .order('rank', { ascending: true })

@@ -47,3 +47,6 @@ __pycache__/
 venv/
 *.egg-info/
 dist/
+
+# yt-dlp cookies (sensitive — never commit)
+workers/ingest/cookies.txt

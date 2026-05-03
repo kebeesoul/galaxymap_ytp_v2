@@ -19,10 +19,10 @@ export async function generateBaseMemo(input: GenerateBaseInput): Promise<string
 - genre: ${input.genre ?? '미상'}
 
 작성 규칙:
-- 사실 중심 (검증 불가능한 클레임 금지)
-- 미사여구 금지
-- 객관적 톤
-- 응답 JSON 형식: { "text": "메모 내용" }`
+- 위 곡 정보에서 직접 도출할 수 있는 사실만 서술할 것
+- 차트 순위, 수상 이력, 구체적인 앨범명, 협업자 등 확인되지 않은 사실 추가 금지
+- 불확실한 내용은 "알려진", "대표적인" 등 완화 표현 사용
+- 사실 중심, 미사여구 금지, 객관적 톤`
 
   const result = await generateJson(prompt, MemoSchema, 0.5)
   return result.text
