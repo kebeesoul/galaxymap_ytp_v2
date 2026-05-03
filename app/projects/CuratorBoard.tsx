@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import {
   TOPIC_OPTIONS, ERA_OPTIONS, GENRE_OPTIONS, isModulationValid,
@@ -438,6 +439,17 @@ export default function CuratorBoard({ tonePresets }: { tonePresets: TonePreset[
                   <p className="whitespace-pre-wrap text-[12px] leading-relaxed text-[rgba(255,255,255,0.7)]">
                     {savedMemo}
                   </p>
+                </div>
+              )}
+
+              {savedMemo && selectedProjectId && (
+                <div>
+                  <Link
+                    href={`/editor/${selectedProjectId}`}
+                    className="inline-block rounded-lg bg-[#272729] px-4 py-2 text-[13px] text-white transition-colors hover:bg-[#2a2a2d]"
+                  >
+                    에디터에서 열기 →
+                  </Link>
                 </div>
               )}
             </div>
