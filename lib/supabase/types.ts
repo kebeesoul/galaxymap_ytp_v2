@@ -16,6 +16,7 @@ export type Database = {
           project_id: string | null
           render_error: string | null
           render_path: string | null
+          render_preset: string | null
           render_progress: number
           render_status: string | null
           start_sec: number
@@ -36,6 +37,7 @@ export type Database = {
           project_id?: string | null
           render_error?: string | null
           render_path?: string | null
+          render_preset?: string | null
           render_progress?: number
           render_status?: string | null
           start_sec: number
@@ -56,6 +58,7 @@ export type Database = {
           project_id?: string | null
           render_error?: string | null
           render_path?: string | null
+          render_preset?: string | null
           render_progress?: number
           render_status?: string | null
           start_sec?: number
