@@ -36,7 +36,17 @@ export async function generateJson<T>(
   try {
     parsed = JSON.parse(text)
   } catch {
-    throw new Error(`[llm] Invalid JSON response: ${text.slice(0, 200)}`)
+    // Model occasionally wraps JSON in markdown fences — extract the object/array
+    const match = text.match(/\{[\s\S]*\}|\[[\s\S]*\]/)
+    if (match) {
+      try {
+        parsed = JSON.parse(match[0])
+      } catch {
+        throw new Error(`[llm] Invalid JSON response: ${text.slice(0, 300)}`)
+      }
+    } else {
+      throw new Error(`[llm] Invalid JSON response: ${text.slice(0, 300)}`)
+    }
   }
 
   return schema.parse(parsed)
