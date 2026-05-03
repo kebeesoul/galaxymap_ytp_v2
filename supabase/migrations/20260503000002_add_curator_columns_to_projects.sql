@@ -6,4 +6,4 @@ ALTER TABLE projects
 
 ALTER TABLE projects
   ADD COLUMN IF NOT EXISTS description_tone TEXT
-  CHECK (description_tone IN ('hushwav', 'parkbeat', 'archive'));
+  CHECK (description_tone IN ('ref_01', 'ref_02', 'ref_03'));
