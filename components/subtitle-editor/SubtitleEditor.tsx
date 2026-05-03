@@ -380,8 +380,12 @@ export default function SubtitleEditor({ clipId, initialSegments, currentTime, c
 
   const bodyContent = (
     <>
-      <div className={`mb-3 flex items-center ${noWrapper ? 'justify-end' : 'justify-between'}`}>
-        {!noWrapper && (
+      <div className={`mb-3 flex items-center ${noWrapper && syncMode ? 'justify-end' : 'justify-between'}`}>
+        {noWrapper ? (
+          !syncMode && (
+            <span className="text-[11px] text-[rgba(255,255,255,0.3)]">타임코드</span>
+          )
+        ) : (
           <h3 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-[rgba(255,255,255,0.4)]">
             자막 ({segments.length})
           </h3>
@@ -440,9 +444,6 @@ export default function SubtitleEditor({ clipId, initialSegments, currentTime, c
         </p>
       ) : null}
 
-      {!syncMode && (
-        <p className="mb-1.5 text-[11px] text-[rgba(255,255,255,0.3)]">타임코드</p>
-      )}
 
       <div className="space-y-1">
         {segments.map((seg, idx) => {
