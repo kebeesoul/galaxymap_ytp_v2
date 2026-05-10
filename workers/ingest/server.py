@@ -20,6 +20,12 @@ SUPABASE_KEY = os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY", "")
 app = FastAPI()
 
 
+@app.get("/")
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
 def _get_signed_url(supabase, storage_path: str) -> str:
     resp = supabase.storage.from_("sources").create_signed_url(storage_path, 31_536_000)
     url: str = getattr(resp, "signed_url", None) or (
