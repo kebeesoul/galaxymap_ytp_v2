@@ -31,15 +31,26 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'project has no source URL' }, { status: 422 })
   }
 
-  const { data: updated } = await supabase
+  const { data: updated, error: updateError } = await supabase
     .from('projects')
     .update({ import_status: 'pending', source_url: sourceUrl, import_error: null })
     .eq('id', project_id)
     .or('import_status.is.null,import_status.neq.processing')
     .select('id')
 
+  if (updateError) {
+    return NextResponse.json({ error: updateError.message }, { status: 500 })
+  }
+
   if (!updated?.length) {
-    return NextResponse.json({ error: 'already processing' }, { status: 409 })
+    // Project is currently in 'processing' — force-reset to allow re-queue
+    const { error: resetError } = await supabase
+      .from('projects')
+      .update({ import_status: 'pending', source_url: sourceUrl, import_error: null })
+      .eq('id', project_id)
+    if (resetError) {
+      return NextResponse.json({ error: 'already processing — reset failed: ' + resetError.message }, { status: 500 })
+    }
   }
 
   return NextResponse.json({ queued: true }, { status: 202 })
