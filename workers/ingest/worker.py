@@ -51,6 +51,7 @@ async def _run(timeout: int, *args: str) -> tuple[int, bytes, bytes]:
         # Retry with web client on bot-detection / PO token errors.
         if any(k in err for k in ("Sign in to confirm", "not a bot", "Precondition", "PO Token")):
             rc, stdout, stderr = await _run_with_client("web", timeout, *args)
+            err = stderr.decode(errors="replace")  # update err to reflect retry result
         # tv_embedded player skips YouTube's age-gate.
         if rc != 0 and any(k in err for k in ("age-restricted", "age restricted", "confirm your age")):
             rc, stdout, stderr = await _run_with_client("tv_embedded", timeout, *args)
@@ -68,13 +69,14 @@ async def process(supabase, project_id: str, source_url: str) -> None:
         rc, stdout, stderr = await _run(60, "--dump-json", "--no-playlist", source_url)
         if rc != 0:
             err = stderr.decode(errors="replace")
+            print(f"[yt-dlp metadata stderr] {err[:2000]}")
             if any(k in err for k in ("age-restricted", "age restricted", "confirm your age")):
                 raise RuntimeError("연령 제한 영상 — YouTube 로그인 없이는 다운로드할 수 없습니다.")
             elif any(k in err for k in ("Private video", "private video", "This video is private")):
                 raise RuntimeError("비공개 영상 — 영상 공개 여부를 확인해주세요.")
             elif any(k in err for k in ("copyright", "Copyright", "removed by")):
                 raise RuntimeError("저작권으로 인해 삭제된 영상입니다.")
-            elif any(k in err for k in ("not available", "is unavailable", "Video unavailable", "403")):
+            elif any(k in err for k in ("not available", "is unavailable", "Video unavailable")):
                 raise RuntimeError("사용할 수 없는 영상입니다 (지역 제한 또는 삭제됨).")
             elif any(k in err for k in ("Unable to extract", "Unsupported URL", "is not a valid URL")):
                 raise RuntimeError("유효하지 않은 YouTube URL입니다.")
@@ -104,6 +106,7 @@ async def process(supabase, project_id: str, source_url: str) -> None:
             )
             if rc2 != 0:
                 err2 = stderr2.decode(errors="replace")
+                print(f"[yt-dlp download stderr] {err2[:2000]}")
                 if any(k in err2 for k in ("age-restricted", "confirm your age")):
                     raise RuntimeError("연령 제한 영상 — YouTube 로그인 없이는 다운로드할 수 없습니다.")
                 raise RuntimeError(f"다운로드 실패: {err2[:200]}")
