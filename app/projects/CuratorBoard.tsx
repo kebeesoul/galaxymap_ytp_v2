@@ -239,7 +239,7 @@ export default function CuratorBoard({ tonePresets }: { tonePresets: TonePreset[
       })
       const data = (await res.json()) as { queued?: boolean; error?: string }
       if (!res.ok) throw new Error(data.error ?? 'Import 실패')
-      window.location.href = '/history'
+      window.location.href = '/projects'
     } catch (err) {
       setMemoError(err instanceof Error ? err.message : 'Import 실패')
       setImporting(false)
@@ -473,7 +473,7 @@ export default function CuratorBoard({ tonePresets }: { tonePresets: TonePreset[
               )}
 
               {savedMemo && selectedProjectId && (
-                <div>
+                <div className="space-y-2">
                   <button
                     onClick={handleImportVideo}
                     disabled={importing}
@@ -481,6 +481,9 @@ export default function CuratorBoard({ tonePresets }: { tonePresets: TonePreset[
                   >
                     {importing ? '가져오는 중…' : 'Import Video'}
                   </button>
+                  {memoError && (
+                    <p className="text-[11px] text-red-400">{memoError}</p>
+                  )}
                 </div>
               )}
             </div>
