@@ -19,3 +19,7 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
     restart: unless-stopped
+    volumes:
+      # Mount cookies.txt if present — enables authenticated YouTube downloads.
+      # Export from browser: yt-dlp --cookies-from-browser chrome --cookies workers/ingest/cookies.txt <any-yt-url>
+      - ./workers/ingest/cookies.txt:/app/cookies.txt:ro

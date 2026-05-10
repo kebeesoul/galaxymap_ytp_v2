@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
+import time
 
 from dotenv import load_dotenv
 from supabase import create_client
@@ -18,12 +19,22 @@ load_dotenv()
 SUPABASE_URL = os.environ.get("NEXT_PUBLIC_SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY", "")
 POLL_INTERVAL = 3
+COOKIES_PATH = Path("/app/cookies.txt")
+
+
+def _cookies_args() -> list[str]:
+    """Return --cookies flag if cookies.txt is mounted into the container."""
+    if COOKIES_PATH.exists():
+        print(f"[cookies] using {COOKIES_PATH}")
+        return ["--cookies", str(COOKIES_PATH)]
+    return []
 
 
 async def _run_with_client(client: str, timeout: int, *args: str) -> tuple[int, bytes, bytes]:
     proc = await asyncio.create_subprocess_exec(
         "yt-dlp",
         "--extractor-args", f"youtube:player_client={client}",
+        *_cookies_args(),
         *args,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -37,8 +48,11 @@ async def _run(timeout: int, *args: str) -> tuple[int, bytes, bytes]:
     rc, stdout, stderr = await _run_with_client("ios,web", timeout, *args)
     if rc != 0:
         err = stderr.decode(errors="replace")
-        # tv_embedded player skips YouTube's age-gate — retry only for that error.
-        if any(k in err for k in ("age-restricted", "age restricted", "confirm your age", "Sign in to confirm")):
+        # Retry with web client on bot-detection / PO token errors.
+        if any(k in err for k in ("Sign in to confirm", "not a bot", "Precondition", "PO Token")):
+            rc, stdout, stderr = await _run_with_client("web", timeout, *args)
+        # tv_embedded player skips YouTube's age-gate.
+        if rc != 0 and any(k in err for k in ("age-restricted", "age restricted", "confirm your age")):
             rc, stdout, stderr = await _run_with_client("tv_embedded", timeout, *args)
     return rc, stdout, stderr
 
@@ -134,16 +148,29 @@ async def process(supabase, project_id: str, source_url: str) -> None:
         traceback.print_exc()
 
 
+def _make_supabase():
+    """Create a fresh Supabase client (HTTP/2 connections degrade over time)."""
+    return create_client(SUPABASE_URL, SUPABASE_KEY)
+
+
 async def main() -> None:
     if not SUPABASE_URL or not SUPABASE_KEY:
         raise SystemExit("NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY must be set")
 
-    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+    supabase = _make_supabase()
 
     # Reset any jobs stuck in 'processing' from a previous crash
-    supabase.table("projects").update({"import_status": "pending"}).eq("import_status", "processing").execute()
+    for attempt in range(3):
+        try:
+            supabase.table("projects").update({"import_status": "pending"}).eq("import_status", "processing").execute()
+            break
+        except Exception as exc:
+            print(f"[INIT] reset attempt {attempt + 1} failed: {exc}")
+            time.sleep(2)
+            supabase = _make_supabase()
 
     print(f"galaxymap ingest worker — polling every {POLL_INTERVAL}s")
+    consecutive_errors = 0
     while True:
         try:
             result = (
@@ -154,12 +181,19 @@ async def main() -> None:
                 .limit(1)
                 .execute()
             )
+            consecutive_errors = 0
             if result.data:
                 job = result.data[0]
                 print(f"[JOB] {job['id']}")
                 await process(supabase, job["id"], job["source_url"])
         except Exception as exc:
             print(f"[POLL ERR] {exc}")
+            consecutive_errors += 1
+            # Recreate client after repeated connection failures
+            if consecutive_errors >= 3:
+                print("[POLL] recreating Supabase client after repeated errors")
+                supabase = _make_supabase()
+                consecutive_errors = 0
         await asyncio.sleep(POLL_INTERVAL)
 
 
