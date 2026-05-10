@@ -1,0 +1,1025 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>galaxymap — Editor</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: 'Noto Sans KR', -apple-system, BlinkMacSystemFont, sans-serif; background: #000; color: #fff; }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
+
+  /* Waveform simulation */
+  .waveform-bar { display: inline-block; background: rgba(255,255,255,0.22); border-radius: 1px; margin: 0 0.5px; }
+  .waveform-bar.played { background: #0071e3; }
+
+  /* Subtitle active line */
+  .seg-row.active-seg { background: rgba(0,113,227,0.12); border-left: 2px solid #0071e3; }
+
+  /* Video placeholder */
+  .video-ph { background: linear-gradient(135deg, #111 0%, #1a1a1f 100%); }
+
+  /* Remotion preview placeholder */
+  .canvas-ph {
+    background: #000;
+    position: relative;
+    overflow: hidden;
+  }
+  .canvas-ph::after {
+    content: '';
+    position: absolute; inset: 0;
+    background: linear-gradient(180deg, transparent 60%, rgba(0,0,0,0.7) 100%);
+  }
+
+  /* Progress bar */
+  .progress-bar { height: 3px; background: rgba(255,255,255,0.1); border-radius: 2px; cursor: pointer; }
+  .progress-fill { height: 100%; background: #0071e3; border-radius: 2px; transition: width 0.1s; }
+
+  /* Toggle switch */
+  .toggle { position: relative; width: 36px; height: 20px; }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .toggle-slider { position: absolute; inset: 0; background: #272729; border-radius: 10px; cursor: pointer; transition: .2s; }
+  .toggle-slider:before { content: ''; position: absolute; height: 14px; width: 14px; left: 3px; bottom: 3px; background: #fff; border-radius: 50%; transition: .2s; }
+  .toggle input:checked + .toggle-slider { background: #0071e3; }
+  .toggle input:checked + .toggle-slider:before { transform: translateX(16px); }
+
+  /* Tabs */
+  .tab-btn { border-bottom: 2px solid transparent; transition: color .15s, border-color .15s; }
+  .tab-btn.active { color: #fff; border-color: #0071e3; }
+
+  /* Segment timecode drag cursor */
+  .timecode { cursor: ns-resize; user-select: none; }
+
+  /* Subtitle preview overlay */
+  .sub-overlay {
+    position: absolute; bottom: 32px; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,0.72); color: #fff; padding: 6px 16px; border-radius: 4px;
+    font-size: 18px; font-weight: 700; white-space: nowrap; z-index: 10;
+    max-width: 90%; text-align: center;
+  }
+
+  /* Comment card */
+  .comment-card { background: rgba(255,255,255,0.06); border-radius: 12px; padding: 10px 12px; }
+
+  /* Render progress */
+  .render-prog { height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden; }
+  .render-prog-fill { height: 100%; background: linear-gradient(90deg, #0071e3, #2997ff); border-radius: 2px; transition: width .5s; }
+
+  /* Lyrics panel highlight */
+  .lyric-line { padding: 2px 6px; border-radius: 4px; transition: background .15s; cursor: pointer; line-height: 1.7; }
+  .lyric-line:hover { background: rgba(255,255,255,0.06); }
+  .lyric-line.in-region { background: rgba(0,113,227,0.18); }
+
+  details summary { cursor: pointer; list-style: none; }
+  details summary::-webkit-details-marker { display: none; }
+  details[open] summary .chevron { transform: rotate(90deg); }
+  .chevron { display: inline-block; transition: transform .2s; }
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav class="sticky top-0 z-50 border-b border-white/10 bg-black/80 backdrop-blur-md">
+  <div class="mx-auto flex max-w-[1400px] items-center justify-between px-6 py-3">
+    <span class="text-[13px] text-white/40">yt-shorts maker created by galaxymap</span>
+    <div class="flex gap-6">
+      <a href="#" class="text-[13px] text-white/50 hover:text-white transition-colors">Curator</a>
+      <a href="#" class="text-[13px] text-white/50 hover:text-white transition-colors">History</a>
+    </div>
+  </div>
+</nav>
+
+<main class="mx-auto max-w-[1400px] px-6 py-6" id="app">
+
+  <!-- Project header -->
+  <div class="mb-5 flex items-center gap-3">
+    <div class="h-8 w-8 rounded-full bg-[#0071e3]/20 flex items-center justify-center">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2997ff" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+    </div>
+    <div>
+      <h1 class="text-[17px] font-semibold text-white">아이유 (IU) — 밤편지 (Dear Name)</h1>
+      <p class="text-[11px] text-white/40">import 완료 · 3:44 · 1080p</p>
+    </div>
+    <span class="ml-auto rounded-full bg-green-900/30 px-2.5 py-0.5 text-[11px] font-medium text-green-400">success</span>
+  </div>
+
+  <div class="flex gap-5">
+
+    <!-- LEFT COLUMN -->
+    <div class="flex flex-col gap-4" style="width:520px;flex-shrink:0;">
+
+      <!-- Source video + waveform -->
+      <div class="rounded-2xl bg-[#111] overflow-hidden border border-white/5">
+        <!-- Thumbnail -->
+        <div class="video-ph relative" style="aspect-ratio:16/9;">
+          <img src="https://i.ytimg.com/vi/BzYnNdJhZQw/maxresdefault.jpg"
+               onerror="this.style.display='none'"
+               class="w-full h-full object-cover opacity-80">
+          <div class="absolute inset-0 flex items-center justify-center">
+            <button onclick="toggleSourcePlay()" id="srcPlayBtn"
+              class="w-12 h-12 rounded-full bg-white/10 backdrop-blur flex items-center justify-center hover:bg-white/20 transition">
+              <svg id="srcPlayIco" width="20" height="20" viewBox="0 0 24 24" fill="white"><polygon points="5,3 19,12 5,21"/></svg>
+            </button>
+          </div>
+          <!-- Time display -->
+          <div class="absolute bottom-2 right-3 text-[11px] font-mono text-white/60" id="srcTime">0:00 / 3:44</div>
+        </div>
+
+        <!-- Progress bar -->
+        <div class="px-4 pt-2 pb-1">
+          <div class="progress-bar" onclick="seekSource(event, this)">
+            <div class="progress-fill" id="srcProg" style="width:0%"></div>
+          </div>
+        </div>
+
+        <!-- Waveform -->
+        <div class="px-4 py-2">
+          <div class="flex items-center justify-between mb-1">
+            <span class="text-[10px] text-white/30">파형</span>
+            <span class="text-[10px] text-white/30" id="waveRegionLabel">구간 선택: 드래그로 클립 지정</span>
+          </div>
+          <div id="waveform" class="relative h-16 flex items-center overflow-hidden cursor-crosshair rounded-lg bg-white/[0.03]"
+               onmousedown="startWaveDrag(event)" onmousemove="moveWaveDrag(event)" onmouseup="endWaveDrag(event)">
+            <!-- bars generated by JS -->
+            <div id="waveBars" class="flex items-center h-full px-1 gap-px"></div>
+            <!-- selection region -->
+            <div id="waveRegion" class="absolute top-0 bottom-0 bg-[#0071e3]/20 border-l-2 border-r-2 border-[#0071e3] pointer-events-none hidden rounded-sm"></div>
+            <!-- playhead -->
+            <div id="wavePlayhead" class="absolute top-0 bottom-0 w-px bg-white/50 pointer-events-none" style="left:0%"></div>
+          </div>
+        </div>
+
+        <!-- Clip controls -->
+        <div class="px-4 pb-3 flex items-center gap-3">
+          <button onclick="saveClip()" class="flex-1 rounded-lg bg-[#0071e3] py-2 text-[12px] font-medium text-white hover:bg-[#0077ed] transition">
+            클립 저장
+          </button>
+          <div class="text-[11px] text-white/40 font-mono" id="clipRegionDisplay">시작: — / 종료: —</div>
+        </div>
+      </div>
+
+      <!-- Clip list -->
+      <div class="rounded-2xl bg-[#111] border border-white/5 overflow-hidden">
+        <div class="px-4 py-3 border-b border-white/5 flex items-center justify-between">
+          <h2 class="text-[13px] font-semibold text-white">클립 목록</h2>
+          <span class="text-[11px] text-white/30">2개</span>
+        </div>
+        <div id="clipList" class="divide-y divide-white/5"></div>
+      </div>
+
+      <!-- Song lyrics panel -->
+      <details class="rounded-2xl bg-[#111] border border-white/5 overflow-hidden" open>
+        <summary class="px-4 py-3 flex items-center justify-between hover:bg-white/[0.02] transition">
+          <span class="text-[13px] font-semibold text-white">전체 가사</span>
+          <span class="chevron text-white/40 text-[12px]">›</span>
+        </summary>
+        <div class="px-4 pb-4">
+          <div id="lyricsPanel" class="text-[12px] leading-relaxed text-white/60 max-h-48 overflow-y-auto space-y-0.5"></div>
+          <div class="mt-3 flex gap-2">
+            <button class="rounded-lg bg-[#272729] px-3 py-1.5 text-[11px] text-white/60 hover:text-white transition">편집</button>
+            <button onclick="autoTimestamp()" class="rounded-lg bg-[#272729] px-3 py-1.5 text-[11px] text-white/60 hover:text-white transition">자동 타임스탬프</button>
+          </div>
+        </div>
+      </details>
+
+    </div>
+
+    <!-- RIGHT COLUMN (clip editor) -->
+    <div class="flex-1 min-w-0 flex flex-col gap-4" id="clipEditor">
+
+      <!-- Active clip editor -->
+      <div class="rounded-2xl bg-[#111] border border-white/5 overflow-hidden" id="activeClipPanel">
+
+        <!-- Clip header -->
+        <div class="px-5 py-3 border-b border-white/5 flex items-center gap-3">
+          <div class="flex-1">
+            <div class="flex items-center gap-2">
+              <span class="text-[13px] font-semibold text-white">클립 1</span>
+              <span class="text-[11px] text-white/40 font-mono" id="clipTimeRange">0:24 – 0:54 (30초)</span>
+            </div>
+            <input id="clipLabel" value="verse-1" placeholder="라벨 (메모)"
+              class="mt-0.5 w-48 bg-transparent text-[11px] text-white/40 outline-none placeholder-white/20 hover:text-white/60 focus:text-white transition">
+          </div>
+          <div class="flex items-center gap-2">
+            <button onclick="toggleLoop()" id="loopBtn"
+              class="rounded-lg bg-[#272729] px-3 py-1.5 text-[11px] text-white/50 hover:text-white transition">
+              ↺ 루프
+            </button>
+            <button onclick="startRender()" id="renderBtn"
+              class="rounded-lg bg-[#272729] px-3 py-1.5 text-[11px] text-white/60 hover:text-white transition">
+              렌더
+            </button>
+          </div>
+        </div>
+
+        <!-- Tabs -->
+        <div class="px-5 border-b border-white/5 flex gap-6">
+          <button class="tab-btn active py-2.5 text-[12px] text-white/50" onclick="switchTab('preview', this)">미리보기</button>
+          <button class="tab-btn py-2.5 text-[12px] text-white/50" onclick="switchTab('subtitle', this)">자막</button>
+          <button class="tab-btn py-2.5 text-[12px] text-white/50" onclick="switchTab('comment', this)">코멘트</button>
+          <button class="tab-btn py-2.5 text-[12px] text-white/50" onclick="switchTab('bgm', this)">BGM</button>
+          <button class="tab-btn py-2.5 text-[12px] text-white/50" onclick="switchTab('style', this)">스타일</button>
+        </div>
+
+        <!-- Tab: Preview (Remotion) -->
+        <div id="tab-preview" class="p-4 tab-content">
+          <div class="canvas-ph rounded-xl overflow-hidden relative" style="aspect-ratio:9/16;max-height:480px;margin:0 auto;max-width:270px;">
+            <img src="https://i.ytimg.com/vi/BzYnNdJhZQw/maxresdefault.jpg"
+                 onerror="this.style.display='none'"
+                 class="w-full h-full object-cover">
+            <!-- Subtitle overlay -->
+            <div id="subtitleOverlay" class="sub-overlay hidden"></div>
+            <!-- Comment overlay -->
+            <div id="commentOverlay" class="absolute top-8 left-0 right-0 px-4 z-10 hidden">
+              <div class="comment-card">
+                <div class="flex items-center gap-2 mb-1">
+                  <div class="w-6 h-6 rounded-full bg-[#0071e3]/30 flex items-center justify-center text-[10px]">L</div>
+                  <span class="text-[11px] font-medium text-white">loveiu_forever</span>
+                  <span class="ml-auto text-[10px] text-white/40">❤ 2.4만</span>
+                </div>
+                <p class="text-[12px] text-white/80 leading-relaxed">이 노래 들을 때마다 눈물이 나요... 진짜 최고의 발라드</p>
+              </div>
+            </div>
+            <div class="absolute inset-0 z-20 flex items-center justify-center">
+              <button onclick="togglePreviewPlay()" id="previewPlayBtn"
+                class="w-10 h-10 rounded-full bg-white/10 backdrop-blur flex items-center justify-center hover:bg-white/20 transition">
+                <svg id="previewPlayIco" width="16" height="16" viewBox="0 0 24 24" fill="white"><polygon points="5,3 19,12 5,21"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <!-- Preview progress + time -->
+          <div class="mt-3 px-1">
+            <div class="progress-bar" onclick="seekPreview(event, this)">
+              <div class="progress-fill" id="previewProg" style="width:0%"></div>
+            </div>
+            <div class="flex justify-between mt-1">
+              <span class="text-[10px] text-white/30 font-mono" id="previewTime">0:00</span>
+              <span class="text-[10px] text-white/30 font-mono">0:30</span>
+            </div>
+          </div>
+
+          <!-- Template picker -->
+          <div class="mt-4">
+            <p class="text-[11px] text-white/30 mb-2">레이아웃 템플릿</p>
+            <div class="flex gap-2">
+              <button onclick="setLayout('A', this)" class="flex-1 rounded-lg bg-[#0071e3]/20 border border-[#0071e3]/50 py-2 text-[11px] text-[#2997ff] font-medium">
+                자막 + 코멘트
+              </button>
+              <button onclick="setLayout('B', this)" class="flex-1 rounded-lg bg-[#272729] py-2 text-[11px] text-white/50 hover:text-white transition">
+                자막만
+              </button>
+              <button onclick="setLayout('C', this)" class="flex-1 rounded-lg bg-[#272729] py-2 text-[11px] text-white/50 hover:text-white transition">
+                코멘트만
+              </button>
+            </div>
+          </div>
+
+          <!-- Render status -->
+          <div id="renderStatus" class="mt-4 hidden">
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-[11px] text-white/40" id="renderStatusText">렌더링 중…</span>
+              <span class="text-[11px] text-white/40 font-mono" id="renderPct">0%</span>
+            </div>
+            <div class="render-prog">
+              <div class="render-prog-fill" id="renderProgFill" style="width:0%"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab: Subtitle editor -->
+        <div id="tab-subtitle" class="p-4 tab-content hidden">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-[12px] font-semibold text-white/70">자막 타임코드</h3>
+            <div class="flex items-center gap-2">
+              <button onclick="toggleSyncMode()" id="syncBtn"
+                class="rounded-lg bg-[#272729] px-3 py-1.5 text-[11px] text-white/60 hover:text-white transition">
+                싱크 맞추기
+              </button>
+              <button onclick="addSegment()" class="rounded-lg bg-[#272729] px-2.5 py-1.5 text-[11px] text-white/60 hover:text-white transition">＋</button>
+            </div>
+          </div>
+
+          <div id="syncModeBar" class="hidden mb-3 rounded-lg bg-[#0071e3]/10 border border-[#0071e3]/30 px-3 py-2 flex items-center gap-2">
+            <div class="w-2 h-2 rounded-full bg-[#0071e3] animate-pulse"></div>
+            <span class="text-[11px] text-[#2997ff]">싱크 모드: 재생 중 ● 버튼을 눌러 타임코드를 지정하세요</span>
+          </div>
+
+          <div id="segList" class="space-y-1 max-h-72 overflow-y-auto"></div>
+
+          <div class="mt-3 flex items-center justify-between">
+            <button onclick="saveSubtitles()" class="rounded-lg bg-[#0071e3] px-4 py-1.5 text-[12px] font-medium text-white hover:bg-[#0077ed] transition">
+              저장
+            </button>
+            <span class="text-[11px] text-white/30" id="segSaveStatus"></span>
+          </div>
+        </div>
+
+        <!-- Tab: Comment -->
+        <div id="tab-comment" class="p-4 tab-content hidden">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-[12px] font-semibold text-white/70">YouTube 코멘트</h3>
+            <button onclick="fetchComments()" id="fetchCommentBtn"
+              class="rounded-lg bg-[#272729] px-3 py-1.5 text-[11px] text-white/60 hover:text-white transition">
+              YouTube에서 불러오기
+            </button>
+          </div>
+          <div id="commentList" class="space-y-2 max-h-72 overflow-y-auto"></div>
+        </div>
+
+        <!-- Tab: BGM -->
+        <div id="tab-bgm" class="p-4 tab-content hidden">
+          <div class="space-y-4">
+            <div>
+              <label class="text-[11px] text-white/40 mb-1 block">BGM URL (Storage 경로)</label>
+              <input id="bgmUrl" type="text" placeholder="bgm/clip-id.mp3" value=""
+                class="w-full rounded-lg bg-[#272729] px-3 py-2 text-[12px] text-white placeholder-white/20 outline-none focus:ring-1 focus:ring-[#0071e3]/50">
+            </div>
+            <div>
+              <div class="flex items-center justify-between mb-1">
+                <label class="text-[11px] text-white/40">BGM 볼륨</label>
+                <span class="text-[11px] text-white/60 font-mono" id="bgmVolLabel">30%</span>
+              </div>
+              <input type="range" min="0" max="100" value="30" id="bgmVol"
+                oninput="document.getElementById('bgmVolLabel').textContent=this.value+'%'"
+                class="w-full accent-[#0071e3]">
+            </div>
+            <div>
+              <div class="flex items-center justify-between mb-1">
+                <label class="text-[11px] text-white/40">원본 볼륨</label>
+                <span class="text-[11px] text-white/60 font-mono" id="origVolLabel">100%</span>
+              </div>
+              <input type="range" min="0" max="100" value="100" id="origVol"
+                oninput="document.getElementById('origVolLabel').textContent=this.value+'%'"
+                class="w-full accent-[#0071e3]">
+            </div>
+            <div>
+              <div class="flex items-center justify-between mb-1">
+                <label class="text-[11px] text-white/40">BGM 시작 위치 (초)</label>
+                <span class="text-[11px] text-white/60 font-mono" id="bgmStartLabel">0.0s</span>
+              </div>
+              <input type="range" min="0" max="180" value="0" step="0.5" id="bgmStart"
+                oninput="document.getElementById('bgmStartLabel').textContent=parseFloat(this.value).toFixed(1)+'s'"
+                class="w-full accent-[#0071e3]">
+            </div>
+            <button onclick="saveBgm()" class="w-full rounded-lg bg-[#0071e3] py-2 text-[12px] font-medium text-white hover:bg-[#0077ed] transition">저장</button>
+          </div>
+        </div>
+
+        <!-- Tab: Style -->
+        <div id="tab-style" class="p-4 tab-content hidden">
+          <div class="grid grid-cols-2 gap-4">
+            <!-- Subtitle style -->
+            <div class="space-y-3">
+              <h4 class="text-[11px] font-semibold text-white/50 uppercase tracking-wider">자막 스타일</h4>
+              <div>
+                <label class="text-[10px] text-white/30 mb-1 block">위치</label>
+                <div class="flex gap-1">
+                  <button onclick="setSubPos('top',this)" class="flex-1 rounded bg-[#272729] py-1.5 text-[10px] text-white/50 hover:text-white transition">상단</button>
+                  <button onclick="setSubPos('center',this)" class="flex-1 rounded bg-[#272729] py-1.5 text-[10px] text-white/50 hover:text-white transition">중앙</button>
+                  <button onclick="setSubPos('bottom',this)" class="flex-1 rounded bg-[#0071e3]/20 border border-[#0071e3]/40 py-1.5 text-[10px] text-[#2997ff]">하단</button>
+                </div>
+              </div>
+              <div>
+                <div class="flex justify-between mb-1">
+                  <label class="text-[10px] text-white/30">폰트 크기</label>
+                  <span class="text-[10px] text-white/50 font-mono" id="fontSizeLabel">42px</span>
+                </div>
+                <input type="range" min="24" max="72" value="42" id="fontSize"
+                  oninput="document.getElementById('fontSizeLabel').textContent=this.value+'px'"
+                  class="w-full accent-[#0071e3]">
+              </div>
+              <div>
+                <div class="flex justify-between mb-1">
+                  <label class="text-[10px] text-white/30">배경 투명도</label>
+                  <span class="text-[10px] text-white/50 font-mono" id="bgOpLabel">72%</span>
+                </div>
+                <input type="range" min="0" max="100" value="72" id="bgOp"
+                  oninput="document.getElementById('bgOpLabel').textContent=this.value+'%'"
+                  class="w-full accent-[#0071e3]">
+              </div>
+              <div>
+                <label class="text-[10px] text-white/30 mb-1 block">테마</label>
+                <div class="flex gap-1">
+                  <button onclick="setTheme('w',this)" class="flex-1 rounded bg-[#0071e3]/20 border border-[#0071e3]/40 py-1.5 text-[10px] text-[#2997ff]">흰 글·검 배경</button>
+                  <button onclick="setTheme('b',this)" class="flex-1 rounded bg-[#272729] py-1.5 text-[10px] text-white/50 hover:text-white transition">검 글·흰 배경</button>
+                </div>
+              </div>
+              <div>
+                <label class="text-[10px] text-white/30 mb-1 block">폰트</label>
+                <select id="subFont" class="w-full rounded-lg bg-[#272729] px-2 py-1.5 text-[11px] text-white outline-none">
+                  <option>Noto Sans KR</option>
+                  <option>Black Han Sans</option>
+                  <option>Nanum Gothic</option>
+                  <option>Gothic A1</option>
+                  <option>Noto Serif KR</option>
+                  <option>Gowun Dodum</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Comment style -->
+            <div class="space-y-3">
+              <h4 class="text-[11px] font-semibold text-white/50 uppercase tracking-wider">코멘트 스타일</h4>
+              <div>
+                <label class="text-[10px] text-white/30 mb-1 block">테마</label>
+                <div class="flex gap-1">
+                  <button onclick="setComTheme('w',this)" class="flex-1 rounded bg-[#0071e3]/20 border border-[#0071e3]/40 py-1.5 text-[10px] text-[#2997ff]">흰 글·검 배경</button>
+                  <button onclick="setComTheme('b',this)" class="flex-1 rounded bg-[#272729] py-1.5 text-[10px] text-white/50 hover:text-white transition">검 글·흰 배경</button>
+                </div>
+              </div>
+              <div>
+                <div class="flex justify-between mb-1">
+                  <label class="text-[10px] text-white/30">폰트 크기 배율</label>
+                  <span class="text-[10px] text-white/50 font-mono" id="comFontLabel">1.0x</span>
+                </div>
+                <input type="range" min="80" max="120" value="100" id="comFont"
+                  oninput="document.getElementById('comFontLabel').textContent=(this.value/100).toFixed(1)+'x'"
+                  class="w-full accent-[#0071e3]">
+              </div>
+              <div>
+                <div class="flex justify-between mb-1">
+                  <label class="text-[10px] text-white/30">표시 시간(초)</label>
+                  <span class="text-[10px] text-white/50 font-mono" id="comDurLabel">5s</span>
+                </div>
+                <input type="range" min="3" max="8" value="5" id="comDur"
+                  oninput="document.getElementById('comDurLabel').textContent=this.value+'s'"
+                  class="w-full accent-[#0071e3]">
+              </div>
+              <div>
+                <label class="text-[10px] text-white/30 mb-1 block">폰트</label>
+                <select id="comFont2" class="w-full rounded-lg bg-[#272729] px-2 py-1.5 text-[11px] text-white outline-none">
+                  <option>Noto Sans KR</option>
+                  <option>Black Han Sans</option>
+                  <option>Nanum Gothic</option>
+                  <option>Gothic A1</option>
+                </select>
+              </div>
+              <button onclick="saveStyle()" class="w-full rounded-lg bg-[#0071e3] py-2 text-[12px] font-medium text-white hover:bg-[#0077ed] transition mt-2">스타일 저장</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Toast notification -->
+  <div id="toast" class="fixed bottom-6 right-6 hidden rounded-xl bg-[#1d1d1f] border border-white/10 px-4 py-3 text-[13px] text-white shadow-2xl transition-all z-50"></div>
+</main>
+
+<script>
+// ─── Mock Data ──────────────────────────────────────────────
+const MOCK_PROJECT = {
+  id: 'proj-001',
+  artist: '아이유 (IU)',
+  song: '밤편지 (Dear Name)',
+  duration: 224, // 3:44
+  yt_video_id: 'BzYnNdJhZQw',
+}
+
+const MOCK_CLIPS = [
+  { id: 'clip-001', label: 'verse-1', start: 24, end: 54, render_status: null },
+  { id: 'clip-002', label: 'chorus',  start: 88, end: 118, render_status: 'success' },
+]
+
+const MOCK_SEGMENTS = [
+  { id: 's1', text: '이 밤 그날의 반딧불을', start_sec: 24.0, end_sec: 27.2 },
+  { id: 's2', text: '기억해 네 곁에서 바라보던', start_sec: 27.2, end_sec: 31.5 },
+  { id: 's3', text: '함께라는 이유로', start_sec: 31.5, end_sec: 34.8 },
+  { id: 's4', text: '더 특별했던 여름날', start_sec: 34.8, end_sec: 38.5 },
+  { id: 's5', text: '그리고 난 혼자가 됐어', start_sec: 38.5, end_sec: 42.0 },
+  { id: 's6', text: '빈 하늘을 올려다봐', start_sec: 42.0, end_sec: 45.5 },
+]
+
+const MOCK_LYRICS = `이 밤 그날의 반딧불을
+기억해 네 곁에서 바라보던
+함께라는 이유로
+더 특별했던 여름날
+그리고 난 혼자가 됐어
+빈 하늘을 올려다봐
+내 곁에 있어줘
+다시 한 번만
+
+니가 보고 싶다
+이 밤이 다 가기 전에
+잠들지 말아요
+내게 와줘요
+
+긴 하루 끝에 쓰는
+짧은 편지처럼
+오늘도 나는 잠을 이루지 못하고
+이리 그대를 그려요`
+
+const MOCK_COMMENTS = [
+  { username: 'loveiu_forever', body: '이 노래 들을 때마다 눈물이 나요... 진짜 최고의 발라드', likes: 24300 },
+  { username: 'music_lover_kr', body: '밤에 혼자 듣는 이 노래... 감성 폭발 🌙', likes: 18700 },
+  { username: 'IU_stan_2017', body: '아이유 목소리는 진짜 신이야 어쩜 이렇게 감미로워', likes: 12400 },
+  { username: 'night_letter_fan', body: 'This song is pure emotion, even without understanding Korean I cry every time', likes: 9800 },
+  { username: 'iu_uaena', body: '밤편지 이 곡 나왔을때 충격받았던게 아직도 생각나', likes: 7600 },
+]
+
+// ─── State ──────────────────────────────────────────────────
+let activeClipIdx = 0
+let segments = [...MOCK_SEGMENTS]
+let localIdCounter = 10
+let syncMode = false
+let syncTapIdx = 0
+let sourcePlaying = false
+let previewPlaying = false
+let sourceTime = 0
+let previewTime = 0
+let waveRegionStart = null
+let waveRegionEnd = null
+let waveDragging = false
+let waveDragStart = 0
+let renderInterval = null
+let previewInterval = null
+let sourceInterval = null
+let looping = false
+let currentLayout = 'A'
+
+// ─── Init ────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  buildWaveform()
+  renderClipList()
+  renderLyrics()
+  renderSegments()
+  renderComments()
+  selectClip(0)
+})
+
+// ─── Waveform ────────────────────────────────────────────────
+function buildWaveform() {
+  const container = document.getElementById('waveBars')
+  const heights = []
+  // Generate pseudo-random waveform heights
+  for (let i = 0; i < 120; i++) {
+    const h = 8 + Math.abs(Math.sin(i * 0.3 + Math.cos(i * 0.7)) * 28) + Math.random() * 12
+    heights.push(Math.min(56, h))
+  }
+  container.innerHTML = heights.map((h, i) =>
+    `<span class="waveform-bar" style="height:${h}px;width:3px;" data-idx="${i}"></span>`
+  ).join('')
+}
+
+function updateWavePlayhead(pct) {
+  document.getElementById('wavePlayhead').style.left = (pct * 100) + '%'
+  // Update played bars
+  const bars = document.querySelectorAll('.waveform-bar')
+  const idx = Math.floor(pct * bars.length)
+  bars.forEach((b, i) => {
+    b.classList.toggle('played', i < idx)
+  })
+}
+
+let waveDragStartX = 0, waveDragEndX = 0, isDragging = false
+
+function startWaveDrag(e) {
+  isDragging = true
+  const rect = e.currentTarget.getBoundingClientRect()
+  waveDragStartX = (e.clientX - rect.left) / rect.width
+  waveDragEndX = waveDragStartX
+  updateWaveRegion(rect, e)
+}
+
+function moveWaveDrag(e) {
+  if (!isDragging) return
+  const rect = e.currentTarget.getBoundingClientRect()
+  updateWaveRegion(rect, e)
+}
+
+function endWaveDrag(e) {
+  if (!isDragging) return
+  isDragging = false
+  const rect = e.currentTarget.getBoundingClientRect()
+  waveDragEndX = (e.clientX - rect.left) / rect.width
+  const start = Math.min(waveDragStartX, waveDragEndX)
+  const end = Math.max(waveDragStartX, waveDragEndX)
+  if (end - start > 0.01) {
+    waveRegionStart = start * MOCK_PROJECT.duration
+    waveRegionEnd = end * MOCK_PROJECT.duration
+    document.getElementById('clipRegionDisplay').textContent =
+      `시작: ${fmt(waveRegionStart)} / 종료: ${fmt(waveRegionEnd)}`
+    document.getElementById('waveRegionLabel').textContent =
+      `구간: ${fmt(waveRegionStart)} – ${fmt(waveRegionEnd)}`
+  }
+}
+
+function updateWaveRegion(rect, e) {
+  const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
+  waveDragEndX = x
+  const l = Math.min(waveDragStartX, x) * 100
+  const w = Math.abs(waveDragStartX - x) * 100
+  const region = document.getElementById('waveRegion')
+  region.classList.remove('hidden')
+  region.style.left = l + '%'
+  region.style.width = w + '%'
+}
+
+// ─── Source video controls ───────────────────────────────────
+function toggleSourcePlay() {
+  sourcePlaying = !sourcePlaying
+  const ico = document.getElementById('srcPlayIco')
+  if (sourcePlaying) {
+    ico.innerHTML = '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>'
+    sourceInterval = setInterval(() => {
+      sourceTime = Math.min(MOCK_PROJECT.duration, sourceTime + 0.1)
+      const pct = sourceTime / MOCK_PROJECT.duration
+      document.getElementById('srcProg').style.width = (pct * 100) + '%'
+      document.getElementById('srcTime').textContent = `${fmt(sourceTime)} / ${fmt(MOCK_PROJECT.duration)}`
+      updateWavePlayhead(pct)
+      if (sourceTime >= MOCK_PROJECT.duration) { sourceTime = 0; sourcePlaying = false; clearInterval(sourceInterval); ico.innerHTML = '<polygon points="5,3 19,12 5,21"/>'; }
+    }, 100)
+  } else {
+    clearInterval(sourceInterval)
+    ico.innerHTML = '<polygon points="5,3 19,12 5,21"/>'
+  }
+}
+
+function seekSource(e, el) {
+  const rect = el.getBoundingClientRect()
+  const pct = (e.clientX - rect.left) / rect.width
+  sourceTime = pct * MOCK_PROJECT.duration
+  document.getElementById('srcProg').style.width = (pct * 100) + '%'
+  document.getElementById('srcTime').textContent = `${fmt(sourceTime)} / ${fmt(MOCK_PROJECT.duration)}`
+  updateWavePlayhead(pct)
+}
+
+// ─── Preview controls ────────────────────────────────────────
+const clipDuration = 30
+
+function togglePreviewPlay() {
+  previewPlaying = !previewPlaying
+  const ico = document.getElementById('previewPlayIco')
+  if (previewPlaying) {
+    ico.innerHTML = '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>'
+    previewInterval = setInterval(() => {
+      previewTime = Math.min(clipDuration, previewTime + 0.1)
+      const pct = previewTime / clipDuration
+      document.getElementById('previewProg').style.width = (pct * 100) + '%'
+      document.getElementById('previewTime').textContent = fmt(previewTime)
+      updateSubtitleOverlay()
+      if (syncMode && previewTime > 0) updateSyncHighlight()
+      if (previewTime >= clipDuration) {
+        previewTime = looping ? 0 : clipDuration
+        if (!looping) { previewPlaying = false; clearInterval(previewInterval); ico.innerHTML = '<polygon points="5,3 19,12 5,21"/>'; }
+      }
+    }, 100)
+  } else {
+    clearInterval(previewInterval)
+    ico.innerHTML = '<polygon points="5,3 19,12 5,21"/>'
+  }
+}
+
+function seekPreview(e, el) {
+  const rect = el.getBoundingClientRect()
+  const pct = (e.clientX - rect.left) / rect.width
+  previewTime = pct * clipDuration
+  document.getElementById('previewProg').style.width = (pct * 100) + '%'
+  document.getElementById('previewTime').textContent = fmt(previewTime)
+  updateSubtitleOverlay()
+}
+
+function updateSubtitleOverlay() {
+  const absTime = previewTime + MOCK_CLIPS[activeClipIdx].start
+  const seg = segments.find(s => absTime >= s.start_sec && absTime < s.end_sec)
+  const overlay = document.getElementById('subtitleOverlay')
+  if (seg) {
+    overlay.textContent = seg.text
+    overlay.classList.remove('hidden')
+  } else {
+    overlay.classList.add('hidden')
+  }
+  // Highlight active segment row
+  document.querySelectorAll('.seg-row').forEach((row, i) => {
+    const s = segments[i]
+    row.classList.toggle('active-seg', s && absTime >= s.start_sec && absTime < s.end_sec)
+  })
+}
+
+// ─── Clip list ───────────────────────────────────────────────
+function renderClipList() {
+  const el = document.getElementById('clipList')
+  el.innerHTML = MOCK_CLIPS.map((c, i) => `
+    <div class="px-4 py-3 flex items-center gap-3 cursor-pointer hover:bg-white/[0.03] transition ${i===activeClipIdx?'bg-white/[0.04]':''}"
+         onclick="selectClip(${i})">
+      <div class="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold
+                  ${i===activeClipIdx?'bg-[#0071e3] text-white':'bg-[#272729] text-white/50'}">
+        ${i+1}
+      </div>
+      <div class="flex-1 min-w-0">
+        <div class="text-[12px] font-medium text-white truncate">${c.label || '클립 '+（i+1）}</div>
+        <div class="text-[10px] text-white/40 font-mono">${fmt(c.start)} – ${fmt(c.end)}</div>
+      </div>
+      ${c.render_status==='success'
+        ? '<span class="rounded px-1.5 py-0.5 text-[10px] bg-green-900/30 text-green-400">렌더완료</span>'
+        : c.render_status==='processing'
+        ? '<span class="rounded px-1.5 py-0.5 text-[10px] bg-[#0071e3]/20 text-[#2997ff]">렌더중</span>'
+        : ''}
+    </div>
+  `).join('')
+}
+
+function selectClip(idx) {
+  activeClipIdx = idx
+  const clip = MOCK_CLIPS[idx]
+  previewTime = 0
+  document.getElementById('previewProg').style.width = '0%'
+  document.getElementById('previewTime').textContent = '0:00'
+  document.getElementById('clipTimeRange').textContent =
+    `${fmt(clip.start)} – ${fmt(clip.end)} (${clip.end - clip.start}초)`
+  document.getElementById('clipLabel').value = clip.label
+  renderClipList()
+  renderSegments()
+}
+
+// ─── Lyrics panel ────────────────────────────────────────────
+function renderLyrics() {
+  const lines = MOCK_LYRICS.split('\n')
+  document.getElementById('lyricsPanel').innerHTML = lines.map((l, i) =>
+    `<div class="lyric-line ${i < 8 ? 'in-region' : ''}" onclick="selectLyricLine(${i})">${l || '&nbsp;'}</div>`
+  ).join('')
+}
+
+function selectLyricLine(i) {
+  document.querySelectorAll('.lyric-line').forEach((el, idx) => {
+    el.classList.toggle('in-region', idx === i)
+  })
+}
+
+function autoTimestamp() {
+  showToast('자동 타임스탬프 분석 중… (데모)')
+}
+
+// ─── Subtitle editor ─────────────────────────────────────────
+function renderSegments() {
+  const clip = MOCK_CLIPS[activeClipIdx]
+  const el = document.getElementById('segList')
+  el.innerHTML = segments.map((s, i) => `
+    <div class="seg-row rounded-lg bg-[#1a1a1f] px-3 py-2 flex items-start gap-2 transition" data-idx="${i}">
+      ${syncMode
+        ? `<button onclick="tapSync(${i})"
+             class="mt-0.5 w-6 h-6 shrink-0 rounded-full border ${i===syncTapIdx?'border-[#0071e3] bg-[#0071e3] text-white':'border-white/20 text-white/30 hover:border-white/50'} text-[11px] flex items-center justify-center transition">
+             ●</button>`
+        : `<button onclick="dragTimecode(${i})" class="mt-0.5 timecode shrink-0 rounded px-1.5 py-0.5 bg-[#272729] text-[10px] font-mono text-white/50 hover:text-white transition min-w-[3.5rem] text-center"
+                  title="드래그로 조정">
+             ${fmtMs(s.start_sec - clip.start)}</button>`}
+      <textarea
+        class="flex-1 bg-transparent text-[12px] text-white/80 resize-none outline-none leading-relaxed placeholder-white/20 min-h-[1.5rem]"
+        rows="1" placeholder="가사 입력…"
+        oninput="updateSegText(${i}, this.value)">${s.text}</textarea>
+      <button onclick="deleteSegment(${i})" class="mt-0.5 text-white/20 hover:text-red-400 transition text-[14px] shrink-0">×</button>
+    </div>
+  `).join('')
+}
+
+function updateSegText(i, val) {
+  segments[i].text = val
+  updateSubtitleOverlay()
+}
+
+function addSegment() {
+  const clip = MOCK_CLIPS[activeClipIdx]
+  const last = segments[segments.length - 1]
+  segments.push({
+    id: null,
+    text: '',
+    start_sec: last ? last.end_sec : clip.start,
+    end_sec: last ? last.end_sec + 3 : clip.start + 3,
+  })
+  renderSegments()
+}
+
+function deleteSegment(i) {
+  segments.splice(i, 1)
+  renderSegments()
+  showToast('세그먼트 삭제됨')
+}
+
+function saveSubtitles() {
+  document.getElementById('segSaveStatus').textContent = '저장 중…'
+  setTimeout(() => {
+    document.getElementById('segSaveStatus').textContent = '저장 완료 ✓'
+    showToast('자막이 저장되었습니다')
+    setTimeout(() => { document.getElementById('segSaveStatus').textContent = '' }, 3000)
+  }, 600)
+}
+
+function toggleSyncMode() {
+  syncMode = !syncMode
+  syncTapIdx = 0
+  const btn = document.getElementById('syncBtn')
+  const bar = document.getElementById('syncModeBar')
+  btn.textContent = syncMode ? '싱크 종료' : '싱크 맞추기'
+  btn.classList.toggle('bg-[#0071e3]/20', syncMode)
+  btn.classList.toggle('text-[#2997ff]', syncMode)
+  bar.classList.toggle('hidden', !syncMode)
+  renderSegments()
+}
+
+function tapSync(i) {
+  if (i !== syncTapIdx) return
+  const clip = MOCK_CLIPS[activeClipIdx]
+  const absTime = previewTime + clip.start
+  segments[i].start_sec = absTime
+  if (i > 0) segments[i - 1].end_sec = absTime
+  syncTapIdx = i + 1
+  if (syncTapIdx >= segments.length) {
+    syncMode = false; syncTapIdx = 0
+    document.getElementById('syncBtn').textContent = '싱크 맞추기'
+    document.getElementById('syncModeBar').classList.add('hidden')
+    showToast('싱크 완료!')
+  }
+  renderSegments()
+}
+
+function updateSyncHighlight() { /* live highlight during sync */ }
+
+// ─── Comments ────────────────────────────────────────────────
+function renderComments() {
+  const el = document.getElementById('commentList')
+  el.innerHTML = MOCK_COMMENTS.map((c, i) => `
+    <div class="comment-card flex items-start gap-3 cursor-pointer hover:bg-white/[0.04] transition rounded-xl px-3 py-2"
+         onclick="toggleComment(${i})">
+      <div class="w-7 h-7 rounded-full bg-gradient-to-br from-[#0071e3]/40 to-[#0071e3]/10 flex items-center justify-center text-[11px] font-bold text-[#2997ff] shrink-0">
+        ${c.username[0].toUpperCase()}
+      </div>
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2 mb-0.5">
+          <span class="text-[11px] font-medium text-white">${c.username}</span>
+          <span class="text-[10px] text-white/30">❤ ${fmtNum(c.likes)}</span>
+          <span id="comCheck${i}" class="ml-auto text-[#2997ff] hidden">✓</span>
+        </div>
+        <p class="text-[11px] text-white/60 leading-relaxed">${c.body}</p>
+      </div>
+    </div>
+  `).join('')
+}
+
+const selectedComments = new Set()
+function toggleComment(i) {
+  selectedComments.has(i) ? selectedComments.delete(i) : selectedComments.add(i)
+  document.getElementById('comCheck'+i).classList.toggle('hidden', !selectedComments.has(i))
+  // Show comment in preview
+  document.getElementById('commentOverlay').classList.toggle('hidden', selectedComments.size === 0)
+}
+
+function fetchComments() {
+  const btn = document.getElementById('fetchCommentBtn')
+  btn.textContent = '불러오는 중…'
+  btn.disabled = true
+  setTimeout(() => {
+    btn.textContent = 'YouTube에서 불러오기'
+    btn.disabled = false
+    showToast(`${MOCK_COMMENTS.length}개 댓글 로드 완료`)
+  }, 1200)
+}
+
+// ─── BGM ─────────────────────────────────────────────────────
+function saveBgm() {
+  showToast('BGM 설정이 저장되었습니다')
+}
+
+// ─── Style ───────────────────────────────────────────────────
+function setSubPos(pos, btn) {
+  document.querySelectorAll('[onclick^="setSubPos"]').forEach(b => {
+    b.className = 'flex-1 rounded bg-[#272729] py-1.5 text-[10px] text-white/50 hover:text-white transition'
+  })
+  btn.className = 'flex-1 rounded bg-[#0071e3]/20 border border-[#0071e3]/40 py-1.5 text-[10px] text-[#2997ff]'
+}
+function setTheme(t, btn) {
+  document.querySelectorAll('[onclick^="setTheme"]').forEach(b => {
+    b.className = 'flex-1 rounded bg-[#272729] py-1.5 text-[10px] text-white/50 hover:text-white transition'
+  })
+  btn.className = 'flex-1 rounded bg-[#0071e3]/20 border border-[#0071e3]/40 py-1.5 text-[10px] text-[#2997ff]'
+}
+function setComTheme(t, btn) {
+  document.querySelectorAll('[onclick^="setComTheme"]').forEach(b => {
+    b.className = 'flex-1 rounded bg-[#272729] py-1.5 text-[10px] text-white/50 hover:text-white transition'
+  })
+  btn.className = 'flex-1 rounded bg-[#0071e3]/20 border border-[#0071e3]/40 py-1.5 text-[10px] text-[#2997ff]'
+}
+function saveStyle() { showToast('스타일이 저장되었습니다') }
+
+// ─── Layout / Render ─────────────────────────────────────────
+function setLayout(l, btn) {
+  currentLayout = l
+  document.querySelectorAll('[onclick^="setLayout"]').forEach(b => {
+    b.className = 'flex-1 rounded-lg bg-[#272729] py-2 text-[11px] text-white/50 hover:text-white transition'
+  })
+  btn.className = 'flex-1 rounded-lg bg-[#0071e3]/20 border border-[#0071e3]/50 py-2 text-[11px] text-[#2997ff] font-medium'
+  showToast(`레이아웃 ${l} 선택됨`)
+}
+
+function startRender() {
+  const statusEl = document.getElementById('renderStatus')
+  const textEl = document.getElementById('renderStatusText')
+  const pctEl = document.getElementById('renderPct')
+  const fillEl = document.getElementById('renderProgFill')
+  const btn = document.getElementById('renderBtn')
+  statusEl.classList.remove('hidden')
+  btn.disabled = true
+  btn.textContent = '렌더중…'
+  let pct = 0
+  const iv = setInterval(() => {
+    pct += Math.random() * 8
+    if (pct >= 100) {
+      pct = 100
+      clearInterval(iv)
+      textEl.textContent = '렌더 완료 ✓'
+      pctEl.textContent = '100%'
+      fillEl.style.width = '100%'
+      btn.disabled = false
+      btn.textContent = '렌더'
+      MOCK_CLIPS[activeClipIdx].render_status = 'success'
+      renderClipList()
+      showToast('렌더링이 완료되었습니다')
+      return
+    }
+    textEl.textContent = '렌더링 중…'
+    pctEl.textContent = Math.round(pct) + '%'
+    fillEl.style.width = pct + '%'
+  }, 400)
+}
+
+// ─── Clip save ───────────────────────────────────────────────
+function saveClip() {
+  if (!waveRegionStart || !waveRegionEnd) {
+    showToast('먼저 파형에서 구간을 드래그로 선택하세요', true)
+    return
+  }
+  const newClip = {
+    id: 'clip-new-' + Date.now(),
+    label: '새 클립',
+    start: Math.round(waveRegionStart),
+    end: Math.round(waveRegionEnd),
+    render_status: null,
+  }
+  MOCK_CLIPS.push(newClip)
+  waveRegionStart = null; waveRegionEnd = null
+  document.getElementById('clipRegionDisplay').textContent = '시작: — / 종료: —'
+  document.getElementById('waveRegion').classList.add('hidden')
+  document.getElementById('waveRegionLabel').textContent = '구간 선택: 드래그로 클립 지정'
+  renderClipList()
+  showToast('클립이 저장되었습니다')
+}
+
+// ─── Loop ────────────────────────────────────────────────────
+function toggleLoop() {
+  looping = !looping
+  const btn = document.getElementById('loopBtn')
+  btn.classList.toggle('text-[#2997ff]', looping)
+  btn.classList.toggle('bg-[#0071e3]/10', looping)
+}
+
+// ─── Tabs ────────────────────────────────────────────────────
+function switchTab(name, btn) {
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'))
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'))
+  document.getElementById('tab-' + name).classList.remove('hidden')
+  btn.classList.add('active')
+}
+
+// ─── Helpers ─────────────────────────────────────────────────
+function fmt(sec) {
+  const s = Math.floor(sec)
+  const m = Math.floor(s / 60)
+  return `${m}:${String(s % 60).padStart(2, '0')}`
+}
+
+function fmtMs(sec) {
+  const s = Math.floor(Math.max(0, sec))
+  const m = Math.floor(s / 60)
+  return `${m}:${String(s % 60).padStart(2, '0')}`
+}
+
+function fmtNum(n) {
+  if (n >= 10000) return (n / 10000).toFixed(1) + '만'
+  if (n >= 1000) return (n / 1000).toFixed(1) + 'k'
+  return n
+}
+
+function showToast(msg, isError = false) {
+  const el = document.getElementById('toast')
+  el.textContent = msg
+  el.className = `fixed bottom-6 right-6 rounded-xl border px-4 py-3 text-[13px] shadow-2xl z-50 transition-all
+    ${isError ? 'bg-red-900/80 border-red-500/30 text-red-200' : 'bg-[#1d1d1f] border-white/10 text-white'}`
+  el.classList.remove('hidden')
+  setTimeout(() => el.classList.add('hidden'), 2500)
+}
+
+function dragTimecode(i) {
+  // Visual feedback only in demo
+  showToast(`타임코드 드래그로 시간 조정 (데모: 현재 ${fmtMs(segments[i].start_sec - MOCK_CLIPS[activeClipIdx].start)})`)
+}
+</script>
+</body>
+</html>
