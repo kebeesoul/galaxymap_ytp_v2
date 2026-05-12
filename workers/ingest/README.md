@@ -120,14 +120,28 @@ galaxymap ingest worker — polling every 3s
 
 ```bash
 # 프로젝트 루트에서
-docker compose up ingest
+docker compose up ingest-worker
 ```
+
+`ingest-worker`는 YouTube 영상 import를 처리하는 pull worker다.
+`/api/upload-bgm`은 별도의 HTTP worker를 직접 호출하므로 BGM 업로드가
+필요한 환경에서는 다음 서비스도 실행해야 한다.
+
+```bash
+docker compose up ingest-server
+```
+
+Railway/production에서 BGM 업로드를 사용하려면 `INGEST_WORKER_URL` 또는
+`PYTHON_WORKER_URL`을 명시적으로 설정해야 한다. production에서는 localhost
+fallback을 사용하지 않는다.
 
 ---
 
 ## Railway 환경 변수
 
-`PYTHON_WORKER_URL` **불필요** — 이 변수는 삭제해도 됩니다.
+영상 import만 사용할 때는 `PYTHON_WORKER_URL` **불필요** — 이 변수는 삭제해도 됩니다.
+BGM 업로드를 Railway에서 사용할 때는 `INGEST_WORKER_URL` 또는
+`PYTHON_WORKER_URL`이 필요합니다.
 
 필수 변수는 기존과 동일:
 | 변수 | 용도 |

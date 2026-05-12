@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { getBgmStoragePath } from '@/lib/storage/paths'
 
 export async function DELETE(
   _request: NextRequest,
@@ -28,7 +29,8 @@ export async function DELETE(
   }
 
   // Storage cleanup is best-effort
-  const sourcesPaths = clip.bgm_url ? [`bgm/${clip.id}.mp3`] : []
+  const bgmPath = getBgmStoragePath(clip.id, clip.bgm_url)
+  const sourcesPaths = bgmPath ? [bgmPath] : []
   const rendersPaths = clip.render_path ? [clip.render_path] : []
 
   const [sourcesResult, rendersResult] = await Promise.all([

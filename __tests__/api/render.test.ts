@@ -15,6 +15,7 @@ function makeChain(clipExists: boolean, updateRows: unknown[]) {
   chain.delete = () => chain
   chain.eq     = () => chain
   chain.not    = () => chain
+  chain.or     = () => chain
   chain.in     = () => chain
   chain.order  = () => chain
   chain.single = () => Promise.resolve(clipResult)

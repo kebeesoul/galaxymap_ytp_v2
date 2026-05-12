@@ -1,15 +1,30 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-// Supabase chain builder — returns configurable leaf value
-function makeChain(leafValue: unknown) {
+// Supabase chain builder — supports both project source lookup and queue update.
+function makeChain({
+  sourceUrl,
+  updateRows,
+}: {
+  sourceUrl?: string | null
+  updateRows: unknown[]
+}) {
   const chain: Record<string, unknown> = {}
-  const terminal = () => Promise.resolve(leafValue)
+  let afterUpdate = false
+
+  const lookupResult = () => Promise.resolve({
+    data: sourceUrl === undefined ? null : { source_url: sourceUrl },
+    error: null,
+  })
+
   chain.eq = () => chain
   chain.not = () => chain
   chain.or = () => chain
-  chain.single = terminal
-  chain.select = terminal
-  chain.update = () => chain
+  chain.single = lookupResult
+  chain.select = () => {
+    if (afterUpdate) return Promise.resolve({ data: updateRows, error: null })
+    return chain
+  }
+  chain.update = () => { afterUpdate = true; return chain }
   chain.insert = () => chain
   chain.delete = () => chain
   chain.in = () => chain
@@ -35,7 +50,7 @@ describe('POST /api/import — Bug 4 regression: processing guard', () => {
   })
 
   it('400 when project_id is missing', async () => {
-    mockCreateClient.mockReturnValue(makeChain({ data: null, error: null }))
+    mockCreateClient.mockReturnValue(makeChain({ updateRows: [] }))
     const { POST } = await import('@/app/api/import/route')
     const res = await POST(makeRequest({ url: 'https://example.com' }))
     expect(res.status).toBe(400)
@@ -43,17 +58,31 @@ describe('POST /api/import — Bug 4 regression: processing guard', () => {
     expect(body.error).toMatch(/required/)
   })
 
-  it('400 when url is missing', async () => {
-    mockCreateClient.mockReturnValue(makeChain({ data: null, error: null }))
+  it('422 when url is missing and project has no source URL', async () => {
+    mockCreateClient.mockReturnValue(makeChain({ sourceUrl: null, updateRows: [] }))
     const { POST } = await import('@/app/api/import/route')
     const res = await POST(makeRequest({ project_id: 'proj-1' }))
-    expect(res.status).toBe(400)
+    expect(res.status).toBe(422)
+    const body = await res.json() as { error: string }
+    expect(body.error).toBe('project has no source URL')
+  })
+
+  it('202 when url is missing but project source URL can be queued', async () => {
+    mockCreateClient.mockReturnValue(makeChain({
+      sourceUrl: 'https://youtube.com/watch?v=abcdefghijk',
+      updateRows: [{ id: 'proj-1' }],
+    }))
+    const { POST } = await import('@/app/api/import/route')
+    const res = await POST(makeRequest({ project_id: 'proj-1' }))
+    expect(res.status).toBe(202)
+    const body = await res.json() as { queued: boolean }
+    expect(body.queued).toBe(true)
   })
 
   it('409 when project is already processing — regression for Bug 4', async () => {
     // .not('import_status','eq','processing').select() returns empty rows
     // → means the UPDATE was blocked → project was processing
-    mockCreateClient.mockReturnValue(makeChain({ data: [], error: null }))
+    mockCreateClient.mockReturnValue(makeChain({ updateRows: [] }))
     const { POST } = await import('@/app/api/import/route')
     const res = await POST(makeRequest({ project_id: 'proj-1', url: 'https://example.com' }))
     expect(res.status).toBe(409)
@@ -63,7 +92,7 @@ describe('POST /api/import — Bug 4 regression: processing guard', () => {
 
   it('202 when project can be queued', async () => {
     // UPDATE succeeds → data has one row
-    mockCreateClient.mockReturnValue(makeChain({ data: [{ id: 'proj-1' }], error: null }))
+    mockCreateClient.mockReturnValue(makeChain({ updateRows: [{ id: 'proj-1' }] }))
     const { POST } = await import('@/app/api/import/route')
     const res = await POST(makeRequest({ project_id: 'proj-1', url: 'https://example.com' }))
     expect(res.status).toBe(202)

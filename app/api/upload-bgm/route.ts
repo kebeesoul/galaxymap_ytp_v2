@@ -13,7 +13,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'clip_id and file are required' }, { status: 400 })
   }
 
-  const workerUrl = getIngestWorkerUrlWithFallback()
+  let workerUrl: string
+  try {
+    workerUrl = getIngestWorkerUrlWithFallback()
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Ingest worker URL is not configured'
+    return NextResponse.json({ error: message }, { status: 503 })
+  }
 
   try {
     const res = await fetch(`${workerUrl}/upload-bgm`, {

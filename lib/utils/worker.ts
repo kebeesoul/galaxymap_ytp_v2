@@ -5,5 +5,10 @@ export function getIngestWorkerUrl(): string | undefined {
 
 /** Same as getIngestWorkerUrl but falls back to localhost for local dev. */
 export function getIngestWorkerUrlWithFallback(): string {
-  return getIngestWorkerUrl() ?? 'http://localhost:8001'
+  const configured = getIngestWorkerUrl()
+  if (configured) return configured
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('INGEST_WORKER_URL or PYTHON_WORKER_URL must be configured in production')
+  }
+  return 'http://localhost:8001'
 }

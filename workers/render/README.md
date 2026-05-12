@@ -13,6 +13,10 @@ npm install            # installs @remotion/renderer + @remotion/bundler + tsx
 Remotion will auto-download a headless Chrome on first run (~150 MB, cached
 under `~/Library/Caches/remotion/`).
 
+Supabase Storage must have a private `renders` bucket. Migration
+`20260504000000_render_storage_and_cancelled_status.sql` creates it for new
+environments.
+
 ## Run
 
 ```bash
@@ -32,7 +36,7 @@ Read from `.env.local` at the repo root:
 
 ## Output
 
-- MP4 uploaded to `renders/{clip_id}/{timestamp}.mp4`
+- MP4 uploaded to `renders/{project_id}/{artist}_{song_title}_renderNN.mp4`
 - Clip row gets `render_status='success'`, `render_path=<path>`,
   `render_progress=100`
 - On error: `render_status='failed'`, `render_error=<message>` (max 500 chars)
