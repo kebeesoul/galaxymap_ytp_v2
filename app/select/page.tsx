@@ -1,14 +1,26 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { TablesInsert } from '@/lib/supabase/types'
+
+type LegacyProjectInsert = Omit<TablesInsert<'projects'>, 'owner_uid'>
 
 export default function SelectPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [artist, setArtist] = useState('')
+  const [songTitle, setSongTitle] = useState('')
+  const [sourceUrl, setSourceUrl] = useState('')
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    setArtist(params.get('artist') ?? '')
+    setSongTitle(params.get('song_title') ?? '')
+    setSourceUrl(params.get('source_url') ?? '')
+  }, [])
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -16,9 +28,9 @@ export default function SelectPage() {
     setError('')
 
     const form = event.currentTarget
-    const sourceUrl = (form.elements.namedItem('source_url') as HTMLInputElement).value.trim()
-    const artist = (form.elements.namedItem('artist') as HTMLInputElement).value.trim()
-    const songTitle = (form.elements.namedItem('song_title') as HTMLInputElement).value.trim()
+    const currentSourceUrl = (form.elements.namedItem('source_url') as HTMLInputElement).value.trim()
+    const currentArtist = (form.elements.namedItem('artist') as HTMLInputElement).value.trim()
+    const currentSongTitle = (form.elements.namedItem('song_title') as HTMLInputElement).value.trim()
     const supabase = createClient()
     const {
       data: { user },
@@ -33,18 +45,35 @@ export default function SelectPage() {
 
     const payload: TablesInsert<'projects'> = {
       owner_uid: user.id,
-      artist,
-      song_title: songTitle,
-      source_url: sourceUrl,
+      artist: currentArtist,
+      song_title: currentSongTitle,
+      source_url: currentSourceUrl,
       import_status: 'pending',
       ip_owner: false,
     }
 
-    const { data: project, error: insertError } = await supabase
+    let { data: project, error: insertError } = await supabase
       .from('projects')
       .insert(payload)
       .select('id')
       .single()
+
+    if (insertError && isMissingOwnerUidError(insertError.message)) {
+      const legacyPayload: LegacyProjectInsert = {
+        artist: currentArtist,
+        song_title: currentSongTitle,
+        source_url: currentSourceUrl,
+        import_status: 'pending',
+        ip_owner: false,
+      }
+      const legacyResult = await supabase
+        .from('projects')
+        .insert(legacyPayload as TablesInsert<'projects'>)
+        .select('id')
+        .single()
+      project = legacyResult.data
+      insertError = legacyResult.error
+    }
 
     if (insertError || !project) {
       setError(insertError?.message ?? 'Failed to create project')
@@ -74,12 +103,14 @@ export default function SelectPage() {
           className="rounded-lg bg-white p-8 shadow-[rgba(0,0,0,0.08)_0px_2px_12px]"
         >
           <div className="space-y-6">
-            <Field label="Artist" name="artist" required />
-            <Field label="Song Title" name="song_title" required />
+            <Field label="Artist" name="artist" value={artist} onChange={setArtist} required />
+            <Field label="Song Title" name="song_title" value={songTitle} onChange={setSongTitle} required />
             <Field
               label="YouTube URL"
               name="source_url"
               type="url"
+              value={sourceUrl}
+              onChange={setSourceUrl}
               required
               placeholder="https://youtube.com/watch?v=..."
             />
@@ -107,12 +138,16 @@ export default function SelectPage() {
 function Field({
   label,
   name,
+  value,
+  onChange,
   type = 'text',
   required,
   placeholder,
 }: {
   label: string
   name: string
+  value: string
+  onChange: (value: string) => void
   type?: string
   required?: boolean
   placeholder?: string
@@ -126,10 +161,16 @@ function Field({
         id={name}
         name={name}
         type={type}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
         required={required}
         placeholder={placeholder}
         className="w-full rounded-lg bg-[#f5f5f7] px-4 py-3 text-[17px] text-[#1d1d1f] outline-none ring-2 ring-transparent placeholder:text-[rgba(0,0,0,0.28)] focus:ring-[#0071e3]"
       />
     </div>
   )
+}
+
+function isMissingOwnerUidError(message: string) {
+  return message.includes("Could not find the 'owner_uid' column")
 }

@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import Link from 'next/link'
 import type { Tables } from '@/lib/supabase/types'
 
 export const dynamic = 'force-dynamic'
@@ -75,8 +76,18 @@ export default async function CurationPage() {
                     </span>
                     <span className="text-[12px] text-[rgba(0,0,0,0.48)]">{item.release_year ?? ''}</span>
                   </div>
-                  <p className="text-[21px] font-semibold leading-[1.19] text-[#1d1d1f]">{item.song_title}</p>
-                  <p className="mt-1 text-[14px] text-[rgba(0,0,0,0.58)]">{item.artist}</p>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-[21px] font-semibold leading-[1.19] text-[#1d1d1f]">{item.song_title}</p>
+                      <p className="mt-1 text-[14px] text-[rgba(0,0,0,0.58)]">{item.artist}</p>
+                    </div>
+                    <Link
+                      href={`/select?artist=${encodeURIComponent(item.artist)}&song_title=${encodeURIComponent(item.song_title)}&source_url=${encodeURIComponent(item.yt_video_id ? `https://www.youtube.com/watch?v=${item.yt_video_id}` : '')}`}
+                      className="shrink-0 text-[12px] text-[#0066cc] transition-colors hover:text-[#0071e3] hover:underline"
+                    >
+                      select
+                    </Link>
+                  </div>
                   {item.yt_title && (
                     <p className="mt-4 line-clamp-2 text-[14px] text-[rgba(0,0,0,0.58)]">{item.yt_title}</p>
                   )}

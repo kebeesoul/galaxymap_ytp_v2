@@ -3,6 +3,9 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
+import type { TablesInsert } from '@/lib/supabase/types'
+
+type LegacyProjectInsert = Omit<TablesInsert<'projects'>, 'owner_uid'>
 
 export default function NewProjectPage() {
   const [loading, setLoading] = useState(false)
@@ -26,19 +29,37 @@ export default function NewProjectPage() {
       return
     }
 
-    const payload = {
+    const payload: TablesInsert<'projects'> = {
       owner_uid: user.id,
       artist: (form.elements.namedItem('artist') as HTMLInputElement).value.trim(),
       song_title: (form.elements.namedItem('song_title') as HTMLInputElement).value.trim(),
       source_url: (form.elements.namedItem('source_url') as HTMLInputElement).value.trim(),
       import_status: 'pending',
+      ip_owner: false,
     }
 
-    const { data: project, error: err } = await supabase
+    let { data: project, error: err } = await supabase
       .from('projects')
       .insert(payload)
       .select()
       .single()
+
+    if (err && isMissingOwnerUidError(err.message)) {
+      const legacyPayload: LegacyProjectInsert = {
+        artist: payload.artist,
+        song_title: payload.song_title,
+        source_url: payload.source_url,
+        import_status: 'pending',
+        ip_owner: false,
+      }
+      const legacyResult = await supabase
+        .from('projects')
+        .insert(legacyPayload as TablesInsert<'projects'>)
+        .select()
+        .single()
+      project = legacyResult.data
+      err = legacyResult.error
+    }
 
     if (err || !project) {
       setError(err?.message ?? 'Failed to create project')
@@ -98,6 +119,10 @@ export default function NewProjectPage() {
       </div>
     </main>
   )
+}
+
+function isMissingOwnerUidError(message: string) {
+  return message.includes("Could not find the 'owner_uid' column")
 }
 
 function Field({
