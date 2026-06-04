@@ -1,7 +1,7 @@
 # Ingest Worker — Pull 방식 운영 가이드
 
 Mac Studio에서 돌아가는 yt-dlp 인제스트 워커.
-Supabase를 3초마다 폴링해 `import_status='pending'` 프로젝트를 가져와 처리한다.
+Supabase를 1초마다 폴링해 `import_status='pending'` 프로젝트를 가져와 처리한다.
 Railway → Mac 직접 연결 불필요. cloudflared 불필요.
 
 ---
@@ -13,12 +13,12 @@ Railway → Mac 직접 연결 불필요. cloudflared 불필요.
              → projects.import_status = 'pending' 기록
              → 202 즉시 반환
 
-Mac worker → Supabase 폴링 (3초마다)
+Mac worker → Supabase 폴링 (1초마다)
            → pending 작업 발견 → processing 클레임
            → yt-dlp 다운로드 → Supabase Storage 업로드
            → import_status = 'success' 업데이트
 
-브라우저 → 3초 자동 폴링 → success 감지 → 편집 UI 전환
+브라우저 → Realtime update → success 감지 → 편집 UI 전환
 ```
 
 Mac이 인터넷에서 도달 가능할 필요 없음. Supabase outbound 연결만 사용.

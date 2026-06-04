@@ -17,7 +17,7 @@ load_dotenv()
 
 SUPABASE_URL = os.environ.get("NEXT_PUBLIC_SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY", "")
-POLL_INTERVAL = 3
+POLL_INTERVAL = 1
 
 
 async def _run_with_client(client: str, timeout: int, *args: str) -> tuple[int, bytes, bytes]:

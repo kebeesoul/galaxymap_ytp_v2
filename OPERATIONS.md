@@ -5,17 +5,17 @@ design context when it conflicts with code, worker READMEs, or this file.
 
 ## Services
 
-- Next.js app: `npm run dev` locally, Railway in production.
+- Next.js app: `pnpm dev` locally, Railway in production.
 - Ingest pull worker: `docker compose up ingest-worker`.
 - BGM upload HTTP worker: `docker compose up ingest-server`.
-- Render worker: `npm run render-worker` on the local Mac Studio.
+- Render worker: `pnpm render-worker` on the local Mac Studio.
 
 Do not deploy ingest or render workers to Railway, Vercel, or Edge functions.
 
 ## Queue Flow
 
 - `/api/import` sets `projects.import_status='pending'`.
-- `ingest-worker` polls Supabase, claims pending projects as `processing`, and
+- `ingest-worker` polls Supabase every 1 second, claims pending projects as `processing`, and
   uploads source video to `sources/preview/{video_id}.mp4`.
 - `/api/render` sets `clips.render_status='pending'` only when a clip is not
   already `pending` or `processing`.

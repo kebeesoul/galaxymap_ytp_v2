@@ -82,7 +82,7 @@ export default async function CurationPage() {
                       <p className="mt-1 text-[14px] text-[rgba(0,0,0,0.58)]">{item.artist}</p>
                     </div>
                     <Link
-                      href={`/select?artist=${encodeURIComponent(item.artist)}&song_title=${encodeURIComponent(item.song_title)}&source_url=${encodeURIComponent(item.yt_video_id ? `https://www.youtube.com/watch?v=${item.yt_video_id}` : '')}`}
+                      href={`/select?artist=${encodeURIComponent(item.artist)}&song_title=${encodeURIComponent(item.song_title)}&resolve=1`}
                       className="shrink-0 text-[12px] text-[#0066cc] transition-colors hover:text-[#0071e3] hover:underline"
                     >
                       select

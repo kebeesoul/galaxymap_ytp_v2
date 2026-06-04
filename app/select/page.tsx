@@ -14,12 +14,30 @@ export default function SelectPage() {
   const [artist, setArtist] = useState('')
   const [songTitle, setSongTitle] = useState('')
   const [sourceUrl, setSourceUrl] = useState('')
+  const [resolving, setResolving] = useState(false)
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
-    setArtist(params.get('artist') ?? '')
-    setSongTitle(params.get('song_title') ?? '')
+    const initialArtist = params.get('artist') ?? ''
+    const initialSongTitle = params.get('song_title') ?? ''
+    const shouldResolve = params.get('resolve') === '1'
+    setArtist(initialArtist)
+    setSongTitle(initialSongTitle)
     setSourceUrl(params.get('source_url') ?? '')
+
+    if (!shouldResolve || !initialArtist || !initialSongTitle) return
+
+    setResolving(true)
+    fetch(`/api/youtube/resolve?artist=${encodeURIComponent(initialArtist)}&song_title=${encodeURIComponent(initialSongTitle)}`)
+      .then(async (response) => {
+        const body = (await response.json()) as { url?: string; error?: string }
+        if (!response.ok || !body.url) throw new Error(body.error ?? 'YouTube search failed')
+        setSourceUrl(body.url)
+      })
+      .catch((resolveError) => {
+        setError(resolveError instanceof Error ? resolveError.message : 'YouTube search failed')
+      })
+      .finally(() => setResolving(false))
   }, [])
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -121,10 +139,15 @@ export default function SelectPage() {
               {error}
             </p>
           )}
+          {resolving && (
+            <p className="mt-5 rounded-lg bg-[#f5f5f7] px-4 py-3 text-[14px] text-[rgba(0,0,0,0.58)]">
+              Finding the best YouTube match…
+            </p>
+          )}
 
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || resolving}
             className="mt-8 w-full rounded-lg bg-[#0071e3] py-3 text-[17px] text-white transition-colors hover:bg-[#0077ed] disabled:opacity-50"
           >
             {loading ? 'Queueing…' : 'Create Project'}
