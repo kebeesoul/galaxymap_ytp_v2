@@ -43,6 +43,50 @@ async def _run(timeout: int, *args: str) -> tuple[int, bytes, bytes]:
     return rc, stdout, stderr
 
 
+def classify_ytdlp_error(stderr: str, stage: str) -> str:
+    err = stderr[:1000]
+    lowered = stderr.lower()
+
+    if any(k in lowered for k in ("age-restricted", "age restricted", "confirm your age", "sign in to confirm your age")):
+        return f"{stage} 실패: 연령 제한 영상입니다. YouTube 로그인 쿠키가 필요합니다."
+
+    if any(k in lowered for k in ("private video", "this video is private")):
+        return f"{stage} 실패: 비공개 영상입니다. 영상 공개 여부를 확인해주세요."
+
+    if any(k in lowered for k in ("removed by", "copyright", "has been removed")):
+        return f"{stage} 실패: 저작권 또는 게시자 조치로 삭제된 영상입니다."
+
+    if any(k in lowered for k in ("video unavailable", "this video is unavailable")):
+        return f"{stage} 실패: YouTube에서 unavailable로 응답했습니다. 지역 제한, 삭제, 공개 상태를 확인해주세요."
+
+    if any(k in lowered for k in ("not available in your country", "not available in your region", "uploader has not made this video available")):
+        return f"{stage} 실패: 지역 제한 영상입니다. Mac worker의 네트워크 지역 또는 다른 공식 영상 후보를 확인해주세요."
+
+    if any(k in lowered for k in ("403", "forbidden", "bot", "po token", "sign in to confirm you’re not a bot", "sign in to confirm you're not a bot")):
+        return (
+            f"{stage} 실패: YouTube 접근이 차단되었습니다. 영상 자체가 삭제된 것은 아닐 수 있습니다. "
+            "yt-dlp 업데이트, 로그인 쿠키 갱신, player client 재시도를 확인해주세요. "
+            f"원본 오류: {err}"
+        )
+
+    if any(k in lowered for k in ("unable to extract", "unable to download webpage", "expected to find", "nsig extraction failed")):
+        return (
+            f"{stage} 실패: yt-dlp extractor가 YouTube 변경을 따라가지 못했습니다. "
+            f"yt-dlp 업데이트가 우선입니다. 원본 오류: {err}"
+        )
+
+    if any(k in lowered for k in ("unsupported url", "is not a valid url", "invalid url")):
+        return f"{stage} 실패: 유효하지 않은 YouTube URL입니다."
+
+    if any(k in lowered for k in ("requested format is not available", "no video formats found", "no suitable formats")):
+        return (
+            f"{stage} 실패: 선택한 mp4 preview 포맷을 받을 수 없습니다. "
+            f"format fallback 또는 다른 영상 후보가 필요합니다. 원본 오류: {err}"
+        )
+
+    return f"{stage} 실패: 분류되지 않은 yt-dlp 오류입니다. 원본 오류: {err}"
+
+
 async def process(supabase, project_id: str, source_url: str) -> None:
     # Claim the job atomically — only update if still pending (guard against duplicates)
     claim = supabase.table("projects").update({"import_status": "processing"}).eq("id", project_id).eq("import_status", "pending").execute()
@@ -53,19 +97,7 @@ async def process(supabase, project_id: str, source_url: str) -> None:
         # Fetch metadata
         rc, stdout, stderr = await _run(60, "--dump-json", "--no-playlist", source_url)
         if rc != 0:
-            err = stderr.decode(errors="replace")
-            if any(k in err for k in ("age-restricted", "age restricted", "confirm your age")):
-                raise RuntimeError("연령 제한 영상 — YouTube 로그인 없이는 다운로드할 수 없습니다.")
-            elif any(k in err for k in ("Private video", "private video", "This video is private")):
-                raise RuntimeError("비공개 영상 — 영상 공개 여부를 확인해주세요.")
-            elif any(k in err for k in ("copyright", "Copyright", "removed by")):
-                raise RuntimeError("저작권으로 인해 삭제된 영상입니다.")
-            elif any(k in err for k in ("not available", "is unavailable", "Video unavailable", "403")):
-                raise RuntimeError("사용할 수 없는 영상입니다 (지역 제한 또는 삭제됨).")
-            elif any(k in err for k in ("Unable to extract", "Unsupported URL", "is not a valid URL")):
-                raise RuntimeError("유효하지 않은 YouTube URL입니다.")
-            else:
-                raise RuntimeError(f"메타데이터를 가져올 수 없습니다: {err[:200]}")
+            raise RuntimeError(classify_ytdlp_error(stderr.decode(errors="replace"), "메타데이터 조회"))
 
         info = json.loads(stdout.decode())
         video_id: str = info["id"]
@@ -91,10 +123,7 @@ async def process(supabase, project_id: str, source_url: str) -> None:
                 source_url,
             )
             if rc2 != 0:
-                err2 = stderr2.decode(errors="replace")
-                if any(k in err2 for k in ("age-restricted", "confirm your age")):
-                    raise RuntimeError("연령 제한 영상 — YouTube 로그인 없이는 다운로드할 수 없습니다.")
-                raise RuntimeError(f"다운로드 실패: {err2[:200]}")
+                raise RuntimeError(classify_ytdlp_error(stderr2.decode(errors="replace"), "preview 다운로드"))
 
             files = list(Path(tmpdir).iterdir())
             if not files:
