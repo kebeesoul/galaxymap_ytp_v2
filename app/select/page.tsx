@@ -1,19 +1,24 @@
 'use client'
 
+import { useRouter } from 'next/navigation'
 import { useState } from 'react'
-import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
+import type { TablesInsert } from '@/lib/supabase/types'
 
-export default function NewProjectPage() {
+export default function SelectPage() {
+  const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault()
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
     setLoading(true)
     setError('')
 
-    const form = e.currentTarget
+    const form = event.currentTarget
+    const sourceUrl = (form.elements.namedItem('source_url') as HTMLInputElement).value.trim()
+    const artist = (form.elements.namedItem('artist') as HTMLInputElement).value.trim()
+    const songTitle = (form.elements.namedItem('song_title') as HTMLInputElement).value.trim()
     const supabase = createClient()
     const {
       data: { user },
@@ -26,50 +31,47 @@ export default function NewProjectPage() {
       return
     }
 
-    const payload = {
+    const payload: TablesInsert<'projects'> = {
       owner_uid: user.id,
-      artist: (form.elements.namedItem('artist') as HTMLInputElement).value.trim(),
-      song_title: (form.elements.namedItem('song_title') as HTMLInputElement).value.trim(),
-      source_url: (form.elements.namedItem('source_url') as HTMLInputElement).value.trim(),
+      artist,
+      song_title: songTitle,
+      source_url: sourceUrl,
       import_status: 'pending',
+      ip_owner: false,
     }
 
-    const { data: project, error: err } = await supabase
+    const { data: project, error: insertError } = await supabase
       .from('projects')
       .insert(payload)
-      .select()
+      .select('id')
       .single()
 
-    if (err || !project) {
-      setError(err?.message ?? 'Failed to create project')
+    if (insertError || !project) {
+      setError(insertError?.message ?? 'Failed to create project')
       setLoading(false)
       return
     }
 
-    // Stash the new project so the dashboard can add it to local state
-    // immediately on mount, regardless of server-render cache timing.
-    sessionStorage.setItem('galaxymap_new_project', JSON.stringify(project))
-    window.location.href = '/projects'
+    router.push(`/editor/${project.id}`)
+    router.refresh()
   }
 
   return (
     <main className="min-h-screen bg-[#f5f5f7] px-6 py-16">
-      <div className="mx-auto max-w-[600px]">
+      <div className="mx-auto max-w-[680px]">
         <div className="mb-10">
-          <Link href="/projects" className="text-[14px] text-[#0066cc] hover:underline">
-            ← Projects
-          </Link>
+          <p className="text-[12px] text-[rgba(0,0,0,0.48)]">Select</p>
           <h1
-            className="mt-4 text-[40px] font-semibold leading-[1.10] text-[#1d1d1f]"
+            className="mt-2 text-[40px] font-semibold leading-[1.10] text-[#1d1d1f]"
             style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", Helvetica, Arial, sans-serif' }}
           >
-            New Project
+            Add YouTube Source
           </h1>
         </div>
 
         <form
           onSubmit={handleSubmit}
-          className="rounded-2xl bg-white p-8 shadow-[rgba(0,0,0,0.08)_0px_2px_12px]"
+          className="rounded-lg bg-white p-8 shadow-[rgba(0,0,0,0.08)_0px_2px_12px]"
         >
           <div className="space-y-6">
             <Field label="Artist" name="artist" required />
@@ -84,7 +86,9 @@ export default function NewProjectPage() {
           </div>
 
           {error && (
-            <p className="mt-5 rounded-xl bg-red-50 px-4 py-3 text-[14px] text-red-600">{error}</p>
+            <p className="mt-5 rounded-lg bg-red-50 px-4 py-3 text-[14px] text-red-600">
+              {error}
+            </p>
           )}
 
           <button
@@ -92,7 +96,7 @@ export default function NewProjectPage() {
             disabled={loading}
             className="mt-8 w-full rounded-lg bg-[#0071e3] py-3 text-[17px] text-white transition-colors hover:bg-[#0077ed] disabled:opacity-50"
           >
-            {loading ? 'Creating…' : 'Create Project'}
+            {loading ? 'Queueing…' : 'Create Project'}
           </button>
         </form>
       </div>
@@ -124,7 +128,7 @@ function Field({
         type={type}
         required={required}
         placeholder={placeholder}
-        className="w-full rounded-xl bg-[#f5f5f7] px-4 py-3 text-[17px] text-[#1d1d1f] outline-none ring-2 ring-transparent placeholder:text-[rgba(0,0,0,0.28)] focus:ring-[#0071e3]"
+        className="w-full rounded-lg bg-[#f5f5f7] px-4 py-3 text-[17px] text-[#1d1d1f] outline-none ring-2 ring-transparent placeholder:text-[rgba(0,0,0,0.28)] focus:ring-[#0071e3]"
       />
     </div>
   )

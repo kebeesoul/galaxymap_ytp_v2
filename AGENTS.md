@@ -1,6 +1,6 @@
-# CLAUDE.md — galaxymap_ytp_v2 AI 협업 규칙
+# AGENTS.md — galaxymap_ytp_v2 AI 협업 규칙
 
-> 이 파일은 Claude(및 모든 AI 코딩 에이전트)가 이 레포에서 작업할 때 **반드시 따르는 운영 기준**이다.
+> 이 파일은 Codex(및 모든 AI 코딩 에이전트)가 이 레포에서 작업할 때 **반드시 따르는 운영 기준**이다.
 > 설계·토폴로지·데이터모델의 단일 진실 공급원은 **`project_spec.md`** 다. 작업 전 항상 먼저 읽는다.
 > 운영 절차(Docker·yt-dlp·배포 등) 상세는 **`OPERATIONS.md`**, UI/UX는 **`DESIGN.md`** 를 따른다.
 > 구버전 `PROJECT_SPEC.md` 는 폐기됨 — 코드/이 문서와 충돌 시 무시한다.
@@ -128,7 +128,7 @@
 ## 기타 규칙
 
 - **UI 변경 전 `DESIGN.md`를 읽고 그것을 디자인 단일 진실로 따른다.**
-- MCP: Claude Desktop MCP 서버 설정은 `claude_desktop_config.json`에 둔다(`settings.json` 아님). 설정 변경 후 Claude Desktop 재시작 필요.
+- MCP: Codex Desktop MCP 서버 설정은 `claude_desktop_config.json`에 둔다(`settings.json` 아님). 설정 변경 후 Codex Desktop 재시작 필요.
 - **출력 형식:** 감사·PR 리뷰·긴 운영 요약은 첫 답을 compact하고 complete하게. 단일 boxed 리포트를 요청하면 하나의 코드블록으로 반환하고 메시지를 쪼개지 않는다.
 
 ---

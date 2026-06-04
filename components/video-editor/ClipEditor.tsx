@@ -171,7 +171,10 @@ export default function ClipEditor({
   ])))
 
   const [transcribeStatuses, setTranscribeStatuses] = useState<Record<string, string | null>>(
-    Object.fromEntries(initialClips.map(c => [c.id, c.transcribe_status]))
+    Object.fromEntries(initialClips.map(c => [
+      c.id,
+      (initialSegmentsByClip[c.id]?.length ?? 0) > 0 ? 'success' : null,
+    ]))
   )
   const [segmentsByClip, setSegmentsByClip] =
     useState<Record<string, LyricsSegment[]>>(initialSegmentsByClip)
@@ -1774,7 +1777,7 @@ export default function ClipEditor({
                       </p>
                     )}
 
-                    {transcribeStatus === 'success' && segments.length > 0 && (
+                    {segments.length > 0 && (
                       <div className="border-t border-[rgba(255,255,255,0.06)] pt-4">
                         <SubtitleEditor
                           key={`${clip.id}-${segments.length}`}

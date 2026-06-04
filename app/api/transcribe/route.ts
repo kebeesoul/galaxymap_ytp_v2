@@ -70,13 +70,6 @@ async function persistSegments(
     return null
   }
 
-  const { error: updateError } = await supabase
-    .from('clips').update({ transcribe_status: 'success' }).eq('id', clipId)
-  if (updateError) {
-    console.error('[persistSegments] status update failed:', updateError.message)
-    return null
-  }
-
   return NextResponse.json({ segments: inserted })
 }
 
@@ -160,17 +153,6 @@ export async function POST(request: NextRequest) {
 
   if (!signed?.signedUrl) {
     return NextResponse.json({ error: 'failed to generate signed URL' }, { status: 500 })
-  }
-
-  // Skip if already pending or successfully transcribed to prevent overwrite
-  const { data: claimed } = await supabase
-    .from('clips')
-    .update({ transcribe_status: 'pending' })
-    .eq('id', clip_id)
-    .not('transcribe_status', 'in', '(pending,success)')
-    .select('id')
-  if (!claimed?.length) {
-    return NextResponse.json({ error: 'already pending or already transcribed' }, { status: 409 })
   }
 
   // C4: try local WhisperX worker first (no API cost, better accuracy)
@@ -310,11 +292,6 @@ export async function POST(request: NextRequest) {
     } else if (/timeout/i.test(raw)) {
       message = '전사 요청이 시간 초과(180초)되었습니다. 잠시 후 다시 시도해 주세요.'
     }
-
-    await supabase
-      .from('clips')
-      .update({ transcribe_status: 'failed' })
-      .eq('id', clip_id)
 
     return NextResponse.json({ error: message }, { status: 502 })
   }

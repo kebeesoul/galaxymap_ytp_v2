@@ -201,16 +201,16 @@ export default function ProjectList({ initialProjects }: { initialProjects: Proj
             </button>
           )}
           <Link
-            href="/export"
+            href="/history"
             className="rounded-lg border border-[rgba(0,0,0,0.12)] bg-white px-4 py-2 text-[17px] text-[#1d1d1f] transition-colors hover:bg-[#f5f5f7]"
           >
-            Export
+            History
           </Link>
           <Link
-            href="/projects/new"
+            href="/select"
             className="rounded-lg bg-[#0071e3] px-4 py-2 text-[17px] text-white transition-colors hover:bg-[#0077ed]"
           >
-            New Project
+            Select
           </Link>
         </div>
       </div>
@@ -218,8 +218,8 @@ export default function ProjectList({ initialProjects }: { initialProjects: Proj
       {projects.length === 0 ? (
         <div className="rounded-2xl bg-white py-24 text-center shadow-[rgba(0,0,0,0.08)_0px_2px_12px]">
           <p className="text-[17px] text-[rgba(0,0,0,0.48)]">No projects yet.</p>
-          <Link href="/projects/new" className="mt-4 inline-block text-[14px] text-[#0066cc] hover:underline">
-            Create your first project →
+          <Link href="/select" className="mt-4 inline-block text-[14px] text-[#0066cc] hover:underline">
+            Select your first source →
           </Link>
         </div>
       ) : (
