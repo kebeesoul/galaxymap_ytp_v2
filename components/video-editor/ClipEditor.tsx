@@ -24,6 +24,7 @@ const DEFAULT_SUBTITLE_STYLE: SubtitleStyle = {
   bgOpacity: 0.72,
   theme: 'white-on-black',
   fontFamily: 'Noto Sans KR',
+  blackBars: false,
 }
 
 const DEFAULT_COMMENT_STYLE: CommentStyle = {
@@ -53,6 +54,7 @@ function parseSubtitleStyle(raw: unknown): SubtitleStyle {
     bgOpacity: typeof obj.bgOpacity === 'number' ? obj.bgOpacity : DEFAULT_SUBTITLE_STYLE.bgOpacity,
     theme: obj.theme === 'black-on-white' ? 'black-on-white' : 'white-on-black',
     fontFamily: typeof obj.fontFamily === 'string' && obj.fontFamily ? obj.fontFamily : DEFAULT_SUBTITLE_STYLE.fontFamily,
+    blackBars: obj.blackBars === true,
   }
 }
 
@@ -119,6 +121,7 @@ export default function ClipEditor({
   const lastTimeRef = useRef(0)
 
   const [signedUrl, setSignedUrl] = useState<string | null>(null)
+  const [sourceError, setSourceError] = useState<string | null>(null)
   const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null)
 
   // Stable ref callback — prevents WaveSurfer from reinitialising on parent re-renders
@@ -170,16 +173,8 @@ export default function ClipEditor({
     })),
   ])))
 
-  const [transcribeStatuses, setTranscribeStatuses] = useState<Record<string, string | null>>(
-    Object.fromEntries(initialClips.map(c => [
-      c.id,
-      (initialSegmentsByClip[c.id]?.length ?? 0) > 0 ? 'success' : null,
-    ]))
-  )
   const [segmentsByClip, setSegmentsByClip] =
     useState<Record<string, LyricsSegment[]>>(initialSegmentsByClip)
-  const [transcribing, setTranscribing] = useState<Record<string, boolean>>({})
-  const [transcribeErrors, setTranscribeErrors] = useState<Record<string, string>>({})
 
   const [renderStatuses, setRenderStatuses] = useState<Record<string, string | null>>(
     Object.fromEntries(initialClips.map(c => [c.id, c.render_status]))
@@ -280,30 +275,38 @@ export default function ClipEditor({
   // Single stable Supabase client — never recreated on re-render
   const supabase = useMemo(() => createClient(), [])
 
-  // Signed URL for video preview
-  useEffect(() => {
+  const loadSourceUrl = useCallback(async () => {
     if (!project.yt_source_path) return
-    supabase.storage
-      .from('sources')
-      .createSignedUrl(project.yt_source_path, 3600)
-      .then(({ data }) => {
-        if (data?.signedUrl) setSignedUrl(data.signedUrl)
+    setSourceError(null)
+
+    try {
+      const response = await fetch(`/api/projects/${project.id}/source-url`, {
+        cache: 'no-store',
       })
-  }, [project.yt_source_path, supabase])
+      const body = (await response.json()) as { url?: string; error?: string }
+      if (!response.ok || !body.url) {
+        throw new Error(body.error ?? 'Failed to load video source')
+      }
+      setSignedUrl(body.url)
+    } catch (error) {
+      setSignedUrl(null)
+      setSourceError(error instanceof Error ? error.message : 'Failed to load video source')
+    }
+  }, [project.id, project.yt_source_path])
+
+  // The browser receives an authenticated playback URL, never a local file path.
+  useEffect(() => {
+    void loadSourceUrl()
+  }, [loadSourceUrl])
 
   // A3: auto-refresh signed URL 10 min before the 1-hour expiry
   useEffect(() => {
     if (!project.yt_source_path) return
     const id = setInterval(() => {
-      supabase.storage
-        .from('sources')
-        .createSignedUrl(project.yt_source_path!, 3600)
-        .then(({ data }) => {
-          if (data?.signedUrl) setSignedUrl(data.signedUrl)
-        })
+      void loadSourceUrl()
     }, 50 * 60 * 1000)
     return () => clearInterval(id)
-  }, [project.yt_source_path, supabase])
+  }, [loadSourceUrl, project.yt_source_path])
 
   // C6: Realtime render_status + external deletes for all clips in this project
   useEffect(() => {
@@ -372,14 +375,6 @@ export default function ClipEditor({
           byClip[seg.clip_id].push(seg)
         }
         setSegmentsByClip(prev => ({ ...prev, ...byClip }))
-        setTranscribeStatuses(prev => {
-          const updated = { ...prev }
-          for (const clipId of Object.keys(byClip)) {
-            // Override any stale status (pending/failed) when segments actually exist in DB
-            updated[clipId] = 'success'
-          }
-          return updated
-        })
       }
       if (cmts) {
         const rawByClip: Record<string, Comment[]> = {}
@@ -739,13 +734,11 @@ export default function ClipEditor({
         const { data: segs } = await supabase.from('lyrics_segments').insert(rows).select()
         if (segs) {
           setSegmentsByClip(prev => ({ ...prev, [data.id]: segs }))
-          setTranscribeStatuses(prev => ({ ...prev, [data.id]: 'success' }))
         }
       }
 
       setClips(prev => [...prev, data])
       setLabelsByClip(prev => ({ ...prev, [data.id]: '' }))
-      setTranscribeStatuses(prev => ({ ...prev, [data.id]: prev[data.id] ?? null }))
       setRenderStatuses(prev => ({ ...prev, [data.id]: null }))
       setTemplateIdsByClip(prev => ({ ...prev, [data.id]: null }))
       setBgmByClip(prev => ({ ...prev, [data.id]: { bgm_url: null, bgm_volume: 0.3, original_volume: 1.0 } }))
@@ -810,7 +803,6 @@ export default function ClipEditor({
     }
     setClips(prev => [...prev, newClip])
     setLabelsByClip(prev => ({ ...prev, [newClip.id]: newClip.label ?? '' }))
-    setTranscribeStatuses(prev => ({ ...prev, [newClip.id]: segs.length > 0 ? 'success' : null }))
     setRenderStatuses(prev => ({ ...prev, [newClip.id]: null }))
     setTemplateIdsByClip(prev => ({ ...prev, [newClip.id]: newClip.template_id }))
     setBgmByClip(prev => ({ ...prev, [newClip.id]: { bgm_url: null, bgm_volume: 0.3, original_volume: 1.0 } }))
@@ -864,9 +856,6 @@ export default function ClipEditor({
       return n
     }
     setSegmentsByClip(cleanup)
-    setTranscribeStatuses(cleanup)
-    setTranscribing(cleanup)
-    setTranscribeErrors(cleanup)
     setRenderStatuses(cleanup)
     setRendering(cleanup)
     setRenderErrors(cleanup)
@@ -913,8 +902,7 @@ export default function ClipEditor({
       for (const id of succeeded) delete n[id]
       return n
     }
-    setSegmentsByClip(cleanup); setTranscribeStatuses(cleanup)
-    setTranscribing(cleanup); setTranscribeErrors(cleanup)
+    setSegmentsByClip(cleanup)
     setRenderStatuses(cleanup); setRendering(cleanup)
     setRenderErrors(cleanup); setRenderPaths(cleanup); setDownloading(cleanup)
     setLabelsByClip(cleanup); setTemplateIdsByClip(cleanup); setBgmByClip(cleanup)
@@ -938,34 +926,6 @@ export default function ClipEditor({
       setTemplateIdsByClip(prev => ({ ...prev, [clipId]: templateId }))
     }
   }
-
-  async function handleTranscribe(clipId: string) {
-    setTranscribing(prev => ({ ...prev, [clipId]: true }))
-    setTranscribeStatuses(prev => ({ ...prev, [clipId]: 'pending' }))
-    setTranscribeErrors(prev => {
-      const next = { ...prev }
-      delete next[clipId]
-      return next
-    })
-    try {
-      const res = await fetch('/api/transcribe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clip_id: clipId }),
-      })
-      const body = (await res.json()) as { segments?: LyricsSegment[]; error?: string }
-      if (!res.ok) throw new Error(body.error ?? 'Transcription failed')
-      setTranscribeStatuses(prev => ({ ...prev, [clipId]: 'success' }))
-      setSegmentsByClip(prev => ({ ...prev, [clipId]: body.segments ?? [] }))
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Transcription failed'
-      setTranscribeStatuses(prev => ({ ...prev, [clipId]: 'failed' }))
-      setTranscribeErrors(prev => ({ ...prev, [clipId]: msg }))
-    } finally {
-      setTranscribing(prev => ({ ...prev, [clipId]: false }))
-    }
-  }
-
 
   async function handleRender(clipId: string) {
     setRendering(prev => ({ ...prev, [clipId]: true }))
@@ -1089,11 +1049,25 @@ export default function ClipEditor({
             onPlay={() => { lastActivePlayerRef.current = 'source' }}
           />
         ) : (
-          <VideoPreview
-            thumbnailUrl={project.yt_thumbnail_url}
-            title={project.yt_title}
-            durationSec={project.yt_duration_sec}
-          />
+          <div>
+            <VideoPreview
+              thumbnailUrl={project.yt_thumbnail_url}
+              title={project.yt_title}
+              durationSec={project.yt_duration_sec}
+            />
+            {sourceError && (
+              <div className="flex items-center justify-between gap-4 bg-red-950/40 px-4 py-3">
+                <p className="text-[13px] text-red-300">{sourceError}</p>
+                <button
+                  type="button"
+                  onClick={() => void loadSourceUrl()}
+                  className="shrink-0 text-[13px] text-[#2997ff] hover:underline"
+                >
+                  다시 불러오기
+                </button>
+              </div>
+            )}
+          </div>
         )}
       </div>
 
@@ -1476,8 +1450,6 @@ export default function ClipEditor({
             </div>
           )}
           {clips.map((clip, i) => {
-            const transcribeStatus = transcribeStatuses[clip.id]
-            const isTranscribing = transcribing[clip.id] ?? false
             const segments = segmentsByClip[clip.id] ?? []
 
             // Lazy-init stable refs for this clip
@@ -1611,23 +1583,6 @@ export default function ClipEditor({
                         >
                           ✏︎
                         </button>
-                    {/* A7: show spinner only when actively transcribing; allow retry on stale pending */}
-                    <button
-                      onClick={() => handleTranscribe(clip.id)}
-                      disabled={isTranscribing}
-                      className="flex items-center gap-2 rounded-lg bg-[#272729] px-3 py-1.5 text-[13px] text-white transition-colors hover:bg-[#2a2a2d] disabled:opacity-40"
-                    >
-                      {isTranscribing ? (
-                        <>
-                          <span className="h-3 w-3 animate-spin rounded-full border border-white/30 border-t-white" />
-                          자막 추출 중…
-                        </>
-                      ) : transcribeStatus === 'pending' ? (
-                        '재시도'
-                      ) : (
-                        'Whisper 자막 추출'
-                      )}
-                    </button>
                     <button
                       onClick={() => handleDuplicateClip(clip.id)}
                       className="rounded-lg bg-[#272729] px-2.5 py-1.5 text-[13px] text-[rgba(255,255,255,0.4)] transition-colors hover:bg-[#2a2a2d] hover:text-white"
@@ -1771,12 +1726,6 @@ export default function ClipEditor({
                       </div>
                     </div>
 
-                    {transcribeStatus === 'failed' && (
-                      <p className="mb-3 text-[13px] text-red-400">
-                        {transcribeErrors[clip.id] ?? '자막 추출 실패'}
-                      </p>
-                    )}
-
                     {segments.length > 0 && (
                       <div className="border-t border-[rgba(255,255,255,0.06)] pt-4">
                         <SubtitleEditor
@@ -1785,6 +1734,7 @@ export default function ClipEditor({
                           initialSegments={segments}
                           currentTime={previewTimeByClip[clip.id]}
                           clipStartSec={Number(clip.start_sec)}
+                          clipEndSec={Number(clip.end_sec)}
                           noWrapper
                           onSegmentsChange={(segs) => setLiveSegsByClip(prev => ({ ...prev, [clip.id]: segs }))}
                           onSeekAndPlay={(relSec) => seekAndPlayRefs.current.get(clip.id)?.current?.(relSec)}
@@ -1805,27 +1755,6 @@ export default function ClipEditor({
                   <div className="px-5 pb-4">
                     {/* Comment style controls */}
                     <div className="mb-4 space-y-3">
-                      <div>
-                        <p className="mb-1.5 text-[11px] text-[rgba(255,255,255,0.3)]">텍스트 스타일</p>
-                        <div className="flex gap-1">
-                          {([
-                            { value: 'white-on-black', label: '흰글씨+검정배경' },
-                            { value: 'black-on-white', label: '검정글씨+흰배경' },
-                          ] as const).map(opt => (
-                            <button
-                              key={opt.value}
-                              onClick={() => handleSaveCommentStyle(clip.id, { ...(commentStylesByClip[clip.id] ?? DEFAULT_COMMENT_STYLE), theme: opt.value })}
-                              className={`flex-1 rounded-md py-1.5 text-[12px] transition-colors ${
-                                (commentStylesByClip[clip.id] ?? DEFAULT_COMMENT_STYLE).theme === opt.value
-                                  ? 'bg-[#0071e3] text-white'
-                                  : 'bg-[#272729] text-[rgba(255,255,255,0.5)] hover:bg-[#2a2a2d]'
-                              }`}
-                            >
-                              {opt.label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
                       <div>
                         <p className="mb-1.5 text-[11px] text-[rgba(255,255,255,0.3)]">폰트</p>
                         <div className="grid grid-cols-3 gap-1.5">
@@ -1908,6 +1837,24 @@ export default function ClipEditor({
                   templates={templates}
                   onSelect={(id) => setTemplateIdsByClip(prev => ({ ...prev, [clip.id]: id }))}
                 />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const current = subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE
+                    void handleSaveSubtitleStyle(clip.id, {
+                      ...current,
+                      blackBars: !current.blackBars,
+                    })
+                  }}
+                  className={`mt-2 flex w-full items-center justify-between rounded-lg px-4 py-3 text-[13px] transition-colors ${
+                    (subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE).blackBars
+                      ? 'bg-[#0071e3]/20 text-[#2997ff] ring-1 ring-[#2997ff]/40'
+                      : 'bg-[#1d1d1f] text-[rgba(255,255,255,0.6)] hover:bg-[#272729]'
+                  }`}
+                >
+                  <span>상·하단 블랙 바</span>
+                  <span>{(subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE).blackBars ? '15% 켜짐' : '꺼짐'}</span>
+                </button>
                 </div>
 
                 <div className="md:col-start-2">

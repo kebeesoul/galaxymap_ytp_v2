@@ -57,7 +57,7 @@
 |**Supabase (Postgres)**|관계형 메타데이터 전부, 상태머신(import/render_status), 인증|DB·Auth·폴링은 항상 여기. zod로 입출력 검증                                                                                                                                                                                     |
 |**Supabase Auth**      |사용자 계정/세션, UID 발급                           |**다중 작업자용. 이번에 활성화 (현재 미사용)**. RLS도 켠다                                                                                                                                                                             |
 |**Cloudflare R2**      |영상 원본 mp4, BGM, 렌더 결과 mp4 — **모든 파일 바이트**   |S3 호환. **egress 무료**. Supabase Storage 대체 [DECIDED]                                                                                                                                                                |
-|**Mac 로컬 파일시스템(스크래치)** |yt-dlp 다운로드 중간물, Remotion 렌더 작업 파일          |처리용 임시 공간. 최종물은 R2 게시 후 정리 가능. **경로는 `STORAGE_ROOT` env로 주입**(코드 기본값 `path.join(process.cwd(),'storage')` = `<repo>/storage/`). **.gitignore 필수.** 실제 절대경로는 `.env`에만 두고 코드·문서·공개 레포엔 절대 박지 않음(사용자명 노출 방지) [DECIDED]|
+|**Mac 로컬 파일시스템(스크래치)** |yt-dlp 다운로드 중간물, Remotion 렌더 작업 파일          |처리용 임시 공간. 최종물은 R2 게시 후 정리 가능. **경로는 `STORAGE_ROOT` env로 주입**(코드 기본값 `<repo>/workspace/`). **.gitignore 필수.** 실제 절대경로는 `.env`에만 두고 코드·문서·공개 레포엔 절대 박지 않음(사용자명 노출 방지) [DECIDED]|
 |**localStorage**       |UI 경량 상태 (탭 위치, 임시 폼)                       |진실원본·민감정보 저장 금지                                                                                                                                                                                                    |
 
 **폐기 [DECIDED]:** Supabase Storage 버킷(`sources`, `renders`)은 R2로 이전 후 폐기.
@@ -83,6 +83,7 @@
 - **캐시 키 = R2 키 미러링:** `STORAGE_ROOT/{uid}/sources/preview/{video_id}.mp4` 처럼 R2 키 구조를 로컬에 그대로 복제. R2↔로컬 1:1 매핑 + 작업자 간 파일 섞임 방지.
 - **조회 순서(lazy fill):** 워커가 파일이 필요하면 → ① 로컬에 있으면 사용 → ② 없으면 R2에서 GET해 로컬에 채운 뒤 사용. (이 규칙이 import 원본 보관/렌더 입력 재사용을 한 번에 처리.)
 - **Import 흐름:** yt-dlp → 로컬 스크래치 → R2 PUT → 로컬 사본은 **캐시로 보존**(즉시 삭제 안 함). 같은 영상의 다중 클립 렌더·에디터 프리뷰에서 R2 재다운로드 회피.
+- **Editor 미디어 접근:** 브라우저는 `workspace` 또는 Mac 절대경로를 직접 읽지 않는다. DB의 객체 키를 Next.js presign API에 전달하고, 인증된 단기 URL로 원본 영상·파형·Remotion 미리보기를 동일하게 재생한다.
 - **비우기(cleanup):** **TTL + 용량 상한** 병행. 오래됐거나(예: N일 미접근) 상한 초과 시 LRU로 로컬 캐시만 삭제(R2 원본은 유지). `cleanup:storage`가 담당.
 
 ### 3.2 접근 흐름 (Auth → 인가 → 파일)
@@ -210,7 +211,7 @@
 |import(ingest)   |`/api/import` → status=pending   |3초 폴링    |Mac Studio       |로컬 캐시 → **R2(원본)** + Supabase(meta)|yt-dlp 다운로드 → R2 PUT, 로컬 사본 캐시 보존|
 |bgm upload       |`/api/upload-bgm` → ingest-server|on-demand|Mac Studio(:8001)|**R2** + Supabase                  |BGM 수신·게시                        |
 |render           |`/api/render` → status=pending   |3초 폴링    |Mac Studio       |로컬 캐시 읽기(없으면 R2 GET) → **R2(결과)**  |Remotion 렌더, R2 PUT              |
-|curator recommend|`/api/curator/*`                 |on-demand|Railway          |Supabase                           |Claude+YT 추천                     |
+|curator recommend|`/api/curator/*`                 |on-demand|Railway          |Supabase                           |Gemini 2.5 Flash Lite 추천         |
 |presign          |`/api/*` (파일 접근)                 |on-demand|Railway          |R2(서명만)                            |UID 검증 후 presigned URL           |
 |self-delete      |`/api/projects/[id]` DELETE 등    |on-demand|Railway          |Supabase + R2                      |DB+R2 동시 정리                      |
 |orphan cleanup   |`pnpm cleanup:storage`           |수동/주기    |Mac or Railway   |R2                                 |고아 객체 청소                         |
@@ -277,7 +278,11 @@
 - `2026-06-03` — 작업 파일은 Mac 로컬 스크래치 처리, 최종물만 R2 게시(하이브리드) : 다중 동시 접속 시 Mac 대역폭 병목 회피. 렌더 입력은 항상 로컬에서 읽어 처리속도 손실 없음.
 - `2026-06-03` — pnpm **10.x + Node 20** 라인 확정 : pnpm 11은 Node 22 강제 → 현 워커(`nvm use 20`)와 충돌, 리빌딩 중 런타임 변수 최소화.
 - `2026-06-03` — Curator LLM = **Gemini 2.5 Flash Lite**(MVP) : 필요 시 교체.
-- `2026-06-03` — Mac 스크래치 경로 = `<repo>/storage/` : 레포 하위에 두되 .gitignore로 커밋 차단.
+- `2026-06-05` — Mac 스크래치 기본 경로 = `<repo>/workspace/` : `STORAGE_ROOT`로 재정의 가능하며 yt-dlp 원본 캐시를 UID별로 보존.
+- `2026-06-05` — Editor 미디어 URL은 `/api/projects/[id]/source-url` 경계에서 발급 : UI의 Storage SDK 직접 호출을 제거하고 R2 presign 교체 지점을 고정.
+- `2026-06-06` — 편집 원본은 `web,web_safari` player client의 최대 1080p H.264/AAC 우선 단일소스(`android,web` 360p 폴백) : Editor와 Remotion이 같은 파일을 사용하고, Mac VideoToolbox 15Mbps 출력으로 속도와 품질을 균형화.
+- `2026-06-06` — 댓글 표시는 하단 고정 카드 대신 영상 위의 불규칙한 흰색 컷아웃 조각으로 통일.
+- `2026-06-06` — 클립별 상·하단 15% 블랙 바 옵션은 기존 `subtitle_style` JSON의 `blackBars`에 저장해 스키마 추가 없이 미리보기·렌더에 동일 적용.
 - `2026-06-03` — PR #75 main 반영 **실증**(next.config.mjs에 `staleTimes:{dynamic:0}` 존재) → Draft는 중복 잔재, 닫기.
 - `2026-06-03` — **PR 4개(#75/#77/#82/#85) 전부 닫기 확정** : 모두 main에 이미 반영된 뒤 남은 Draft 잔재로 간주.
 - `2026-06-03` — Curator는 **Google Gemini SDK**로 호출(REST 아님) : Google SDK 도입 필요.
@@ -294,13 +299,14 @@
 ## 12. Known Issues / Backlog
 
 - [x] **PR #75/#77/#82/#85 — 전부 닫기 확정.** 모두 main에 이미 반영된 뒤 남은 Draft 잔재. (#75는 next.config.mjs로 실증, 나머지 동일 패턴으로 간주.)
-- [ ] Google Gemini SDK 도입(`@google/genai` 등) + Curator 호출부 정리.
+- [x] Google Gemini SDK(`@google/genai`) + Curator 추천 새로고침 API 도입.
 - [ ] **Phase 2: DB 베이스라인 재설정(squash)** — init SQL 작성 완료. 적용 시 5개 테이블(projects·clips·lyrics_segments·comments·track_recommendations)만 drop&재생성, **시드 2개(templates·tone_presets)는 보존하고 RLS만 추가**. 브랜치 검증 후 운영 전환.
 - [ ] **RLS + Auth 활성화** — Phase 2에 포함. service_role 워커 우회 구조 검증.
 - [ ] 죽은 컬럼(`hq_source_path`, `transcribe_status`)·whisperX 잔재 — **Phase 2 베이스라인에서 자연 제외**(별도 DROP 마이그레이션 불요).
 - [ ] **워크플로우 재편(Phase 4)** — Curation read-only화 / Select 링크입력 컴포넌트 / 상단 네비. track_recommendations↔projects 연결 느슨해짐(Curation에서 Select로 링크 넘기는 UX [CONFIRM]).
 - [ ] 죽은 코드: `lib/rendering/lambda.ts`(stub), `workers/render/worker.mjs`(미참조 여부 확인). [CONFIRM]
 - [ ] `INGEST_WORKER_URL` 외부 노출 방식(터널/고정IP) 운영 확정.
-- [ ] Curator = Gemini 2.5 Flash Lite (Google SDK 호출). [CONFIRM] 기존 `@anthropic-ai/sdk`의 실제 용도 확인.
+- [x] Curator = Gemini 2.5 Flash Lite (Google SDK 호출). 기존 `@anthropic-ai/sdk` 제거 여부는 실제 사용처 확인 후 별도 결정.
 - [ ] 동시 편집 충돌 정책(낙관적 잠금 or 프로젝트 분리 규칙).
-- [ ] Mac 스크래치 경로·보존정책 확정.
+- [x] Mac 스크래치 = `STORAGE_ROOT` 기반 UID별 `workspace/` 캐시. import 원본은 렌더 재사용을 위해 보존.
+- [ ] `/api/projects/[id]/source-url`의 현 Supabase Storage 서명 구현을 Phase 3에서 R2 presign으로 교체.

@@ -1,5 +1,6 @@
 # dependencies
 /node_modules
+/.pnpm-store/
 /.pnp
 .pnp.js
 
@@ -53,6 +54,7 @@ workers/ingest/cookies.txt
 
 # local media scratch (STORAGE_ROOT)
 storage/
+workspace/
 
 # wrong lockfiles (pnpm-lock.yaml only)
 package-lock.json

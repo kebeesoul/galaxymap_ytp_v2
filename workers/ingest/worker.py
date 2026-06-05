@@ -8,7 +8,7 @@ import asyncio
 import json
 import os
 from pathlib import Path
-import tempfile
+import shutil
 
 from dotenv import load_dotenv
 from supabase import create_client
@@ -16,14 +16,27 @@ from supabase import create_client
 load_dotenv()
 
 SUPABASE_URL = os.environ.get("NEXT_PUBLIC_SUPABASE_URL", "")
-SUPABASE_KEY = os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY", "")
+SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY", "")
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+STORAGE_ROOT = Path(os.environ.get("STORAGE_ROOT", PROJECT_ROOT / "workspace")).expanduser()
+COOKIE_FILE = Path(__file__).resolve().parent / "cookies.txt"
 POLL_INTERVAL = 1
+PRIMARY_PLAYER_CLIENT = "web,web_safari"
+FALLBACK_PLAYER_CLIENT = "android,web"
 
 
-async def _run_with_client(client: str, timeout: int, *args: str) -> tuple[int, bytes, bytes]:
+async def _run_with_client(
+    client: str,
+    timeout: int,
+    *args: str,
+    use_cookies: bool = True,
+) -> tuple[int, bytes, bytes]:
+    auth_args = ("--cookies", str(COOKIE_FILE)) if use_cookies and COOKIE_FILE.is_file() else ()
     proc = await asyncio.create_subprocess_exec(
         "yt-dlp",
         "--extractor-args", f"youtube:player_client={client}",
+        "--remote-components", "ejs:github",
+        *auth_args,
         *args,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -33,19 +46,74 @@ async def _run_with_client(client: str, timeout: int, *args: str) -> tuple[int, 
 
 
 async def _run(timeout: int, *args: str) -> tuple[int, bytes, bytes]:
-    # Primary: ios,web bypasses PO token requirement (YouTube bot detection).
-    rc, stdout, stderr = await _run_with_client("ios,web", timeout, *args)
+    # Web Safari currently exposes the 1080p H.264/AAC stream without a PO token.
+    use_cookies = True
+    rc, stdout, stderr = await _run_with_client(
+        PRIMARY_PLAYER_CLIENT,
+        timeout,
+        *args,
+    )
     if rc != 0:
         err = stderr.decode(errors="replace")
+        if "cookies are no longer valid" in err.lower():
+            use_cookies = False
+            rc, stdout, stderr = await _run_with_client(
+                PRIMARY_PLAYER_CLIENT,
+                timeout,
+                *args,
+                use_cookies=False,
+            )
+            err = stderr.decode(errors="replace")
         # tv_embedded player skips YouTube's age-gate — retry only for that error.
         if any(k in err for k in ("age-restricted", "age restricted", "confirm your age", "Sign in to confirm")):
-            rc, stdout, stderr = await _run_with_client("tv_embedded", timeout, *args)
+            rc, stdout, stderr = await _run_with_client(
+                "tv_embedded",
+                timeout,
+                *args,
+                use_cookies=False,
+            )
+        elif rc != 0:
+            # Keep import usable when YouTube temporarily withholds adaptive formats.
+            rc, stdout, stderr = await _run_with_client(
+                FALLBACK_PLAYER_CLIENT,
+                timeout,
+                *args,
+                use_cookies=use_cookies,
+            )
     return rc, stdout, stderr
+
+
+async def probe_video_height(path: Path) -> int:
+    if not path.is_file():
+        return 0
+    proc = await asyncio.create_subprocess_exec(
+        "ffprobe",
+        "-v", "error",
+        "-select_streams", "v:0",
+        "-show_entries", "stream=height",
+        "-of", "csv=p=0",
+        str(path),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, _ = await proc.communicate()
+    if proc.returncode != 0:
+        return 0
+    try:
+        return int(stdout.decode().strip())
+    except ValueError:
+        return 0
 
 
 def classify_ytdlp_error(stderr: str, stage: str) -> str:
     err = stderr[:1000]
     lowered = stderr.lower()
+
+    if "cookies are no longer valid" in lowered:
+        return (
+            f"{stage} 실패: YouTube 로그인 쿠키가 만료되었습니다. "
+            "workers/ingest/cookies.txt를 새로 내보낸 쿠키로 교체해주세요."
+        )
 
     if any(k in lowered for k in ("age-restricted", "age restricted", "confirm your age", "sign in to confirm your age")):
         return f"{stage} 실패: 연령 제한 영상입니다. YouTube 로그인 쿠키가 필요합니다."
@@ -87,7 +155,12 @@ def classify_ytdlp_error(stderr: str, stage: str) -> str:
     return f"{stage} 실패: 분류되지 않은 yt-dlp 오류입니다. 원본 오류: {err}"
 
 
-async def process(supabase, project_id: str, source_url: str) -> None:
+def local_source_path(owner_uid: str | None, video_id: str) -> Path:
+    owner_prefix = owner_uid or "legacy"
+    return STORAGE_ROOT / owner_prefix / "sources" / "preview" / f"{video_id}.mp4"
+
+
+async def process(supabase, project_id: str, source_url: str, owner_uid: str | None) -> None:
     # Claim the job atomically — only update if still pending (guard against duplicates)
     claim = supabase.table("projects").update({"import_status": "processing"}).eq("id", project_id).eq("import_status", "pending").execute()
     if not claim.data:
@@ -105,37 +178,49 @@ async def process(supabase, project_id: str, source_url: str) -> None:
         duration_sec: int = int(info.get("duration") or 0)
         thumbnail_url: str = info.get("thumbnail", "")
 
-        # Download a small, browser-friendly mp4 for preview.
-        # Cap at 360p and prefer pre-muxed mp4 (H.264 + AAC) so the browser can
-        # decode it without re-encoding — required for smooth 1× playback while
-        # WaveSurfer is reading the same media element.
-        with tempfile.TemporaryDirectory() as tmpdir:
-            out_tmpl = str(Path(tmpdir) / "%(id)s.%(ext)s")
-            rc2, _, stderr2 = await _run(
-                300,
-                "-f",
-                "best[height<=360][ext=mp4]/best[height<=480][ext=mp4]/worst[ext=mp4]/worst",
-                "--concurrent-fragments", "8",
+        output_path = local_source_path(owner_uid, video_id)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        cached_height = await probe_video_height(output_path)
+        if output_path.is_file() and cached_height < 720:
+            print(f"[SOURCE] upgrading cached {cached_height}p file to 1080p")
+            output_path.unlink()
+
+        download_template = output_path.with_suffix(".%(ext)s")
+        download_args = [
+            "-f",
+            "bestvideo[height<=1080][vcodec^=avc1]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]",
+            "--merge-output-format", "mp4",
+            "--concurrent-fragments", "8",
+            "--no-playlist",
+            "--no-overwrites",
+            "-o", str(download_template),
+        ]
+        if shutil.which("aria2c"):
+            download_args.extend([
                 "--external-downloader", "aria2c",
                 "--external-downloader-args", "aria2c:-x8 -k1M -s8",
-                "--no-playlist",
-                "-o", out_tmpl,
-                source_url,
+            ])
+
+        rc2, _, stderr2 = await _run(300, *download_args, source_url)
+        if rc2 != 0:
+            raise RuntimeError(classify_ytdlp_error(stderr2.decode(errors="replace"), "preview 다운로드"))
+        candidates = sorted(output_path.parent.glob(f"{video_id}.*"))
+        downloaded_path = output_path if output_path.is_file() else next(
+            (candidate for candidate in candidates if candidate.is_file()),
+            None,
+        )
+        if downloaded_path is None:
+            raise RuntimeError("Download produced no output file")
+        if downloaded_path != output_path:
+            downloaded_path.replace(output_path)
+
+        storage_path = f"{owner_uid or 'legacy'}/sources/preview/{video_id}.mp4"
+        with output_path.open("rb") as source_file:
+            supabase.storage.from_("sources").upload(
+                path=storage_path,
+                file=source_file.read(),
+                file_options={"content-type": "video/mp4", "upsert": "true"},
             )
-            if rc2 != 0:
-                raise RuntimeError(classify_ytdlp_error(stderr2.decode(errors="replace"), "preview 다운로드"))
-
-            files = list(Path(tmpdir).iterdir())
-            if not files:
-                raise RuntimeError("Download produced no output file")
-
-            storage_path = f"preview/{video_id}.mp4"
-            with open(files[0], "rb") as f:
-                supabase.storage.from_("sources").upload(
-                    path=storage_path,
-                    file=f.read(),
-                    file_options={"content-type": "video/mp4", "upsert": "true"},
-                )
 
         supabase.table("projects").update({
             "import_status": "success",
@@ -160,28 +245,44 @@ async def process(supabase, project_id: str, source_url: str) -> None:
 
 async def main() -> None:
     if not SUPABASE_URL or not SUPABASE_KEY:
-        raise SystemExit("NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY must be set")
+        raise SystemExit(
+            "NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set "
+            "(anon key fallback only works before RLS is enabled)"
+        )
 
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+    STORAGE_ROOT.mkdir(parents=True, exist_ok=True)
 
     # Reset any jobs stuck in 'processing' from a previous crash
     supabase.table("projects").update({"import_status": "pending"}).eq("import_status", "processing").execute()
 
-    print(f"galaxymap ingest worker — polling every {POLL_INTERVAL}s")
+    print(f"galaxymap ingest worker — polling every {POLL_INTERVAL}s, storage={STORAGE_ROOT}")
     while True:
         try:
-            result = (
-                supabase.table("projects")
-                .select("id, source_url")
-                .eq("import_status", "pending")
-                .order("created_at")
-                .limit(1)
-                .execute()
-            )
+            try:
+                result = (
+                    supabase.table("projects")
+                    .select("id, source_url, owner_uid")
+                    .eq("import_status", "pending")
+                    .order("created_at")
+                    .limit(1)
+                    .execute()
+                )
+            except Exception as exc:
+                if "owner_uid" not in str(exc):
+                    raise
+                result = (
+                    supabase.table("projects")
+                    .select("id, source_url")
+                    .eq("import_status", "pending")
+                    .order("created_at")
+                    .limit(1)
+                    .execute()
+                )
             if result.data:
                 job = result.data[0]
                 print(f"[JOB] {job['id']}")
-                await process(supabase, job["id"], job["source_url"])
+                await process(supabase, job["id"], job["source_url"], job.get("owner_uid"))
         except Exception as exc:
             print(f"[POLL ERR] {exc}")
         await asyncio.sleep(POLL_INTERVAL)

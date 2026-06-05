@@ -29,6 +29,7 @@ export interface SubtitleStyle {
   bgOpacity: number
   theme: StyleTheme
   fontFamily: string
+  blackBars?: boolean
 }
 
 export interface CommentStyle {

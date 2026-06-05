@@ -19,14 +19,10 @@ export default function CommentLayer({ comments, style }: Props) {
 
   if (comments.length === 0) return null
 
-  const theme = style?.theme ?? DEFAULTS.theme
   const fontFamily = style?.fontFamily ?? DEFAULTS.fontFamily
   const fontScale = style?.fontScale ?? DEFAULTS.fontScale
   const durationSec = style?.durationSec ?? DEFAULTS.durationSec
 
-  const bgColor = theme === 'black-on-white' ? 'rgba(255,255,255,0.92)' : 'rgba(0,0,0,0.82)'
-  const usernameColor = theme === 'black-on-white' ? 'rgba(0,0,0,0.9)' : '#ffffff'
-  const bodyColor = theme === 'black-on-white' ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.88)'
   const fontStack = `'${fontFamily}', 'Apple SD Gothic Neo', sans-serif`
 
   // One comment at a time — cycle through `comments` every `durationSec`.
@@ -37,55 +33,47 @@ export default function CommentLayer({ comments, style }: Props) {
   const inFrame = Math.max(0, frame - slotStartFrame)
 
   const opacity = spring({ frame: inFrame, fps, from: 0, to: 1, config: { damping: 200 } })
-  const translateY = spring({ frame: inFrame, fps, from: 24, to: 0, config: { damping: 200 } })
+  const translateY = spring({ frame: inFrame, fps, from: 18, to: 0, config: { damping: 200 } })
 
   const active = comments[activeIdx]
-  const usernameSize = Math.round(26 * fontScale)
-  const bodySize = Math.round(24 * fontScale)
+  const usernameSize = Math.round(20 * fontScale)
+  const bodySize = Math.round(25 * fontScale)
+  const positions = [
+    { left: '8%', top: '27%', rotate: '-1.4deg', width: '70%' },
+    { left: '20%', top: '52%', rotate: '0.8deg', width: '72%' },
+    { left: '7%', top: '68%', rotate: '-0.5deg', width: '80%' },
+    { left: '25%', top: '36%', rotate: '1.2deg', width: '66%' },
+  ]
+  const position = positions[activeIdx % positions.length]
 
   return (
     <div
       style={{
         position: 'absolute',
-        bottom: '7%',
-        left: 0,
-        right: 0,
-        display: 'flex',
-        flexDirection: 'column',
-        padding: '0 48px',
+        left: position.left,
+        top: position.top,
+        width: position.width,
+        opacity,
+        transform: `translateY(${translateY}px) rotate(${position.rotate})`,
+        filter: 'drop-shadow(0 7px 12px rgba(0,0,0,0.28))',
       }}
     >
       <div
         key={activeIdx}
         style={{
-          backgroundColor: bgColor,
-          borderRadius: 16,
-          padding: '14px 24px',
-          opacity,
-          transform: `translateY(${translateY}px)`,
+          backgroundColor: 'rgba(255,255,255,0.96)',
+          color: '#111',
+          padding: '14px 20px 16px',
+          clipPath: 'polygon(0 3%, 3% 0, 97% 2%, 100% 7%, 99% 94%, 96% 100%, 3% 98%, 0 93%)',
         }}
       >
-        <p
-          style={{
-            color: usernameColor,
-            fontSize: usernameSize,
-            fontWeight: 700,
-            fontFamily: fontStack,
-            lineHeight: 1,
-            margin: '0 0 6px 0',
-          }}
-        >
-          {active.username}
-        </p>
-        <p
-          style={{
-            color: bodyColor,
-            fontSize: bodySize,
-            fontFamily: fontStack,
-            margin: 0,
-            lineHeight: 1.45,
-          }}
-        >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#d9d9d9', flex: '0 0 auto' }} />
+          <p style={{ color: '#575757', fontSize: usernameSize, fontWeight: 700, fontFamily: fontStack, margin: 0 }}>
+            {active.username}
+          </p>
+        </div>
+        <p style={{ color: '#111', fontSize: bodySize, fontWeight: 600, fontFamily: fontStack, margin: '9px 0 0', lineHeight: 1.34 }}>
           {active.body}
         </p>
       </div>

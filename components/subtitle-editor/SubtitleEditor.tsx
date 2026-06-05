@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { Tables } from '@/lib/supabase/types'
 import { formatTime } from '@/lib/utils/time'
+import { extendFinalSegmentToClipEnd } from '@/lib/subtitles/normalize'
 
 type Segment = Tables<'lyrics_segments'>
 
@@ -22,6 +23,7 @@ interface Props {
   /** Clip's absolute start time in the source video — used to convert displayed timecodes
    *  to clip-relative so they match the preview player's 0:00-based clock. */
   clipStartSec?: number
+  clipEndSec: number
   /** When true, skips the outer rounded card wrapper and h3 title (used inside a parent <details>) */
   noWrapper?: boolean
   /** Called on every segments state change so the preview can show unsaved edits live. */
@@ -36,9 +38,9 @@ let _localIdCounter = 0
 // 0.05s/px → 1s = 20px, fine enough for 0.1s nudges (2px) yet quick for ~5s reach (100px).
 const SECONDS_PER_PIXEL = 0.05
 
-export default function SubtitleEditor({ clipId, initialSegments, currentTime, clipStartSec = 0, noWrapper, onSegmentsChange, onSeekAndPlay }: Props) {
+export default function SubtitleEditor({ clipId, initialSegments, currentTime, clipStartSec = 0, clipEndSec, noWrapper, onSegmentsChange, onSeekAndPlay }: Props) {
   const [segments, setSegments] = useState<LocalSegment[]>(() =>
-    initialSegments.map(seg => ({
+    extendFinalSegmentToClipEnd(initialSegments, clipEndSec).map(seg => ({
       localId: _localIdCounter++,
       id: seg.id,
       text: seg.text,
@@ -69,8 +71,9 @@ export default function SubtitleEditor({ clipId, initialSegments, currentTime, c
 
   // Notify parent whenever segments change so the preview reflects unsaved edits
   useEffect(() => {
-    onSegmentsChangeRef.current?.(segments.map(s => ({ text: s.text, start_sec: s.start_sec, end_sec: s.end_sec })))
-  }, [segments])
+    const normalized = extendFinalSegmentToClipEnd(segments, clipEndSec)
+    onSegmentsChangeRef.current?.(normalized.map(s => ({ text: s.text, start_sec: s.start_sec, end_sec: s.end_sec })))
+  }, [clipEndSec, segments])
 
   // Drag-to-adjust state for timecodes: vertical drag changes start_sec.
   // Mouse up → earlier, mouse down → later. Previous segment's end_sec follows to avoid gaps.
@@ -162,6 +165,9 @@ export default function SubtitleEditor({ clipId, initialSegments, currentTime, c
         updated[idx - 1] = { ...updated[idx - 1], end_sec: currentTime }
       }
       updated[idx] = { ...updated[idx], start_sec: currentTime }
+      if (idx === updated.length - 1) {
+        updated[idx] = { ...updated[idx], end_sec: Math.max(clipEndSec, currentTime + 0.1) }
+      }
       return updated
     })
     if (idx === segments.length - 1) {
@@ -255,7 +261,10 @@ export default function SubtitleEditor({ clipId, initialSegments, currentTime, c
     setSaving(true)
     setSaveError(null)
 
-    const valid = segments.filter(s => s.text.trim())
+    const valid = extendFinalSegmentToClipEnd(
+      segments.filter(s => s.text.trim()),
+      clipEndSec,
+    )
 
     // Rows without a DB id need to be inserted
     const toInsert = valid

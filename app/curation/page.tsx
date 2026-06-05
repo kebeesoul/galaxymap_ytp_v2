@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
 import type { Tables } from '@/lib/supabase/types'
+import { RefreshRecommendationsButton } from './refresh-recommendations-button'
 
 export const dynamic = 'force-dynamic'
 
@@ -37,6 +38,10 @@ export default async function CurationPage() {
 
     dbError = recommendationRes.error?.message ?? projectRes.error?.message ?? toneRes.error?.message ?? null
     recommendations = recommendationRes.data ?? []
+    const latestBatchId = recommendations[0]?.batch_id
+    recommendations = latestBatchId
+      ? recommendations.filter((item) => item.batch_id === latestBatchId)
+      : []
     projects = projectRes.data ?? []
     tonePresets = toneRes.data ?? []
   } catch (err) {
@@ -63,7 +68,10 @@ export default async function CurationPage() {
         )}
 
         <section className="mb-10">
-          <h2 className="mb-4 text-[21px] font-semibold text-[#1d1d1f]">Recommended Tracks</h2>
+          <div className="mb-4 flex items-center justify-between gap-4">
+            <h2 className="text-[21px] font-semibold text-[#1d1d1f]">Recommended Tracks</h2>
+            <RefreshRecommendationsButton />
+          </div>
           {recommendations.length === 0 ? (
             <EmptyState>No recommendations yet.</EmptyState>
           ) : (

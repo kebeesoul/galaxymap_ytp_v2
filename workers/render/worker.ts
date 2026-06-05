@@ -4,6 +4,7 @@ import { renderMedia, selectComposition } from '@remotion/renderer'
 import { promises as fs, existsSync, readFileSync } from 'fs'
 import path from 'path'
 import os from 'os'
+import { selectCommentsForRender } from '../../lib/comments/select-for-render'
 
 const REPO_ROOT = process.cwd()
 const ENV_PATH = path.join(REPO_ROOT, '.env.local')
@@ -86,9 +87,8 @@ async function processJob(clipId: string): Promise<void> {
       .order('start_sec'),
     supabase
       .from('comments')
-      .select('username, body, likes_count')
+      .select('username, body, likes_count, is_selected')
       .eq('clip_id', clipId)
-      .eq('is_selected', true)
       .order('likes_count', { ascending: false }),
     clip.template_id
       ? supabase.from('templates').select('config_json').eq('id', clip.template_id).single()
@@ -120,7 +120,7 @@ async function processJob(clipId: string): Promise<void> {
         comment_style: clip.comment_style,
       },
       segments: segments ?? [],
-      comments: comments ?? [],
+      comments: selectCommentsForRender(comments ?? []),
       preview_path: renderVideoUrl,
     }
 
@@ -164,7 +164,7 @@ async function processJob(clipId: string): Promise<void> {
 
             const newCodecIdx = cmd.indexOf('-c:v')
             if (newCodecIdx !== -1) {
-              cmd.splice(newCodecIdx + 2, 0, '-b:v', '10M', '-profile:v', 'high')
+              cmd.splice(newCodecIdx + 2, 0, '-b:v', '15M', '-profile:v', 'high')
             }
 
             console.log(`[render] ffmpeg: ${cmd.join(' ')}`)
