@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
 import DashboardNav from '@/components/dashboard/nav'
 import EditorClient from './EditorClient'
+import { textOverlaySchema, type TextOverlay } from '@/lib/text-overlays'
 
 export const dynamic = 'force-dynamic'
 
@@ -43,6 +44,25 @@ export default async function EditorPage({ params }: Props) {
     .order('created_at', { ascending: true })
 
   const { data: templates } = await supabase.from('templates').select('*').order('name')
+  const clipIds = (clips ?? []).map((clip) => clip.id)
+  const { data: overlayRows } = clipIds.length > 0
+    ? await supabase
+      .from('text_overlays')
+      .select('*')
+      .in('clip_id', clipIds)
+      .order('z_index')
+    : { data: [] }
+  const initialTextOverlaysByClip = (overlayRows ?? []).reduce<Record<string, TextOverlay[]>>(
+    (result, row) => {
+      const parsed = textOverlaySchema.safeParse(row)
+      if (!parsed.success) return result
+      const clipOverlays = result[parsed.data.clip_id] ?? []
+      clipOverlays.push(parsed.data)
+      result[parsed.data.clip_id] = clipOverlays
+      return result
+    },
+    {},
+  )
 
   return (
     <div className="min-h-screen bg-black">
@@ -54,6 +74,7 @@ export default async function EditorPage({ params }: Props) {
           initialClips={clips ?? []}
           initialSegmentsByClip={{}}
           initialCommentsByClip={{}}
+          initialTextOverlaysByClip={initialTextOverlaysByClip}
           templates={templates ?? []}
         />
       </div>

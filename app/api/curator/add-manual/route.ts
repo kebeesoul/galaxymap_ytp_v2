@@ -36,9 +36,14 @@ export async function POST(req: Request) {
 
   const supabase = createClient()
 
+  const { data: { user }, error: userError } = await supabase.auth.getUser()
+  if (userError || !user) {
+    return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
+  }
+
   const { data: project, error } = await supabase
     .from('projects')
-    .insert({ artist, song_title, source_url })
+    .insert({ artist, song_title, source_url, owner_uid: user.id })
     .select('id')
     .single()
 

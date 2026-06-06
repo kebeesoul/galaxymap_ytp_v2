@@ -7,12 +7,14 @@ import { formatMss } from '@/lib/utils/time'
 import ClipEditor from '@/components/video-editor/ClipEditor'
 import VideoPreview from '@/components/video-editor/VideoPreview'
 import type { Project, Clip, LyricsSegment, Comment, Template } from '@/lib/types'
+import type { TextOverlay } from '@/lib/text-overlays'
 
 interface Props {
   project: Project
   initialClips: Clip[]
   initialSegmentsByClip: Record<string, LyricsSegment[]>
   initialCommentsByClip: Record<string, Comment[]>
+  initialTextOverlaysByClip: Record<string, TextOverlay[]>
   templates: Template[]
 }
 
@@ -21,6 +23,7 @@ export default function EditorClient({
   initialClips,
   initialSegmentsByClip,
   initialCommentsByClip,
+  initialTextOverlaysByClip,
   templates,
 }: Props) {
   const router = useRouter()
@@ -113,6 +116,7 @@ export default function EditorClient({
           initialClips={initialClips}
           initialSegmentsByClip={initialSegmentsByClip}
           initialCommentsByClip={initialCommentsByClip}
+          initialTextOverlaysByClip={initialTextOverlaysByClip}
           templates={templates}
         />
       </div>

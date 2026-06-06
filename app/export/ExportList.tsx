@@ -203,8 +203,8 @@ export default function ExportList({ rows: initialRows }: { rows: ExportRow[] })
               {deletingAll ? '삭제 중…' : '전체 삭제'}
             </button>
           )}
-          <Link href="/projects" className="text-[14px] text-[#0066cc] hover:underline">
-            ← Projects
+          <Link href="/editor" className="text-[14px] text-[#0066cc] hover:underline">
+            ← Editor
           </Link>
         </div>
       </div>
@@ -217,7 +217,7 @@ export default function ExportList({ rows: initialRows }: { rows: ExportRow[] })
         <div className="rounded-2xl bg-white py-24 text-center shadow-[rgba(0,0,0,0.08)_0px_2px_12px]">
           <p className="text-[17px] text-[rgba(0,0,0,0.48)]">렌더 완료된 클립이 아직 없습니다.</p>
           <p className="mt-2 text-[14px] text-[rgba(0,0,0,0.4)]">
-            에디터에서 '렌더 시작' 버튼을 누르면 로컬 워커가 인코딩 후 여기에 표시됩니다.
+            에디터에서 &apos;렌더 시작&apos; 버튼을 누르면 로컬 워커가 인코딩 후 여기에 표시됩니다.
           </p>
         </div>
       ) : (

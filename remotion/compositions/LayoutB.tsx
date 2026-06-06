@@ -1,6 +1,8 @@
 import { AbsoluteFill } from 'remotion'
 import VideoLayer from './layers/VideoLayer'
 import SubtitleLayer from './layers/SubtitleLayer'
+import BarLayer from '../BarLayer'
+import TextOverlayLayer from '../TextOverlayLayer'
 import type { ClipInput, Segment } from '../types'
 
 export interface LayoutBProps extends Record<string, unknown> {
@@ -21,6 +23,8 @@ export default function LayoutB({ clip, segments, preview_path }: LayoutBProps) 
         originalVolume={clip.original_volume}
         bgmStartSec={clip.bgm_start_sec ?? 0}
       />
+      <BarLayer enabled={clip.bar_enabled} />
+      <TextOverlayLayer enabled={clip.bar_enabled} overlays={clip.text_overlays} />
       <SubtitleLayer segments={segments} clipStartSec={clip.start_sec} style={clip.subtitle_style} />
     </AbsoluteFill>
   )

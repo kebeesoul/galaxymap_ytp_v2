@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
       render_progress: 0,
     })
     .eq('id', clip_id)
-    .or('render_status.is.null,and(render_status.neq.pending,render_status.neq.processing)')
+    .or('render_status.is.null,render_status.neq.processing')
     .select('id')
 
   if (updateError) {
@@ -50,7 +50,10 @@ export async function POST(request: NextRequest) {
   }
 
   if (!updated?.length) {
-    return NextResponse.json({ error: 'already processing' }, { status: 409 })
+    return NextResponse.json(
+      { error: 'already processing', render_status: 'processing' },
+      { status: 409 },
+    )
   }
 
   // Mac Studio render worker polls for render_status='pending' and runs Remotion locally

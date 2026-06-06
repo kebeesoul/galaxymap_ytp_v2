@@ -19,7 +19,7 @@ const BodySchema = z.object({
 interface SlotResult {
   rec: Recommendation
   videoId: string | null
-  rank: number
+  rank: number | null
 }
 
 export async function POST(req: Request) {
@@ -45,6 +45,10 @@ export async function POST(req: Request) {
   }
 
   const supabase = createClient()
+  const { data: { user }, error: userError } = await supabase.auth.getUser()
+  if (userError || !user) {
+    return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
+  }
   const batchId = crypto.randomUUID()
 
   // Step 1: Get initial 3 recommendations
@@ -65,6 +69,7 @@ export async function POST(req: Request) {
 
   // Step 2: Insert all 3 to DB with pending status
   const insertPayload = candidates.map((rec, i) => ({
+    owner_uid: user.id,
     batch_id: batchId,
     rank: (i + 1) as 1 | 2 | 3,
     artist: rec.artist,
@@ -135,6 +140,7 @@ export async function POST(req: Request) {
       const { data: repInserted, error: repErr } = await supabase
         .from('track_recommendations')
         .insert({
+          owner_uid: user.id,
           batch_id: batchId,
           rank: failed.rank as 1 | 2 | 3,
           artist: replacement.artist,

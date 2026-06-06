@@ -7,6 +7,8 @@ import LayoutB from '@/remotion/compositions/LayoutB'
 import LayoutC from '@/remotion/compositions/LayoutC'
 import type { ClipInput, Segment, Comment } from '@/remotion/types'
 import { formatMss } from '@/lib/utils/time'
+import type { TextOverlay } from '@/lib/text-overlays'
+import TextOverlayControls from '@/components/text-overlay/TextOverlayControls'
 
 const FPS = 30
 const COMP_WIDTH = 1080
@@ -28,13 +30,31 @@ interface Props {
   togglePlayRef?: React.MutableRefObject<(() => void) | null>
   /** Called when the preview starts playing — used by parent to track last-active player. */
   onActivate?: () => void
+  selectedTextOverlayId?: string | null
+  onSelectTextOverlay?: (id: string) => void
+  onDraftTextOverlay?: (overlay: TextOverlay) => void
+  onCommitTextOverlay?: (overlay: TextOverlay) => void
 }
 
 function calcFrames(startSec: number, endSec: number): number {
   return Math.max(1, Math.round((endSec - startSec) * FPS))
 }
 
-function CanvasPreview({ clip, segments, comments, layout, signedUrl, onTimeUpdate, seekAndPlayRef, togglePlayRef, onActivate }: Props) {
+function CanvasPreview({
+  clip,
+  segments,
+  comments,
+  layout,
+  signedUrl,
+  onTimeUpdate,
+  seekAndPlayRef,
+  togglePlayRef,
+  onActivate,
+  selectedTextOverlayId,
+  onSelectTextOverlay,
+  onDraftTextOverlay,
+  onCommitTextOverlay,
+}: Props) {
   const playerRef = useRef<PlayerRef>(null)
   const startSecRef = useRef(clip.start_sec)
   const onTimeUpdateRef = useRef(onTimeUpdate)
@@ -49,6 +69,7 @@ function CanvasPreview({ clip, segments, comments, layout, signedUrl, onTimeUpda
   const wasPlayingRef = useRef(false)
   const [sizeMode, setSizeMode] = useState<'x1' | 'x2'>('x1')
   const previewWrapRef = useRef<HTMLDivElement>(null)
+  const editorSurfaceRef = useRef<HTMLDivElement>(null)
   // Seek bar and time label are updated via direct DOM mutation to avoid
   // re-rendering the Player 30× per second (which restarts Remotion's Audio).
   const rangeRef = useRef<HTMLInputElement>(null)
@@ -185,7 +206,7 @@ function CanvasPreview({ clip, segments, comments, layout, signedUrl, onTimeUpda
       <div className="px-5 pb-4">
         <div ref={previewWrapRef} className={`mx-auto ${maxW}`}>
           {/* Clicking the video area toggles play/pause */}
-          <div className="relative cursor-pointer" onClick={handlePlayPause}>
+          <div ref={editorSurfaceRef} className="relative cursor-pointer" onClick={handlePlayPause}>
             {layout === 'LAYOUT_A' ? (
               <Player
                 key={layout}
@@ -212,7 +233,21 @@ function CanvasPreview({ clip, segments, comments, layout, signedUrl, onTimeUpda
               />
             )}
             {/* Transparent overlay captures clicks without blocking the player's own pointer events */}
-            <div className="absolute inset-0" />
+            <div className="absolute inset-0 z-10" />
+            {clip.bar_enabled
+              && clip.text_overlays
+              && onSelectTextOverlay
+              && onDraftTextOverlay
+              && onCommitTextOverlay && (
+                <TextOverlayControls
+                  containerRef={editorSurfaceRef}
+                  overlays={clip.text_overlays}
+                  selectedId={selectedTextOverlayId ?? null}
+                  onSelect={onSelectTextOverlay}
+                  onDraft={onDraftTextOverlay}
+                  onCommit={onCommitTextOverlay}
+                />
+              )}
           </div>
           {/* Custom playback controls */}
           <div className="mt-2 flex items-center gap-2">

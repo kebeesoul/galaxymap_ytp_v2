@@ -5,15 +5,27 @@ import dynamic from 'next/dynamic'
 import { createClient } from '@/lib/supabase/client'
 import { formatTime } from '@/lib/utils/time'
 import { extractLayout } from '@/lib/utils/template'
+import {
+  DEFAULT_FONT_KEY,
+  FONT_KEYS,
+  FONT_REGISTRY,
+  getFontFamily,
+  resolveFontKey,
+} from '@/lib/fonts'
 import type { Json } from '@/lib/supabase/types'
 import type { Clip, LyricsSegment, Comment, Template } from '@/lib/types'
-import type { SubtitleStyle, CommentStyle, FontFamily } from '@/remotion/types'
-import { FONT_FAMILIES as FONT_LIST } from '@/remotion/types'
+import type { SubtitleStyle, CommentStyle } from '@/remotion/types'
+import {
+  DEFAULT_TEXT_OVERLAY,
+  textOverlaySchema,
+  type TextOverlay,
+} from '@/lib/text-overlays'
 import VideoPreview from './VideoPreview'
 import SubtitleEditor from '@/components/subtitle-editor/SubtitleEditor'
 import CommentCard from '@/components/comment-card/CommentCard'
 import TemplatePicker from '@/components/template-picker/TemplatePicker'
 import BgmEditor from '@/components/audio/BgmEditor'
+import TextOverlayPanel from '@/components/text-overlay/TextOverlayPanel'
 
 const CanvasPreview = dynamic(() => import('@/components/preview/CanvasPreview'), { ssr: false })
 const WaveformEditor = dynamic(() => import('./WaveformEditor'), { ssr: false })
@@ -23,23 +35,14 @@ const DEFAULT_SUBTITLE_STYLE: SubtitleStyle = {
   fontSize: 42,
   bgOpacity: 0.72,
   theme: 'white-on-black',
-  fontFamily: 'Noto Sans KR',
+  font_key: DEFAULT_FONT_KEY,
 }
 
 const DEFAULT_COMMENT_STYLE: CommentStyle = {
   theme: 'white-on-black',
-  fontFamily: 'Noto Sans KR',
+  font_key: DEFAULT_FONT_KEY,
   fontScale: 1,
   durationSec: 5,
-}
-
-const FONT_LABELS: Record<string, string> = {
-  'Noto Sans KR': '노토 산스',
-  'Black Han Sans': '블랙 한 산스',
-  'Nanum Gothic': '나눔고딕',
-  'Gothic A1': '고딕 A1',
-  'Noto Serif KR': '노토 세리프',
-  'Gowun Dodum': '고운돋움',
 }
 
 function parseSubtitleStyle(raw: unknown): SubtitleStyle {
@@ -52,7 +55,7 @@ function parseSubtitleStyle(raw: unknown): SubtitleStyle {
     fontSize: typeof obj.fontSize === 'number' ? obj.fontSize : DEFAULT_SUBTITLE_STYLE.fontSize,
     bgOpacity: typeof obj.bgOpacity === 'number' ? obj.bgOpacity : DEFAULT_SUBTITLE_STYLE.bgOpacity,
     theme: obj.theme === 'black-on-white' ? 'black-on-white' : 'white-on-black',
-    fontFamily: typeof obj.fontFamily === 'string' && obj.fontFamily ? obj.fontFamily : DEFAULT_SUBTITLE_STYLE.fontFamily,
+    font_key: resolveFontKey(obj.font_key ?? obj.fontKey ?? obj.fontFamily),
   }
 }
 
@@ -63,7 +66,7 @@ function parseCommentStyle(raw: unknown): CommentStyle {
   const durationSec = typeof obj.durationSec === 'number' ? obj.durationSec : DEFAULT_COMMENT_STYLE.durationSec
   return {
     theme: obj.theme === 'black-on-white' ? 'black-on-white' : 'white-on-black',
-    fontFamily: typeof obj.fontFamily === 'string' && obj.fontFamily ? obj.fontFamily : DEFAULT_COMMENT_STYLE.fontFamily,
+    font_key: resolveFontKey(obj.font_key ?? obj.fontKey ?? obj.fontFamily),
     fontScale: Math.min(1.2, Math.max(0.8, fontScale)),
     durationSec: Math.min(8, Math.max(3, durationSec)),
   }
@@ -95,6 +98,7 @@ interface Props {
   initialClips: Clip[]
   initialSegmentsByClip: Record<string, LyricsSegment[]>
   initialCommentsByClip: Record<string, Comment[]>
+  initialTextOverlaysByClip: Record<string, TextOverlay[]>
   templates: Template[]
 }
 
@@ -113,12 +117,14 @@ export default function ClipEditor({
   initialClips,
   initialSegmentsByClip,
   initialCommentsByClip,
+  initialTextOverlaysByClip,
   templates,
 }: Props) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const lastTimeRef = useRef(0)
 
   const [signedUrl, setSignedUrl] = useState<string | null>(null)
+  const [sourceError, setSourceError] = useState<string | null>(null)
   const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null)
 
   // Stable ref callback — prevents WaveSurfer from reinitialising on parent re-renders
@@ -190,6 +196,18 @@ export default function ClipEditor({
   const [subtitleStylesByClip, setSubtitleStylesByClip] = useState<Record<string, SubtitleStyle>>(
     Object.fromEntries(initialClips.map(c => [c.id, parseSubtitleStyle(c.subtitle_style)]))
   )
+  const [barEnabledByClip, setBarEnabledByClip] = useState<Record<string, boolean>>(
+    Object.fromEntries(initialClips.map(c => [c.id, c.bar_enabled ?? false]))
+  )
+  const [textOverlaysByClip, setTextOverlaysByClip] =
+    useState<Record<string, TextOverlay[]>>(initialTextOverlaysByClip)
+  const [selectedTextOverlayIdByClip, setSelectedTextOverlayIdByClip] =
+    useState<Record<string, string | null>>(
+      Object.fromEntries(initialClips.map((clip) => [
+        clip.id,
+        initialTextOverlaysByClip[clip.id]?.[0]?.id ?? null,
+      ])),
+    )
 
   // comment style per clip
   const [commentStylesByClip, setCommentStylesByClip] = useState<Record<string, CommentStyle>>(
@@ -275,30 +293,38 @@ export default function ClipEditor({
   // Single stable Supabase client — never recreated on re-render
   const supabase = useMemo(() => createClient(), [])
 
-  // Signed URL for video preview
-  useEffect(() => {
+  const loadSourceUrl = useCallback(async () => {
     if (!project.yt_source_path) return
-    supabase.storage
-      .from('sources')
-      .createSignedUrl(project.yt_source_path, 3600)
-      .then(({ data }) => {
-        if (data?.signedUrl) setSignedUrl(data.signedUrl)
+    setSourceError(null)
+
+    try {
+      const response = await fetch(`/api/projects/${project.id}/source-url`, {
+        cache: 'no-store',
       })
-  }, [project.yt_source_path, supabase])
+      const body = (await response.json()) as { url?: string; error?: string }
+      if (!response.ok || !body.url) {
+        throw new Error(body.error ?? 'Failed to load video source')
+      }
+      setSignedUrl(body.url)
+    } catch (error) {
+      setSignedUrl(null)
+      setSourceError(error instanceof Error ? error.message : 'Failed to load video source')
+    }
+  }, [project.id, project.yt_source_path])
+
+  // The browser receives an authenticated playback URL, never a local file path.
+  useEffect(() => {
+    void loadSourceUrl()
+  }, [loadSourceUrl])
 
   // A3: auto-refresh signed URL 10 min before the 1-hour expiry
   useEffect(() => {
     if (!project.yt_source_path) return
     const id = setInterval(() => {
-      supabase.storage
-        .from('sources')
-        .createSignedUrl(project.yt_source_path!, 3600)
-        .then(({ data }) => {
-          if (data?.signedUrl) setSignedUrl(data.signedUrl)
-        })
+      void loadSourceUrl()
     }, 50 * 60 * 1000)
     return () => clearInterval(id)
-  }, [project.yt_source_path, supabase])
+  }, [loadSourceUrl, project.yt_source_path])
 
   // C6: Realtime render_status + external deletes for all clips in this project
   useEffect(() => {
@@ -744,6 +770,9 @@ export default function ClipEditor({
       setRawCommentsByClip(prev => ({ ...prev, [data.id]: [] }))
       setSelectedCommentIdxByClip(prev => ({ ...prev, [data.id]: [] }))
       setSubtitleStylesByClip(prev => ({ ...prev, [data.id]: DEFAULT_SUBTITLE_STYLE }))
+      setBarEnabledByClip(prev => ({ ...prev, [data.id]: data.bar_enabled ?? false }))
+      setTextOverlaysByClip(prev => ({ ...prev, [data.id]: [] }))
+      setSelectedTextOverlayIdByClip(prev => ({ ...prev, [data.id]: null }))
       setCommentStylesByClip(prev => ({ ...prev, [data.id]: DEFAULT_COMMENT_STYLE }))
       setRenderProgressByClip(prev => ({ ...prev, [data.id]: 0 }))
       setRegionLineFrom(null)
@@ -764,6 +793,82 @@ export default function ClipEditor({
     await supabase.from('clips').update({ subtitle_style: style as unknown as Json }).eq('id', clipId)
   }
 
+  async function handleSaveBarEnabled(clipId: string, enabled: boolean) {
+    setBarEnabledByClip(prev => ({ ...prev, [clipId]: enabled }))
+    await supabase.from('clips').update({ bar_enabled: enabled }).eq('id', clipId)
+  }
+
+  function handleDraftTextOverlay(clipId: string, overlay: TextOverlay) {
+    setTextOverlaysByClip((previous) => ({
+      ...previous,
+      [clipId]: (previous[clipId] ?? []).map((item) =>
+        item.id === overlay.id ? overlay : item
+      ),
+    }))
+  }
+
+  async function handleCommitTextOverlay(clipId: string, overlay: TextOverlay) {
+    handleDraftTextOverlay(clipId, overlay)
+    await supabase
+      .from('text_overlays')
+      .update({
+        zone: overlay.zone,
+        content: overlay.content,
+        x: overlay.x,
+        y: overlay.y,
+        rotation: overlay.rotation,
+        font_key: overlay.font_key,
+        size: overlay.size,
+        color: overlay.color,
+        align: overlay.align,
+        effect: overlay.effect,
+        z_index: overlay.z_index,
+        start_sec: overlay.start_sec,
+        end_sec: overlay.end_sec,
+      })
+      .eq('id', overlay.id)
+  }
+
+  async function handleAddTextOverlay(clipId: string) {
+    if (!(barEnabledByClip[clipId] ?? false)) {
+      await handleSaveBarEnabled(clipId, true)
+    }
+    const zIndex = (textOverlaysByClip[clipId] ?? []).length
+    const { data, error } = await supabase
+      .from('text_overlays')
+      .insert({
+        clip_id: clipId,
+        ...DEFAULT_TEXT_OVERLAY,
+        z_index: zIndex,
+      })
+      .select()
+      .single()
+    if (error || !data) return
+    const parsed = textOverlaySchema.safeParse(data)
+    if (!parsed.success) return
+    setTextOverlaysByClip((previous) => ({
+      ...previous,
+      [clipId]: [...(previous[clipId] ?? []), parsed.data],
+    }))
+    setSelectedTextOverlayIdByClip((previous) => ({
+      ...previous,
+      [clipId]: parsed.data.id,
+    }))
+  }
+
+  async function handleDeleteTextOverlay(clipId: string, overlayId: string) {
+    const { error } = await supabase.from('text_overlays').delete().eq('id', overlayId)
+    if (error) return
+    setTextOverlaysByClip((previous) => {
+      const next = (previous[clipId] ?? []).filter((overlay) => overlay.id !== overlayId)
+      setSelectedTextOverlayIdByClip((selected) => ({
+        ...selected,
+        [clipId]: next[0]?.id ?? null,
+      }))
+      return { ...previous, [clipId]: next }
+    })
+  }
+
   async function handleSaveCommentStyle(clipId: string, style: CommentStyle) {
     setCommentStylesByClip(prev => ({ ...prev, [clipId]: style }))
     await supabase.from('clips').update({ comment_style: style as unknown as Json }).eq('id', clipId)
@@ -781,6 +886,7 @@ export default function ClipEditor({
         end_sec: Number(clip.end_sec),
         template_id: clip.template_id,
         label: clip.label ? `${clip.label} (복사본)` : '복사본',
+        bar_enabled: barEnabledByClip[clipId] ?? clip.bar_enabled ?? false,
         subtitle_style: clip.subtitle_style,
         comment_style: clip.comment_style,
       })
@@ -799,6 +905,21 @@ export default function ClipEditor({
       const { data: newSegs } = await supabase.from('lyrics_segments').insert(rows).select()
       if (newSegs) setSegmentsByClip(prev => ({ ...prev, [newClip.id]: newSegs }))
     }
+    const overlays = textOverlaysByClip[clipId] ?? []
+    let duplicatedOverlays: TextOverlay[] = []
+    if (overlays.length > 0) {
+      const { data: newOverlays } = await supabase
+        .from('text_overlays')
+        .insert(overlays.map(({ id: _id, clip_id: _clipId, ...overlay }) => ({
+          ...overlay,
+          clip_id: newClip.id,
+        })))
+        .select()
+      duplicatedOverlays = (newOverlays ?? []).flatMap((row) => {
+        const parsed = textOverlaySchema.safeParse(row)
+        return parsed.success ? [parsed.data] : []
+      })
+    }
     setClips(prev => [...prev, newClip])
     setLabelsByClip(prev => ({ ...prev, [newClip.id]: newClip.label ?? '' }))
     setRenderStatuses(prev => ({ ...prev, [newClip.id]: null }))
@@ -808,6 +929,12 @@ export default function ClipEditor({
     setRawCommentsByClip(prev => ({ ...prev, [newClip.id]: [] }))
     setSelectedCommentIdxByClip(prev => ({ ...prev, [newClip.id]: [] }))
     setSubtitleStylesByClip(prev => ({ ...prev, [newClip.id]: parseSubtitleStyle(newClip.subtitle_style) }))
+    setBarEnabledByClip(prev => ({ ...prev, [newClip.id]: newClip.bar_enabled ?? false }))
+    setTextOverlaysByClip(prev => ({ ...prev, [newClip.id]: duplicatedOverlays }))
+    setSelectedTextOverlayIdByClip(prev => ({
+      ...prev,
+      [newClip.id]: duplicatedOverlays[0]?.id ?? null,
+    }))
     setCommentStylesByClip(prev => ({ ...prev, [newClip.id]: parseCommentStyle(newClip.comment_style) }))
     setRenderProgressByClip(prev => ({ ...prev, [newClip.id]: 0 }))
     setTimeout(() => {
@@ -866,6 +993,8 @@ export default function ClipEditor({
     setRawCommentsByClip(cleanup)
     setSelectedCommentIdxByClip(cleanup)
     setSubtitleStylesByClip(cleanup)
+    setTextOverlaysByClip(cleanup)
+    setSelectedTextOverlayIdByClip(cleanup)
     setCommentStylesByClip(cleanup)
     setRenderProgressByClip(cleanup)
     setSelectedClipIds(prev => { const n = new Set(prev); n.delete(clipId); return n })
@@ -907,6 +1036,7 @@ export default function ClipEditor({
     setCommentsByClip(cleanup); setRawCommentsByClip(cleanup)
     setSelectedCommentIdxByClip(cleanup)
     setSubtitleStylesByClip(cleanup); setCommentStylesByClip(cleanup); setRenderProgressByClip(cleanup)
+    setTextOverlaysByClip(cleanup); setSelectedTextOverlayIdByClip(cleanup)
     setSelectedClipIds(prev => {
       const n = new Set(prev)
       for (const id of succeeded) n.delete(id)
@@ -924,7 +1054,6 @@ export default function ClipEditor({
       setTemplateIdsByClip(prev => ({ ...prev, [clipId]: templateId }))
     }
   }
-
 
 
   async function handleRender(clipId: string) {
@@ -969,7 +1098,16 @@ export default function ClipEditor({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ clip_id: clipId, preset: renderPresetsByClip[clipId] ?? 'balanced' }),
       })
-      const body = (await res.json()) as { queued?: boolean; error?: string }
+      const body = (await res.json()) as {
+        queued?: boolean
+        error?: string
+        render_status?: string
+      }
+      if (res.status === 409 && body.render_status === 'processing') {
+        setRenderStatuses(prev => ({ ...prev, [clipId]: 'processing' }))
+        startPolling(clipId)
+        return
+      }
       if (!res.ok) throw new Error(body.error ?? 'Render failed')
       startPolling(clipId)
     } catch (err) {
@@ -1019,10 +1157,12 @@ export default function ClipEditor({
       bgm_volume:     bgmByClip[c.id]?.bgm_volume ?? c.bgm_volume,
       original_volume: bgmByClip[c.id]?.original_volume ?? c.original_volume,
       bgm_start_sec:  bgmByClip[c.id]?.bgm_start_sec ?? (c as Record<string, unknown>).bgm_start_sec as number ?? 0,
+      bar_enabled:    barEnabledByClip[c.id] ?? false,
       subtitle_style: subtitleStylesByClip[c.id] ?? null,
       comment_style:  commentStylesByClip[c.id] ?? null,
+      text_overlays:  textOverlaysByClip[c.id] ?? [],
     }])),
-    [clips, bgmByClip, subtitleStylesByClip, commentStylesByClip]
+    [clips, bgmByClip, barEnabledByClip, subtitleStylesByClip, commentStylesByClip, textOverlaysByClip]
   )
 
   const canvasSegsByClip = useMemo(() =>
@@ -1076,11 +1216,25 @@ export default function ClipEditor({
             onPlay={() => { lastActivePlayerRef.current = 'source' }}
           />
         ) : (
-          <VideoPreview
-            thumbnailUrl={project.yt_thumbnail_url}
-            title={project.yt_title}
-            durationSec={project.yt_duration_sec}
-          />
+          <div>
+            <VideoPreview
+              thumbnailUrl={project.yt_thumbnail_url}
+              title={project.yt_title}
+              durationSec={project.yt_duration_sec}
+            />
+            {sourceError && (
+              <div className="flex items-center justify-between gap-4 bg-red-950/40 px-4 py-3">
+                <p className="text-[13px] text-red-300">{sourceError}</p>
+                <button
+                  type="button"
+                  onClick={() => void loadSourceUrl()}
+                  className="shrink-0 text-[13px] text-[#2997ff] hover:underline"
+                >
+                  다시 불러오기
+                </button>
+              </div>
+            )}
+          </div>
         )}
       </div>
 
@@ -1475,6 +1629,7 @@ export default function ClipEditor({
             const seekAndPlayRef = seekAndPlayRefs.current.get(clip.id)!
             const togglePlayRef = togglePlayRefs.current.get(clip.id)!
             const comments = rawCommentsByClip[clip.id] ?? []
+            const textOverlays = textOverlaysByClip[clip.id] ?? []
             const allComments = commentsByClip[clip.id] ?? []
             const selectedCommentIdx = selectedCommentIdxByClip[clip.id] ?? []
             const filteredComments = selectedCommentIdx.length > 0
@@ -1721,18 +1876,21 @@ export default function ClipEditor({
                       <div>
                         <p className="mb-1.5 text-[11px] text-[rgba(255,255,255,0.3)]">폰트</p>
                         <div className="grid grid-cols-3 gap-1.5">
-                          {(FONT_LIST as readonly FontFamily[]).map(font => (
+                          {FONT_KEYS.map(fontKey => (
                             <button
-                              key={font}
-                              onClick={() => handleSaveSubtitleStyle(clip.id, { ...(subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE), fontFamily: font })}
-                              style={{ fontFamily: `'${font}', sans-serif` }}
+                              key={fontKey}
+                              onClick={() => handleSaveSubtitleStyle(clip.id, { ...(subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE), font_key: fontKey })}
+                              style={{
+                                fontFamily: `'${getFontFamily(fontKey)}', sans-serif`,
+                                fontWeight: FONT_REGISTRY[fontKey].weight,
+                              }}
                               className={`rounded-md py-2 text-[12px] transition-colors ${
-                                (subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE).fontFamily === font
+                                (subtitleStylesByClip[clip.id] ?? DEFAULT_SUBTITLE_STYLE).font_key === fontKey
                                   ? 'bg-[#0071e3] text-white'
                                   : 'bg-[#272729] text-[rgba(255,255,255,0.6)] hover:bg-[#2a2a2d]'
                               }`}
                             >
-                              {FONT_LABELS[font] ?? font}
+                              {FONT_REGISTRY[fontKey].label}
                             </button>
                           ))}
                         </div>
@@ -1747,6 +1905,7 @@ export default function ClipEditor({
                           initialSegments={segments}
                           currentTime={previewTimeByClip[clip.id]}
                           clipStartSec={Number(clip.start_sec)}
+                          clipEndSec={Number(clip.end_sec)}
                           noWrapper
                           onSegmentsChange={(segs) => setLiveSegsByClip(prev => ({ ...prev, [clip.id]: segs }))}
                           onSeekAndPlay={(relSec) => seekAndPlayRefs.current.get(clip.id)?.current?.(relSec)}
@@ -1768,41 +1927,23 @@ export default function ClipEditor({
                     {/* Comment style controls */}
                     <div className="mb-4 space-y-3">
                       <div>
-                        <p className="mb-1.5 text-[11px] text-[rgba(255,255,255,0.3)]">텍스트 스타일</p>
-                        <div className="flex gap-1">
-                          {([
-                            { value: 'white-on-black', label: '흰글씨+검정배경' },
-                            { value: 'black-on-white', label: '검정글씨+흰배경' },
-                          ] as const).map(opt => (
-                            <button
-                              key={opt.value}
-                              onClick={() => handleSaveCommentStyle(clip.id, { ...(commentStylesByClip[clip.id] ?? DEFAULT_COMMENT_STYLE), theme: opt.value })}
-                              className={`flex-1 rounded-md py-1.5 text-[12px] transition-colors ${
-                                (commentStylesByClip[clip.id] ?? DEFAULT_COMMENT_STYLE).theme === opt.value
-                                  ? 'bg-[#0071e3] text-white'
-                                  : 'bg-[#272729] text-[rgba(255,255,255,0.5)] hover:bg-[#2a2a2d]'
-                              }`}
-                            >
-                              {opt.label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                      <div>
                         <p className="mb-1.5 text-[11px] text-[rgba(255,255,255,0.3)]">폰트</p>
                         <div className="grid grid-cols-3 gap-1.5">
-                          {(FONT_LIST as readonly FontFamily[]).map(font => (
+                          {FONT_KEYS.map(fontKey => (
                             <button
-                              key={font}
-                              onClick={() => handleSaveCommentStyle(clip.id, { ...(commentStylesByClip[clip.id] ?? DEFAULT_COMMENT_STYLE), fontFamily: font })}
-                              style={{ fontFamily: `'${font}', sans-serif` }}
+                              key={fontKey}
+                              onClick={() => handleSaveCommentStyle(clip.id, { ...(commentStylesByClip[clip.id] ?? DEFAULT_COMMENT_STYLE), font_key: fontKey })}
+                              style={{
+                                fontFamily: `'${getFontFamily(fontKey)}', sans-serif`,
+                                fontWeight: FONT_REGISTRY[fontKey].weight,
+                              }}
                               className={`rounded-md py-2 text-[12px] transition-colors ${
-                                (commentStylesByClip[clip.id] ?? DEFAULT_COMMENT_STYLE).fontFamily === font
+                                (commentStylesByClip[clip.id] ?? DEFAULT_COMMENT_STYLE).font_key === fontKey
                                   ? 'bg-[#0071e3] text-white'
                                   : 'bg-[#272729] text-[rgba(255,255,255,0.6)] hover:bg-[#2a2a2d]'
                               }`}
                             >
-                              {FONT_LABELS[font] ?? font}
+                              {FONT_REGISTRY[fontKey].label}
                             </button>
                           ))}
                         </div>
@@ -1870,7 +2011,33 @@ export default function ClipEditor({
                   templates={templates}
                   onSelect={(id) => setTemplateIdsByClip(prev => ({ ...prev, [clip.id]: id }))}
                 />
+                <button
+                  type="button"
+                  onClick={() => {
+                    void handleSaveBarEnabled(clip.id, !(barEnabledByClip[clip.id] ?? false))
+                  }}
+                  className={`mt-2 flex w-full items-center justify-between rounded-lg px-4 py-3 text-[13px] transition-colors ${
+                    (barEnabledByClip[clip.id] ?? false)
+                      ? 'bg-[#0071e3]/20 text-[#2997ff] ring-1 ring-[#2997ff]/40'
+                      : 'bg-[#1d1d1f] text-[rgba(255,255,255,0.6)] hover:bg-[#272729]'
+                  }`}
+                >
+                  <span>상·하단 블랙 바</span>
+                  <span>{(barEnabledByClip[clip.id] ?? false) ? '15% 켜짐' : '꺼짐'}</span>
+                </button>
                 </div>
+
+                <TextOverlayPanel
+                  overlays={textOverlays}
+                  selectedId={selectedTextOverlayIdByClip[clip.id] ?? null}
+                  onSelect={(id) => setSelectedTextOverlayIdByClip((previous) => ({
+                    ...previous,
+                    [clip.id]: id,
+                  }))}
+                  onAdd={() => void handleAddTextOverlay(clip.id)}
+                  onDelete={(id) => void handleDeleteTextOverlay(clip.id, id)}
+                  onChange={(overlay) => void handleCommitTextOverlay(clip.id, overlay)}
+                />
 
                 <div className="md:col-start-2">
                 {/* ④ BGM */}
@@ -1904,6 +2071,13 @@ export default function ClipEditor({
                   seekAndPlayRef={seekAndPlayRef}
                   togglePlayRef={togglePlayRef}
                   onActivate={canvasActivateByClip[clip.id]}
+                  selectedTextOverlayId={selectedTextOverlayIdByClip[clip.id] ?? null}
+                  onSelectTextOverlay={(id) => setSelectedTextOverlayIdByClip((previous) => ({
+                    ...previous,
+                    [clip.id]: id,
+                  }))}
+                  onDraftTextOverlay={(overlay) => handleDraftTextOverlay(clip.id, overlay)}
+                  onCommitTextOverlay={(overlay) => void handleCommitTextOverlay(clip.id, overlay)}
                 />
 
                 {/* ⑥ 렌더 */}

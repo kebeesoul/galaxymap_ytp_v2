@@ -81,7 +81,7 @@ export default function ProjectList({ initialProjects }: { initialProjects: Proj
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Immediately show a project that was just created in /projects/new.
+  // Immediately show a project that was just created before navigation.
   // sessionStorage bridges the gap between the insert and the server render,
   // which may return a cached snapshot that predates the insert.
   useEffect(() => {
@@ -187,8 +187,8 @@ export default function ProjectList({ initialProjects }: { initialProjects: Proj
           className="text-[40px] font-semibold leading-[1.10] text-[#1d1d1f]"
           style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", Helvetica, Arial, sans-serif' }}
         >
-          <Link href="/projects" className="hover:opacity-70 transition-opacity">
-            Projects Dashboard
+          <Link href="/editor" className="hover:opacity-70 transition-opacity">
+            Editor
           </Link>
         </h1>
         <div className="flex items-center gap-3">
@@ -202,16 +202,16 @@ export default function ProjectList({ initialProjects }: { initialProjects: Proj
             </button>
           )}
           <Link
-            href="/export"
+            href="/history"
             className="rounded-lg border border-[rgba(0,0,0,0.12)] bg-white px-4 py-2 text-[17px] text-[#1d1d1f] transition-colors hover:bg-[#f5f5f7]"
           >
-            Renders
+            History
           </Link>
           <Link
-            href="/projects/new"
+            href="/select"
             className="rounded-lg bg-[#0071e3] px-4 py-2 text-[17px] text-white transition-colors hover:bg-[#0077ed]"
           >
-            New Project
+            Select
           </Link>
         </div>
       </div>
@@ -219,8 +219,8 @@ export default function ProjectList({ initialProjects }: { initialProjects: Proj
       {projects.length === 0 ? (
         <div className="rounded-2xl bg-white py-24 text-center shadow-[rgba(0,0,0,0.08)_0px_2px_12px]">
           <p className="text-[17px] text-[rgba(0,0,0,0.48)]">No projects yet.</p>
-          <Link href="/projects/new" className="mt-4 inline-block text-[14px] text-[#0066cc] hover:underline">
-            Create your first project →
+          <Link href="/select" className="mt-4 inline-block text-[14px] text-[#0066cc] hover:underline">
+            Select your first source →
           </Link>
         </div>
       ) : (

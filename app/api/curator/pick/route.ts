@@ -25,6 +25,11 @@ export async function POST(req: Request) {
   const { recommendation_id } = parsed.data
   const supabase = createClient()
 
+  const { data: { user }, error: userError } = await supabase.auth.getUser()
+  if (userError || !user) {
+    return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
+  }
+
   // Fetch the recommendation row
   const { data: rec, error: recError } = await supabase
     .from('track_recommendations')
@@ -48,7 +53,7 @@ export async function POST(req: Request) {
   // Insert project
   const { data: project, error: projectError } = await supabase
     .from('projects')
-    .insert({ artist: rec.artist, song_title: rec.song_title, source_url })
+    .insert({ artist: rec.artist, song_title: rec.song_title, source_url, owner_uid: user.id })
     .select('id')
     .single()
 

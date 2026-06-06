@@ -38,6 +38,7 @@ export default function WaveformEditor({
   onRegionChangeRef.current = onRegionChange
 
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [isPlaying, setIsPlaying] = useState(() => !mediaEl.paused)
 
   // ── Track play/pause state + enforce 1× speed ─────────────────────────────
@@ -92,24 +93,27 @@ export default function WaveformEditor({
       regionsPluginRef.current = regionsPlugin
 
       ws.on('ready', () => setLoading(false))
+      ws.on('error', (waveformError: Error) => {
+        setLoading(false)
+        setError(waveformError.message)
+      })
 
       ws.on('interaction', (newTime: number) => {
         onSeekRef.current(newTime)
       })
     }
 
-    // Defer WaveSurfer init until the video has buffered enough to play without
-    // interruption. This prevents WaveSurfer's audio decode from competing with
-    // the initial video stream and causing choppy playback.
-    if (mediaEl.readyState >= HTMLMediaElement.HAVE_ENOUGH_DATA) {
+    // Range-streamed videos may never emit canplaythrough. Metadata is enough
+    // because WaveSurfer reuses the existing media element.
+    if (mediaEl.readyState >= HTMLMediaElement.HAVE_METADATA) {
       createWaveSurfer()
     } else {
-      mediaEl.addEventListener('canplaythrough', createWaveSurfer, { once: true })
+      mediaEl.addEventListener('loadedmetadata', createWaveSurfer, { once: true })
     }
 
     return () => {
       destroyed = true
-      mediaEl.removeEventListener('canplaythrough', createWaveSurfer)
+      mediaEl.removeEventListener('loadedmetadata', createWaveSurfer)
       wsRef.current?.destroy()
       wsRef.current = null
       regionsPluginRef.current = null
@@ -222,6 +226,11 @@ export default function WaveformEditor({
         )}
         <div ref={containerRef} className={loading ? 'opacity-0' : 'opacity-100 transition-opacity'} />
       </div>
+      {error && (
+        <p className="mt-2 text-[12px] text-red-400">
+          파형을 불러오지 못했습니다: {error}
+        </p>
+      )}
 
       {/* Usage hint */}
       <p className="mt-2 px-0.5 text-[11px] text-[rgba(255,255,255,0.18)]">
