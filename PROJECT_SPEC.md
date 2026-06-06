@@ -192,7 +192,7 @@
 **상태머신**
 
 - `import_status`: null → pending → processing → success | failed (재시도: failed/success → pending)
-- `render_status`: null → pending → processing → success | failed (재렌더: any → pending)
+- `render_status`: null → pending → processing → success | failed (재렌더: processing 제외 → pending, processing은 409)
 - 전이 주체: null→pending = Railway API / pending→processing 이후 = Mac 워커(원자적)
 
 **죽은 컬럼(베이스라인에서 제외)**
@@ -297,6 +297,7 @@
 - `2026-06-06` — **Auth 문지기 구현** : `/curation`·`/select`·`/editor`·`/history`와 하위 경로를 쿠키 세션으로 보호하고, `/login`과 정적 자산은 미들웨어 인증 검사에서 제외한다.
 - `2026-06-06` — **워크플로우 메뉴 구현** : `/editor`가 프로젝트 목록을 직접 제공하고 구형 `/projects`·`/projects/new`는 각각 `/editor`·`/select`로 리다이렉트한다. 프로젝트·추천 생성은 `owner_uid`를 필수로 기록하며 구형 스키마 fallback을 허용하지 않는다.
 - `2026-06-06` — **자유 텍스트 WYSIWYG 구현** : 에디터 Player와 최종 Remotion 렌더가 동일한 `BarLayer`·`TextOverlayLayer`를 사용한다. Moveable 조작값은 zone 내부 상대좌표와 화면높이 비율로 `text_overlays`에 저장한다.
+- `2026-06-06` — **렌더 중복 가드 복구** : `/api/render`는 `render_status is null or != processing`인 행만 원자적으로 pending 전환하고, 이미 processing이면 409를 반환한다. stale processing 복구는 Mac 워커 시작 로직이 담당한다.
 
 -----
 

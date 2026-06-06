@@ -1062,7 +1062,16 @@ export default function ClipEditor({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ clip_id: clipId }),
       })
-      const body = (await res.json()) as { queued?: boolean; error?: string }
+      const body = (await res.json()) as {
+        queued?: boolean
+        error?: string
+        render_status?: string
+      }
+      if (res.status === 409 && body.render_status === 'processing') {
+        setRenderStatuses(prev => ({ ...prev, [clipId]: 'processing' }))
+        startPolling(clipId)
+        return
+      }
       if (!res.ok) throw new Error(body.error ?? 'Render failed')
       startPolling(clipId)
     } catch (err) {

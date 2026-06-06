@@ -1,8 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-// Stateful chain: tracks whether update() was called to distinguish
-// .select().eq().single() (clip lookup) from .update().eq().not().select() (terminal)
-function makeChain(clipExists: boolean, updateRows: unknown[]) {
+const mockOr = vi.fn()
+
+function makeChain(
+  clipExists: boolean,
+  updateRows: unknown[],
+  updateError: { message: string } | null = null,
+) {
   const clipResult = clipExists
     ? { data: { id: 'clip-1' }, error: null }
     : { data: null, error: { message: 'not found' } }
@@ -15,6 +19,10 @@ function makeChain(clipExists: boolean, updateRows: unknown[]) {
   chain.delete = () => chain
   chain.eq     = () => chain
   chain.not    = () => chain
+  chain.or     = (...args: unknown[]) => {
+    mockOr(...args)
+    return chain
+  }
   chain.in     = () => chain
   chain.order  = () => chain
   chain.single = () => Promise.resolve(clipResult)
@@ -22,7 +30,7 @@ function makeChain(clipExists: boolean, updateRows: unknown[]) {
   chain.select = () => {
     if (afterUpdate) {
       // Terminal call after update() — return update result
-      return Promise.resolve({ data: updateRows, error: null })
+      return Promise.resolve({ data: updateRows, error: updateError })
     }
     // Non-terminal — continue chain so .eq().single() can follow
     return chain
@@ -67,8 +75,12 @@ describe('POST /api/render — processing guard regression', () => {
     const { POST } = await import('@/app/api/render/route')
     const res = await POST(makeRequest({ clip_id: 'clip-1' }))
     expect(res.status).toBe(409)
-    const body = await res.json() as { error: string }
+    expect(mockOr).toHaveBeenCalledWith(
+      'render_status.is.null,render_status.neq.processing',
+    )
+    const body = await res.json() as { error: string; render_status: string }
     expect(body.error).toBe('already processing')
+    expect(body.render_status).toBe('processing')
   })
 
   it('202 when clip is queued successfully', async () => {
@@ -79,5 +91,16 @@ describe('POST /api/render — processing guard regression', () => {
     expect(res.status).toBe(202)
     const body = await res.json() as { queued: boolean }
     expect(body.queued).toBe(true)
+  })
+
+  it('500 when the conditional update fails', async () => {
+    mockCreateClient.mockReturnValue(
+      makeChain(true, [], { message: 'database unavailable' }),
+    )
+    const { POST } = await import('@/app/api/render/route')
+    const res = await POST(makeRequest({ clip_id: 'clip-1' }))
+    expect(res.status).toBe(500)
+    const body = await res.json() as { error: string }
+    expect(body.error).toBe('database unavailable')
   })
 })
