@@ -50,8 +50,6 @@ dist/
 
 # yt-dlp cookies (sensitive — never commit)
 workers/ingest/cookies.txt
-<<<<<<< Updated upstream
-=======
 
 # local media scratch (STORAGE_ROOT)
 storage/
@@ -62,4 +60,4 @@ package-lock.json
 yarn.lock
 .env.save
 .env*
->>>>>>> Stashed changes
+.pnpm-store/
