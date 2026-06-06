@@ -79,7 +79,7 @@ export default function ProjectList({ initialProjects }: { initialProjects: Proj
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Immediately show a project that was just created in /projects/new.
+  // Immediately show a project that was just created before navigation.
   // sessionStorage bridges the gap between the insert and the server render,
   // which may return a cached snapshot that predates the insert.
   useEffect(() => {
@@ -186,8 +186,8 @@ export default function ProjectList({ initialProjects }: { initialProjects: Proj
           className="text-[40px] font-semibold leading-[1.10] text-[#1d1d1f]"
           style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", Helvetica, Arial, sans-serif' }}
         >
-          <Link href="/projects" className="hover:opacity-70 transition-opacity">
-            Projects Dashboard
+          <Link href="/editor" className="hover:opacity-70 transition-opacity">
+            Editor
           </Link>
         </h1>
         <div className="flex items-center gap-3">

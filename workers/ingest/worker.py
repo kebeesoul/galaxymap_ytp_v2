@@ -16,7 +16,7 @@ from supabase import create_client
 load_dotenv()
 
 SUPABASE_URL = os.environ.get("NEXT_PUBLIC_SUPABASE_URL", "")
-SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY", "")
+SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 STORAGE_ROOT = Path(os.environ.get("STORAGE_ROOT", PROJECT_ROOT / "workspace")).expanduser()
 COOKIE_FILE = Path(__file__).resolve().parent / "cookies.txt"
@@ -247,7 +247,7 @@ async def main() -> None:
     if not SUPABASE_URL or not SUPABASE_KEY:
         raise SystemExit(
             "NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set "
-            "(anon key fallback only works before RLS is enabled)"
+            "for the ingest worker"
         )
 
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)

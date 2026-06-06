@@ -1,10 +1,11 @@
-import { createClient } from '@supabase/supabase-js'
 import { bundle } from '@remotion/bundler'
 import { renderMedia, selectComposition } from '@remotion/renderer'
 import { promises as fs, existsSync, readFileSync } from 'fs'
 import path from 'path'
 import os from 'os'
 import { selectCommentsForRender } from '../../lib/comments/select-for-render'
+import { createServiceRoleClient } from '../../lib/supabase/service-role'
+import { textOverlaySchema } from '../../lib/text-overlays'
 
 const REPO_ROOT = process.cwd()
 const ENV_PATH = path.join(REPO_ROOT, '.env.local')
@@ -15,17 +16,9 @@ if (existsSync(ENV_PATH)) {
   }
 }
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
-const SUPABASE_KEY =
-  process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? ''
 const POLL_INTERVAL_MS = 3000
 
-if (!SUPABASE_URL || !SUPABASE_KEY) {
-  console.error('Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local')
-  process.exit(1)
-}
-
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
+const supabase = createServiceRoleClient()
 
 let serveUrlPromise: Promise<string> | null = null
 function ensureBundle(): Promise<string> {
@@ -79,7 +72,7 @@ async function processJob(clipId: string): Promise<void> {
     .single()
   if (!project?.yt_source_path) throw new Error('project preview source missing')
 
-  const [{ data: segments }, { data: comments }, templateRes] = await Promise.all([
+  const [{ data: segments }, { data: comments }, { data: overlayRows }, templateRes] = await Promise.all([
     supabase
       .from('lyrics_segments')
       .select('text, start_sec, end_sec')
@@ -90,6 +83,11 @@ async function processJob(clipId: string): Promise<void> {
       .select('username, body, likes_count, is_selected')
       .eq('clip_id', clipId)
       .order('likes_count', { ascending: false }),
+    supabase
+      .from('text_overlays')
+      .select('*')
+      .eq('clip_id', clipId)
+      .order('z_index'),
     clip.template_id
       ? supabase.from('templates').select('config_json').eq('id', clip.template_id).single()
       : Promise.resolve({ data: null }),
@@ -98,6 +96,10 @@ async function processJob(clipId: string): Promise<void> {
   const compositionId = extractLayout(
     (templateRes as { data: { config_json: unknown } | null }).data?.config_json,
   )
+  const textOverlays = (overlayRows ?? []).flatMap((row) => {
+    const parsed = textOverlaySchema.safeParse(row)
+    return parsed.success ? [parsed.data] : []
+  })
 
   const serveUrl = await ensureBundle()
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'galaxymap-render-'))
@@ -116,8 +118,10 @@ async function processJob(clipId: string): Promise<void> {
         bgm_url: clip.bgm_url,
         bgm_volume: clip.bgm_volume ?? 0.3,
         original_volume: clip.original_volume ?? 1.0,
+        bar_enabled: clip.bar_enabled ?? false,
         subtitle_style: clip.subtitle_style,
         comment_style: clip.comment_style,
+        text_overlays: textOverlays,
       },
       segments: segments ?? [],
       comments: selectCommentsForRender(comments ?? []),

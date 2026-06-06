@@ -57,7 +57,7 @@
 |**Supabase (Postgres)**|관계형 메타데이터 전부, 상태머신(import/render_status), 인증|DB·Auth·폴링은 항상 여기. zod로 입출력 검증                                                                                                                                                                                     |
 |**Supabase Auth**      |사용자 계정/세션, UID 발급                           |**다중 작업자용. 이번에 활성화 (현재 미사용)**. RLS도 켠다                                                                                                                                                                             |
 |**Cloudflare R2**      |영상 원본 mp4, BGM, 렌더 결과 mp4 — **모든 파일 바이트**   |S3 호환. **egress 무료**. Supabase Storage 대체 [DECIDED]                                                                                                                                                                |
-|**Mac 로컬 파일시스템(스크래치)** |yt-dlp 다운로드 중간물, Remotion 렌더 작업 파일          |처리용 임시 공간. 최종물은 R2 게시 후 정리 가능. **경로는 `STORAGE_ROOT` env로 주입**(코드 기본값 `<repo>/workspace/`). **.gitignore 필수.** 실제 절대경로는 `.env`에만 두고 코드·문서·공개 레포엔 절대 박지 않음(사용자명 노출 방지) [DECIDED]|
+|**Mac 로컬 파일시스템(스크래치)** |yt-dlp 다운로드 중간물, Remotion 렌더 작업 파일          |처리용 임시 공간. 최종물은 R2 게시 후 정리 가능. **경로는 `STORAGE_ROOT` env로 주입**(코드 기본값 `path.join(process.cwd(),'storage')` = `<repo>/storage/`). **.gitignore 필수.** 실제 절대경로는 `.env`에만 두고 코드·문서·공개 레포엔 절대 박지 않음(사용자명 노출 방지) [DECIDED]|
 |**localStorage**       |UI 경량 상태 (탭 위치, 임시 폼)                       |진실원본·민감정보 저장 금지                                                                                                                                                                                                    |
 
 **폐기 [DECIDED]:** Supabase Storage 버킷(`sources`, `renders`)은 R2로 이전 후 폐기.
@@ -83,7 +83,6 @@
 - **캐시 키 = R2 키 미러링:** `STORAGE_ROOT/{uid}/sources/preview/{video_id}.mp4` 처럼 R2 키 구조를 로컬에 그대로 복제. R2↔로컬 1:1 매핑 + 작업자 간 파일 섞임 방지.
 - **조회 순서(lazy fill):** 워커가 파일이 필요하면 → ① 로컬에 있으면 사용 → ② 없으면 R2에서 GET해 로컬에 채운 뒤 사용. (이 규칙이 import 원본 보관/렌더 입력 재사용을 한 번에 처리.)
 - **Import 흐름:** yt-dlp → 로컬 스크래치 → R2 PUT → 로컬 사본은 **캐시로 보존**(즉시 삭제 안 함). 같은 영상의 다중 클립 렌더·에디터 프리뷰에서 R2 재다운로드 회피.
-- **Editor 미디어 접근:** 브라우저는 `workspace` 또는 Mac 절대경로를 직접 읽지 않는다. DB의 객체 키를 Next.js presign API에 전달하고, 인증된 단기 URL로 원본 영상·파형·Remotion 미리보기를 동일하게 재생한다.
 - **비우기(cleanup):** **TTL + 용량 상한** 병행. 오래됐거나(예: N일 미접근) 상한 초과 시 LRU로 로컬 캐시만 삭제(R2 원본은 유지). `cleanup:storage`가 담당.
 
 ### 3.2 접근 흐름 (Auth → 인가 → 파일)
@@ -162,15 +161,16 @@
 
 ## 6. Data Model (Supabase)
 
-|테이블                    |핵심 컬럼                                                                                                                                                                                                                                                                                                                   |관계                                          |비고                                                             |
-|-----------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------|---------------------------------------------------------------|
-|`projects`             |artist, song_title, source_url, **ip_owner**(bool), ip_confirmed_at, yt_video_id, yt_title, yt_duration_sec, yt_thumbnail_url, **yt_source_path**(=R2 key), import_status, import_error, song_lyrics, song_lyrics_timestamps(jsonb), description_base, description_styled, description_tone(ref_01/02/03), **owner_uid**|1—N clips · 1—N track_recommendations       |owner_uid=auth.uid(). ip_owner=권리 게이트. ~yt_hq_source_path 죽은컬럼~|
-|`templates`            |name, config_json(jsonb)                                                                                                                                                                                                                                                                                                |1—N clips                                   |**시드(3행)·전역 read-only.** Remotion 레이아웃. 폐기 금지                  |
-|`clips`                |project_id, template_id, start/end_sec, label, render_status(+cancelled), render_path(=R2 key), render_error, render_preset(fast/balanced/quality), render_progress, bgm_url(=R2 key), bgm_volume, bgm_start_sec, original_volume, subtitle_style(jsonb), comment_style(jsonb)                                          |N—1 projects/templates · 1—N lyrics/comments|소유권은 project 상속. ~transcribe_status 죽은컬럼~                      |
-|`lyrics_segments`      |clip_id, text, start_sec, end_sec, “order”                                                                                                                                                                                                                                                                              |N—1 clips                                   |소유권 상속                                                         |
-|`comments`             |clip_id, username, body, likes_count, source, is_selected                                                                                                                                                                                                                                                               |N—1 clips                                   |소유권 상속                                                         |
-|`track_recommendations`|batch_id, rank(1-3), artist, song_title, release_year, genre, reason, role(popular/reliable/wildcard), popularity_estimate(1-10), topic, era, genre_filter, yt_video_id, yt_title, yt_search_status(pending/found/not_found), used, used_project_id, **owner_uid**                                                      |FK→projects (ON DELETE SET NULL)            |**독립 owner_uid** (Curation에서 프로젝트 전 존재)                        |
-|`tone_presets`         |key(ref_01/02/03 unique), label, description, reference_text, is_active                                                                                                                                                                                                                                                 |독립                                          |**시드(3행)·전역 read-only.** 폐기 금지                                 |
+|테이블                    |핵심 컬럼                                                                                                                                                                                                                                                                                                                   |관계                                                        |비고                                                             |
+|-----------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------|---------------------------------------------------------------|
+|`projects`             |artist, song_title, source_url, **ip_owner**(bool), ip_confirmed_at, yt_video_id, yt_title, yt_duration_sec, yt_thumbnail_url, **yt_source_path**(=R2 key), import_status, import_error, song_lyrics, song_lyrics_timestamps(jsonb), description_base, description_styled, description_tone(ref_01/02/03), **owner_uid**|1—N clips · 1—N track_recommendations                     |owner_uid=auth.uid(). ip_owner=권리 게이트. ~yt_hq_source_path 죽은컬럼~|
+|`templates`            |name, config_json(jsonb)                                                                                                                                                                                                                                                                                                |1—N clips                                                 |**시드(3행)·전역 read-only.** Remotion 레이아웃. 폐기 금지                  |
+|`clips`                |project_id, template_id, start/end_sec, label, render_status(+cancelled), render_path(=R2 key), render_error, render_preset(fast/balanced/quality), render_progress, bgm_url(=R2 key), bgm_volume, bgm_start_sec, original_volume, subtitle_style(jsonb), comment_style(jsonb), **bar_enabled**                         |N—1 projects/templates · 1—N lyrics/comments/text_overlays|소유권은 project 상속. bar_enabled=상/하단 검정 바(각 15% 고정)               |
+|`text_overlays`        |clip_id, **zone**(top/bottom), content, x, y, rotation, font_key, size, color, align, effect, z_index, start_sec, end_sec                                                                                                                                                                                               |N—1 clips                                                 |**자유 텍스트** — 검정 바 위 배치. 좌표·크기 전부 상대값. 소유권 상속                   |
+|`lyrics_segments`      |clip_id, text, start_sec, end_sec, “order”                                                                                                                                                                                                                                                                              |N—1 clips                                                 |소유권 상속                                                         |
+|`comments`             |clip_id, username, body, likes_count, source, is_selected                                                                                                                                                                                                                                                               |N—1 clips                                                 |소유권 상속                                                         |
+|`track_recommendations`|batch_id, rank(1-3), artist, song_title, release_year, genre, reason, role(popular/reliable/wildcard), popularity_estimate(1-10), topic, era, genre_filter, yt_video_id, yt_title, yt_search_status(pending/found/not_found), used, used_project_id, **owner_uid**                                                      |FK→projects (ON DELETE SET NULL)                          |**독립 owner_uid** (Curation에서 프로젝트 전 존재)                        |
+|`tone_presets`         |key(ref_01/02/03 unique), label, description, reference_text, is_active                                                                                                                                                                                                                                                 |독립                                                        |**시드(3행)·전역 read-only.** 폐기 금지                                 |
 
 ### 6.1 Auth & RLS [DECIDED]
 
@@ -178,7 +178,7 @@
 - **owner_uid 범위:** `projects`·`track_recommendations`에만. 하위 테이블은 project join으로 상속.
 - **RLS 정책:**
   - `projects`, `track_recommendations`: `owner_uid = auth.uid()` (SELECT/INSERT/UPDATE/DELETE).
-  - `clips`/`lyrics_segments`/`comments`: `EXISTS(상위 project where owner_uid = auth.uid())`.
+  - `clips`/`lyrics_segments`/`comments`/`text_overlays`: `EXISTS(상위 project where owner_uid = auth.uid())`.
   - `tone_presets`·`templates`: authenticated는 **SELECT only**(쓰기 차단). 둘 다 전역 시드, 폐기 금지.
 - **워커는 RLS 우회:** ingest/render 워커는 모든 사용자의 pending을 처리해야 하므로 **service_role 키** 사용. service_role은 `.env`에만, 클라이언트·공개 레포 노출 절대 금지. 워커는 project의 owner_uid를 **읽어** R2 키·캐시 키의 `{uid}/`에 반영.
 - **Auth 통합 (구현 순서):**
@@ -211,7 +211,7 @@
 |import(ingest)   |`/api/import` → status=pending   |3초 폴링    |Mac Studio       |로컬 캐시 → **R2(원본)** + Supabase(meta)|yt-dlp 다운로드 → R2 PUT, 로컬 사본 캐시 보존|
 |bgm upload       |`/api/upload-bgm` → ingest-server|on-demand|Mac Studio(:8001)|**R2** + Supabase                  |BGM 수신·게시                        |
 |render           |`/api/render` → status=pending   |3초 폴링    |Mac Studio       |로컬 캐시 읽기(없으면 R2 GET) → **R2(결과)**  |Remotion 렌더, R2 PUT              |
-|curator recommend|`/api/curator/*`                 |on-demand|Railway          |Supabase                           |Gemini 2.5 Flash Lite 추천         |
+|curator recommend|`/api/curator/*`                 |on-demand|Railway          |Supabase                           |Claude+YT 추천                     |
 |presign          |`/api/*` (파일 접근)                 |on-demand|Railway          |R2(서명만)                            |UID 검증 후 presigned URL           |
 |self-delete      |`/api/projects/[id]` DELETE 등    |on-demand|Railway          |Supabase + R2                      |DB+R2 동시 정리                      |
 |orphan cleanup   |`pnpm cleanup:storage`           |수동/주기    |Mac or Railway   |R2                                 |고아 객체 청소                         |
@@ -257,14 +257,15 @@
 
 ## 10. Build Status (Phases) — 리빌딩
 
-|Phase|범위                                                                                              |상태    |PR/메모                                              |
-|-----|------------------------------------------------------------------------------------------------|------|---------------------------------------------------|
-|0    |문서 단일화(PROJECT_SPEC.md 삭제, 이 spec 확정) + PR 4개 닫기                                                |☑ 완료  |#75/#77/#82/#85 closed, PROJECT_SPEC.md 삭제됨        |
-|1    |pnpm 전환 + Node 20 통일(lock 교체, packageManager 10.34.1, railway.json, .gitignore, .nvmrc, engines)|☑ 완료  |`phase1/pnpm-migration` 브랜치, type-check 통과, push 대기|
-|2    |**DB 베이스라인 재설정(squash)** + `owner_uid` + Supabase Auth(이메일/비번) + RLS                            |☐ todo|init SQL 작성됨. 5개만 재생성, 시드 2개 보존. 데이터 폐기(A) 확정      |
-|3    |R2 이전 + presign API + UID 격리 + 로컬 캐시(B)                                                         |☐ todo|service_role 워커, presign 검증                        |
-|4    |**워크플로우 재편** (메뉴화: Curation read-only / Select 진입점 / Editor / History)                          |☐ todo|UI 라우팅 재편, 상단 네비                                   |
-|5    |중복 가드(Issue 1·2·8) + 남은 죽은 코드(lambda.ts, worker.mjs)                                            |☐ todo|죽은 컬럼은 Phase 2 베이스라인에 흡수됨                          |
+|Phase|범위                                                                                              |상태    |PR/메모                                                                          |
+|-----|------------------------------------------------------------------------------------------------|------|-------------------------------------------------------------------------------|
+|0    |문서 단일화(PROJECT_SPEC.md 삭제, 이 spec 확정) + PR 4개 닫기                                                |☑ 완료  |#75/#77/#82/#85 closed, PROJECT_SPEC.md 삭제됨                                    |
+|1    |pnpm 전환 + Node 20 통일(lock 교체, packageManager 10.34.1, railway.json, .gitignore, .nvmrc, engines)|☑ 완료  |`phase1/pnpm-migration` 브랜치, type-check 통과, push 대기                            |
+|2    |**DB 베이스라인 재설정(squash)** + `owner_uid` + Supabase Auth(이메일/비번) + RLS                            |☐ todo|init SQL 작성됨. 5개만 재생성, 시드 2개 보존. 데이터 폐기(A) 확정                                  |
+|3    |R2 이전 + presign API + UID 격리 + 로컬 캐시(B)                                                         |☐ todo|service_role 워커, presign 검증                                                    |
+|4    |**워크플로우 재편** (메뉴화: Curation read-only / Select 진입점 / Editor / History)                          |☑ 완료  |4개 상단 메뉴 연결, Select가 owner_uid 프로젝트 생성의 단일 진입점                              |
+|5    |중복 가드(Issue 1·2·8) + 남은 죽은 코드(lambda.ts, worker.mjs)                                            |☐ todo|죽은 컬럼은 Phase 2 베이스라인에 흡수됨                                                      |
+|6    |**WYSIWYG 자유 텍스트 오버레이** (검정 바 위 배치)                                                             |☑ 완료  |공유 BarLayer/TextOverlayLayer + Moveable 드래그·리사이즈·회전 + text_overlays 저장             |
 
 -----
 
@@ -278,11 +279,7 @@
 - `2026-06-03` — 작업 파일은 Mac 로컬 스크래치 처리, 최종물만 R2 게시(하이브리드) : 다중 동시 접속 시 Mac 대역폭 병목 회피. 렌더 입력은 항상 로컬에서 읽어 처리속도 손실 없음.
 - `2026-06-03` — pnpm **10.x + Node 20** 라인 확정 : pnpm 11은 Node 22 강제 → 현 워커(`nvm use 20`)와 충돌, 리빌딩 중 런타임 변수 최소화.
 - `2026-06-03` — Curator LLM = **Gemini 2.5 Flash Lite**(MVP) : 필요 시 교체.
-- `2026-06-05` — Mac 스크래치 기본 경로 = `<repo>/workspace/` : `STORAGE_ROOT`로 재정의 가능하며 yt-dlp 원본 캐시를 UID별로 보존.
-- `2026-06-05` — Editor 미디어 URL은 `/api/projects/[id]/source-url` 경계에서 발급 : UI의 Storage SDK 직접 호출을 제거하고 R2 presign 교체 지점을 고정.
-- `2026-06-06` — 편집 원본은 `web,web_safari` player client의 최대 1080p H.264/AAC 우선 단일소스(`android,web` 360p 폴백) : Editor와 Remotion이 같은 파일을 사용하고, Mac VideoToolbox 15Mbps 출력으로 속도와 품질을 균형화.
-- `2026-06-06` — 댓글 표시는 하단 고정 카드 대신 영상 위의 불규칙한 흰색 컷아웃 조각으로 통일.
-- `2026-06-06` — 클립별 상·하단 15% 블랙 바 옵션은 기존 `subtitle_style` JSON의 `blackBars`에 저장해 스키마 추가 없이 미리보기·렌더에 동일 적용.
+- `2026-06-03` — Mac 스크래치 경로 = `<repo>/storage/` : 레포 하위에 두되 .gitignore로 커밋 차단.
 - `2026-06-03` — PR #75 main 반영 **실증**(next.config.mjs에 `staleTimes:{dynamic:0}` 존재) → Draft는 중복 잔재, 닫기.
 - `2026-06-03` — **PR 4개(#75/#77/#82/#85) 전부 닫기 확정** : 모두 main에 이미 반영된 뒤 남은 Draft 잔재로 간주.
 - `2026-06-03` — Curator는 **Google Gemini SDK**로 호출(REST 아님) : Google SDK 도입 필요.
@@ -293,20 +290,27 @@
 - `2026-06-03` — **Auth/RLS = A/A/A** : (D1) 초대/관리자 생성제, 공개 가입 비활성. (D2) owner_uid는 projects·track_recommendations에만, 하위는 project 상속. (D3) tone_presets는 전역 공유 read-only.
 - `2026-06-03` — **마이그레이션 squash(베이스라인 재설정)** : 26개 누더기 + 죽은 컬럼을 클린 init 1개로 통합. **데이터 폐기(A) 확정**(projects/clips 0행, track_rec 38행 — 무손실). 단 **시드 2개(templates·tone_presets) 보존**(drop 안 함, RLS만 추가).
 - `2026-06-03` — **Auth = 이메일+비밀번호, 운영 최대 5인** : 공개 가입 비활성, 계정은 Supabase 대시보드 수동 발급. 내부 도구라 OAuth 외부설정 불필요. 인원 증가 시 OAuth 재검토.
+- `2026-06-05` — **자유 텍스트 오버레이(Phase 6)** : 가사 자막은 기존 위치 고정(건드리지 않음). 상/하단 검정 바(각 15% 고정) 위에만 자유 텍스트 배치. 별도 `text_overlays` 테이블(zone=top/bottom, 좌표·크기 전부 상대값). 검정 바는 `clips.bar_enabled`로 분리(기존 subtitle_style에서 이전).
+- `2026-06-05` — **폰트 12종 고정**(전부 구글폰트, `lib/fonts.ts` 단일 레지스트리·에디터/Remotion 공유) : 영문 montserrat/inter/bebas/playfair/oswald/roboto + 한글 noto_kr/gmarket/nanum_square/gowun/black_han/jua. Pretendard는 jua로 교체(구글폰트 통일). 무제한 폰트는 렌더·로딩 부담이라 12종 enum 강제.
+- `2026-06-06` — **폰트 로딩 구현** : 10종은 `@remotion/google-fonts`, Gmarket Sans·NanumSquare는 해당 패키지 미지원으로 로컬 폰트 자산과 `@remotion/fonts`를 사용. 브라우저와 Remotion은 `lib/fonts.ts`의 동일한 `font_key` 정의를 공유.
+- `2026-06-06` — **service_role 클라이언트 분리** : `lib/supabase/service-role.ts`는 서버·로컬 워커 전용이며 RLS를 우회한다. 활성 ingest/render worker의 anon key fallback을 제거해 service_role 누락 시 즉시 실패하도록 고정.
+- `2026-06-06` — **Auth 문지기 구현** : `/curation`·`/select`·`/editor`·`/history`와 하위 경로를 쿠키 세션으로 보호하고, `/login`과 정적 자산은 미들웨어 인증 검사에서 제외한다.
+- `2026-06-06` — **워크플로우 메뉴 구현** : `/editor`가 프로젝트 목록을 직접 제공하고 구형 `/projects`·`/projects/new`는 각각 `/editor`·`/select`로 리다이렉트한다. 프로젝트·추천 생성은 `owner_uid`를 필수로 기록하며 구형 스키마 fallback을 허용하지 않는다.
+- `2026-06-06` — **자유 텍스트 WYSIWYG 구현** : 에디터 Player와 최종 Remotion 렌더가 동일한 `BarLayer`·`TextOverlayLayer`를 사용한다. Moveable 조작값은 zone 내부 상대좌표와 화면높이 비율로 `text_overlays`에 저장한다.
 
 -----
 
 ## 12. Known Issues / Backlog
 
 - [x] **PR #75/#77/#82/#85 — 전부 닫기 확정.** 모두 main에 이미 반영된 뒤 남은 Draft 잔재. (#75는 next.config.mjs로 실증, 나머지 동일 패턴으로 간주.)
-- [x] Google Gemini SDK(`@google/genai`) + Curator 추천 새로고침 API 도입.
+- [ ] Google Gemini SDK 도입(`@google/genai` 등) + Curator 호출부 정리.
 - [ ] **Phase 2: DB 베이스라인 재설정(squash)** — init SQL 작성 완료. 적용 시 5개 테이블(projects·clips·lyrics_segments·comments·track_recommendations)만 drop&재생성, **시드 2개(templates·tone_presets)는 보존하고 RLS만 추가**. 브랜치 검증 후 운영 전환.
 - [ ] **RLS + Auth 활성화** — Phase 2에 포함. service_role 워커 우회 구조 검증.
 - [ ] 죽은 컬럼(`hq_source_path`, `transcribe_status`)·whisperX 잔재 — **Phase 2 베이스라인에서 자연 제외**(별도 DROP 마이그레이션 불요).
-- [ ] **워크플로우 재편(Phase 4)** — Curation read-only화 / Select 링크입력 컴포넌트 / 상단 네비. track_recommendations↔projects 연결 느슨해짐(Curation에서 Select로 링크 넘기는 UX [CONFIRM]).
+- [x] **검정 바 컬럼 이전** — `subtitle_style` JSON의 바 키를 제거하고, 에디터·토글·Remotion·render worker를 `clips.bar_enabled`로 통일. 상/하단 높이 15%와 검정색은 레이어 코드 상수로 고정.
+- [x] **워크플로우 재편(Phase 4)** — Curation 참고 보드 / Select 링크입력·프로젝트 생성 / Editor 프로젝트 목록·편집 / History 렌더 결과를 상단 네비로 연결.
 - [ ] 죽은 코드: `lib/rendering/lambda.ts`(stub), `workers/render/worker.mjs`(미참조 여부 확인). [CONFIRM]
 - [ ] `INGEST_WORKER_URL` 외부 노출 방식(터널/고정IP) 운영 확정.
-- [x] Curator = Gemini 2.5 Flash Lite (Google SDK 호출). 기존 `@anthropic-ai/sdk` 제거 여부는 실제 사용처 확인 후 별도 결정.
+- [ ] Curator = Gemini 2.5 Flash Lite (Google SDK 호출). [CONFIRM] 기존 `@anthropic-ai/sdk`의 실제 용도 확인.
 - [ ] 동시 편집 충돌 정책(낙관적 잠금 or 프로젝트 분리 규칙).
-- [x] Mac 스크래치 = `STORAGE_ROOT` 기반 UID별 `workspace/` 캐시. import 원본은 렌더 재사용을 위해 보존.
-- [ ] `/api/projects/[id]/source-url`의 현 Supabase Storage 서명 구현을 Phase 3에서 R2 presign으로 교체.
+- [ ] Mac 스크래치 경로·보존정책 확정.

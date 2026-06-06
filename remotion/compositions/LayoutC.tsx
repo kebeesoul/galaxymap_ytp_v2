@@ -1,7 +1,8 @@
 import { AbsoluteFill } from 'remotion'
 import VideoLayer from './layers/VideoLayer'
 import CommentLayer from './layers/CommentLayer'
-import BlackBarsLayer from './layers/BlackBarsLayer'
+import BarLayer from '../BarLayer'
+import TextOverlayLayer from '../TextOverlayLayer'
 import type { ClipInput, Comment } from '../types'
 
 export interface LayoutCProps extends Record<string, unknown> {
@@ -21,7 +22,8 @@ export default function LayoutC({ clip, comments, preview_path }: LayoutCProps) 
         bgmVolume={clip.bgm_volume}
         originalVolume={clip.original_volume}
       />
-      <BlackBarsLayer enabled={clip.subtitle_style?.blackBars} />
+      <BarLayer enabled={clip.bar_enabled} />
+      <TextOverlayLayer enabled={clip.bar_enabled} overlays={clip.text_overlays} />
       <CommentLayer comments={comments} style={clip.comment_style} />
     </AbsoluteFill>
   )

@@ -5,6 +5,7 @@ export type Database = {
     Tables: {
       clips: {
         Row: {
+          bar_enabled: boolean
           bgm_url: string | null
           bgm_volume: number
           created_at: string | null
@@ -23,6 +24,7 @@ export type Database = {
           template_id: string | null
         }
         Insert: {
+          bar_enabled?: boolean
           bgm_url?: string | null
           bgm_volume?: number
           created_at?: string | null
@@ -41,6 +43,7 @@ export type Database = {
           template_id?: string | null
         }
         Update: {
+          bar_enabled?: boolean
           bgm_url?: string | null
           bgm_volume?: number
           created_at?: string | null
@@ -134,6 +137,71 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: 'lyrics_segments_clip_id_fkey'
+            columns: ['clip_id']
+            isOneToOne: false
+            referencedRelation: 'clips'
+            referencedColumns: ['id']
+          },
+        ]
+      }
+      text_overlays: {
+        Row: {
+          align: string
+          clip_id: string | null
+          color: string
+          content: string
+          created_at: string | null
+          effect: string
+          end_sec: number | null
+          font_key: string
+          id: string
+          rotation: number
+          size: number
+          start_sec: number | null
+          x: number
+          y: number
+          z_index: number
+          zone: string
+        }
+        Insert: {
+          align?: string
+          clip_id?: string | null
+          color?: string
+          content?: string
+          created_at?: string | null
+          effect?: string
+          end_sec?: number | null
+          font_key?: string
+          id?: string
+          rotation?: number
+          size?: number
+          start_sec?: number | null
+          x?: number
+          y?: number
+          z_index?: number
+          zone: string
+        }
+        Update: {
+          align?: string
+          clip_id?: string | null
+          color?: string
+          content?: string
+          created_at?: string | null
+          effect?: string
+          end_sec?: number | null
+          font_key?: string
+          id?: string
+          rotation?: number
+          size?: number
+          start_sec?: number | null
+          x?: number
+          y?: number
+          z_index?: number
+          zone?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'text_overlays_clip_id_fkey'
             columns: ['clip_id']
             isOneToOne: false
             referencedRelation: 'clips'

@@ -71,8 +71,8 @@ export default function ExportList({ rows }: { rows: ExportRow[] }) {
         >
           Export
         </h1>
-        <Link href="/projects" className="text-[14px] text-[#0066cc] hover:underline">
-          ← Projects
+        <Link href="/editor" className="text-[14px] text-[#0066cc] hover:underline">
+          ← Editor
         </Link>
       </div>
 

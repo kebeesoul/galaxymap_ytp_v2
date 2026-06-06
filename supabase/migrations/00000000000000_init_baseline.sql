@@ -72,6 +72,7 @@ create table public.clips (
   original_volume numeric default 1.0,
   subtitle_style  jsonb,
   comment_style   jsonb,
+  bar_enabled     boolean default false,        -- 상/하단 검정 바(각 15% 고정) on/off. 높이/색은 코드 상수
   created_at      timestamptz default now()
 );
 
@@ -94,6 +95,26 @@ create table public.comments (
   likes_count integer default 0,
   source      text default 'manual',
   is_selected boolean not null default false
+);
+
+-- text_overlays (자유 텍스트 — 상/하단 검정 바 위에 얹힘) ---------
+create table public.text_overlays (
+  id        uuid primary key default gen_random_uuid(),
+  clip_id   uuid references public.clips(id) on delete cascade,
+  zone      text not null check (zone in ('top','bottom')),  -- 어느 바에 얹히나
+  content   text not null default '',
+  x         numeric not null default 0.5,    -- 해당 바 영역 내 상대좌표 (0~1)
+  y         numeric not null default 0.5,    -- 해당 바 영역 내 상대좌표 (0~1)
+  rotation  numeric not null default 0,      -- 각도(deg)
+  font_key  text not null default 'montserrat',  -- lib/fonts.ts 12종 enum (앱에서 검증)
+  size      numeric not null default 0.06,   -- 화면 높이 대비 비율 (해상도 무관)
+  color     text not null default '#ffffff',
+  align     text not null default 'center' check (align in ('left','center','right')),
+  effect    text not null default 'none' check (effect in ('none','shadow','outline')),
+  z_index   integer not null default 0,
+  start_sec numeric,                         -- null이면 클립 내내 표시
+  end_sec   numeric,
+  created_at timestamptz default now()
 );
 
 -- track_recommendations -----------------------------------------
@@ -138,6 +159,7 @@ create index idx_clips_project           on public.clips(project_id);
 create index idx_clips_render_status     on public.clips(render_status);
 create index idx_lyrics_clip             on public.lyrics_segments(clip_id);
 create index idx_comments_clip           on public.comments(clip_id);
+create index idx_text_overlays_clip      on public.text_overlays(clip_id);
 create index idx_trackrec_owner          on public.track_recommendations(owner_uid);
 create index idx_trackrec_batch          on public.track_recommendations(batch_id);
 
@@ -147,6 +169,7 @@ alter table public.templates             enable row level security;
 alter table public.clips                 enable row level security;
 alter table public.lyrics_segments       enable row level security;
 alter table public.comments              enable row level security;
+alter table public.text_overlays         enable row level security;
 alter table public.track_recommendations enable row level security;
 alter table public.tone_presets          enable row level security;
 
@@ -194,6 +217,18 @@ create policy comments_via_clip on public.comments
     select 1 from public.clips c
     join public.projects p on p.id = c.project_id
     where c.id = comments.clip_id and p.owner_uid = auth.uid()));
+
+-- 소유권 상속: text_overlays (via clip → project)
+create policy text_overlays_via_clip on public.text_overlays
+  for all to authenticated
+  using (exists (
+    select 1 from public.clips c
+    join public.projects p on p.id = c.project_id
+    where c.id = text_overlays.clip_id and p.owner_uid = auth.uid()))
+  with check (exists (
+    select 1 from public.clips c
+    join public.projects p on p.id = c.project_id
+    where c.id = text_overlays.clip_id and p.owner_uid = auth.uid()));
 
 -- 전역 시드: 읽기만 허용 (쓰기는 service_role/대시보드로만)
 create policy templates_read    on public.templates    for select to authenticated using (true);

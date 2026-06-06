@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import EditorClient from './EditorClient'
+import { textOverlaySchema, type TextOverlay } from '@/lib/text-overlays'
 
 export const dynamic = 'force-dynamic'
 
@@ -43,15 +44,34 @@ export default async function EditorPage({ params }: Props) {
     .order('created_at', { ascending: true })
 
   const { data: templates } = await supabase.from('templates').select('*').order('name')
+  const clipIds = (clips ?? []).map((clip) => clip.id)
+  const { data: overlayRows } = clipIds.length > 0
+    ? await supabase
+      .from('text_overlays')
+      .select('*')
+      .in('clip_id', clipIds)
+      .order('z_index')
+    : { data: [] }
+  const initialTextOverlaysByClip = (overlayRows ?? []).reduce<Record<string, TextOverlay[]>>(
+    (result, row) => {
+      const parsed = textOverlaySchema.safeParse(row)
+      if (!parsed.success) return result
+      const clipOverlays = result[parsed.data.clip_id] ?? []
+      clipOverlays.push(parsed.data)
+      result[parsed.data.clip_id] = clipOverlays
+      return result
+    },
+    {},
+  )
 
   return (
     <div className="min-h-screen bg-black">
       <nav className="sticky top-0 z-10 flex h-12 items-center gap-3 border-b border-white/[0.08] bg-black/80 px-6 backdrop-blur-xl">
         <Link
-          href="/projects"
+          href="/editor"
           className="text-[12px] text-[rgba(255,255,255,0.5)] transition-colors hover:text-white"
         >
-          ← Projects
+          ← Editor
         </Link>
         <span className="text-[rgba(255,255,255,0.2)]">/</span>
         <span className="max-w-[200px] truncate text-[12px] text-[rgba(255,255,255,0.7)]">
@@ -66,6 +86,7 @@ export default async function EditorPage({ params }: Props) {
           initialClips={clips ?? []}
           initialSegmentsByClip={{}}
           initialCommentsByClip={{}}
+          initialTextOverlaysByClip={initialTextOverlaysByClip}
           templates={templates ?? []}
         />
       </div>

@@ -1,4 +1,5 @@
 import { interpolate, useCurrentFrame, useVideoConfig } from 'remotion'
+import { getFontFamily, getFontWeight } from '../../../lib/fonts'
 import type { Segment, SubtitleStyle } from '../../types'
 
 interface Props {
@@ -12,7 +13,7 @@ const DEFAULTS: SubtitleStyle = {
   fontSize: 42,
   bgOpacity: 0.72,
   theme: 'white-on-black',
-  fontFamily: 'Noto Sans KR',
+  font_key: 'noto_kr',
 }
 
 export default function SubtitleLayer({ segments, clipStartSec, style }: Props) {
@@ -30,7 +31,8 @@ export default function SubtitleLayer({ segments, clipStartSec, style }: Props) 
   const fontSize = style?.fontSize ?? DEFAULTS.fontSize
   const bgOpacity = style?.bgOpacity ?? DEFAULTS.bgOpacity
   const theme = style?.theme ?? DEFAULTS.theme
-  const fontFamily = style?.fontFamily ?? DEFAULTS.fontFamily
+  const fontKey = style?.font_key ?? DEFAULTS.font_key
+  const fontFamily = getFontFamily(fontKey)
 
   const top = position === 'top' ? '10%' : position === 'center' ? '50%' : '75%'
   const transform = position === 'center' ? 'translateY(-50%)' : undefined
@@ -64,7 +66,7 @@ export default function SubtitleLayer({ segments, clipStartSec, style }: Props) 
           style={{
             color: textColor,
             fontSize,
-            fontWeight: 700,
+            fontWeight: getFontWeight(fontKey),
             fontFamily: `'${fontFamily}', 'Apple SD Gothic Neo', sans-serif`,
             lineHeight: 1.25,
             textAlign: 'center',

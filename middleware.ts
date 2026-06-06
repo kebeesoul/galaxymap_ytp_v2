@@ -1,16 +1,12 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { isProtectedRoute } from './lib/auth/routes'
 import type { Database } from './lib/supabase/types'
-
-const protectedPrefixes = ['/curation', '/select', '/editor', '/history']
 
 export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname
-  const isProtected = protectedPrefixes.some(
-    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
-  )
 
-  if (!isProtected || pathname === '/login') {
+  if (!isProtectedRoute(pathname)) {
     return NextResponse.next()
   }
 
@@ -56,5 +52,7 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)'],
+  matcher: [
+    '/((?!_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|map|woff|woff2|ttf|otf|mp4|webm|mp3|wav)$).*)',
+  ],
 }

@@ -84,14 +84,9 @@ export async function POST() {
       toInsert(item, index + 1, batchId, user.id),
     )
 
-    let { error: insertError } = await supabase.from('track_recommendations').insert(payload)
-    if (insertError && isMissingOwnerUidError(insertError.message)) {
-      const legacyPayload = payload.map(({ owner_uid: _ownerUid, ...item }) => item)
-      const legacyResult = await supabase
-        .from('track_recommendations')
-        .insert(legacyPayload as unknown as TablesInsert<'track_recommendations'>[])
-      insertError = legacyResult.error
-    }
+    const { error: insertError } = await supabase
+      .from('track_recommendations')
+      .insert(payload)
 
     if (insertError) {
       return NextResponse.json({ error: insertError.message }, { status: 500 })
@@ -132,8 +127,4 @@ function toInsert(
     yt_search_status: 'pending',
     used: false,
   }
-}
-
-function isMissingOwnerUidError(message: string) {
-  return message.includes("Could not find the 'owner_uid' column")
 }

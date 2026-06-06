@@ -5,8 +5,6 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { TablesInsert } from '@/lib/supabase/types'
 
-type LegacyProjectInsert = Omit<TablesInsert<'projects'>, 'owner_uid'>
-
 export default function SelectPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
@@ -70,28 +68,11 @@ export default function SelectPage() {
       ip_owner: false,
     }
 
-    let { data: project, error: insertError } = await supabase
+    const { data: project, error: insertError } = await supabase
       .from('projects')
       .insert(payload)
       .select('id')
       .single()
-
-    if (insertError && isMissingOwnerUidError(insertError.message)) {
-      const legacyPayload: LegacyProjectInsert = {
-        artist: currentArtist,
-        song_title: currentSongTitle,
-        source_url: currentSourceUrl,
-        import_status: 'pending',
-        ip_owner: false,
-      }
-      const legacyResult = await supabase
-        .from('projects')
-        .insert(legacyPayload as TablesInsert<'projects'>)
-        .select('id')
-        .single()
-      project = legacyResult.data
-      insertError = legacyResult.error
-    }
 
     if (insertError || !project) {
       setError(insertError?.message ?? 'Failed to create project')
@@ -192,8 +173,4 @@ function Field({
       />
     </div>
   )
-}
-
-function isMissingOwnerUidError(message: string) {
-  return message.includes("Could not find the 'owner_uid' column")
 }

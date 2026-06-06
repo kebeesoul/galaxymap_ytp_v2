@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import AppNav from '@/components/navigation/AppNav'
+import { GOOGLE_FONTS_STYLESHEET } from '@/lib/fonts'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -19,7 +20,7 @@ export default function RootLayout({
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         {/* Korean fonts for subtitle / comment style preview */}
         <link
-          href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@700&family=Black+Han+Sans&family=Nanum+Gothic:wght@700&family=Gothic+A1:wght@700&family=Noto+Serif+KR:wght@700&family=Gowun+Dodum&display=swap"
+          href={GOOGLE_FONTS_STYLESHEET}
           rel="stylesheet"
         />
       </head>

@@ -1,3 +1,6 @@
+import type { FontKey } from '../lib/fonts'
+import type { TextOverlay } from '../lib/text-overlays'
+
 export interface Segment {
   text: string
   start_sec: number
@@ -12,29 +15,17 @@ export interface Comment {
 
 export type StyleTheme = 'white-on-black' | 'black-on-white'
 
-export const FONT_FAMILIES = [
-  'Noto Sans KR',
-  'Black Han Sans',
-  'Nanum Gothic',
-  'Gothic A1',
-  'Noto Serif KR',
-  'Gowun Dodum',
-] as const
-
-export type FontFamily = typeof FONT_FAMILIES[number]
-
 export interface SubtitleStyle {
   position: 'top' | 'center' | 'bottom'
   fontSize: number
   bgOpacity: number
   theme: StyleTheme
-  fontFamily: string
-  blackBars?: boolean
+  font_key: FontKey
 }
 
 export interface CommentStyle {
   theme: StyleTheme
-  fontFamily: string
+  font_key: FontKey
   /** Font size multiplier (0.8 – 1.2) — base sizes get scaled in CommentLayer */
   fontScale: number
   /** Seconds each comment stays on screen before cycling to the next (3 – 8) */
@@ -47,8 +38,10 @@ export interface ClipInput {
   bgm_url?: string | null
   bgm_volume?: number
   original_volume?: number
+  bar_enabled?: boolean
   subtitle_style?: SubtitleStyle | null
   comment_style?: CommentStyle | null
+  text_overlays?: TextOverlay[]
 }
 
 export interface RenderInput {

@@ -1,4 +1,5 @@
 import { spring, useCurrentFrame, useVideoConfig } from 'remotion'
+import { getFontFamily, getFontWeight } from '../../../lib/fonts'
 import type { Comment, CommentStyle } from '../../types'
 
 interface Props {
@@ -8,7 +9,7 @@ interface Props {
 
 const DEFAULTS: CommentStyle = {
   theme: 'white-on-black',
-  fontFamily: 'Noto Sans KR',
+  font_key: 'noto_kr',
   fontScale: 1,
   durationSec: 5,
 }
@@ -19,7 +20,9 @@ export default function CommentLayer({ comments, style }: Props) {
 
   if (comments.length === 0) return null
 
-  const fontFamily = style?.fontFamily ?? DEFAULTS.fontFamily
+  const fontKey = style?.font_key ?? DEFAULTS.font_key
+  const fontFamily = getFontFamily(fontKey)
+  const fontWeight = getFontWeight(fontKey)
   const fontScale = style?.fontScale ?? DEFAULTS.fontScale
   const durationSec = style?.durationSec ?? DEFAULTS.durationSec
 
@@ -69,11 +72,11 @@ export default function CommentLayer({ comments, style }: Props) {
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#d9d9d9', flex: '0 0 auto' }} />
-          <p style={{ color: '#575757', fontSize: usernameSize, fontWeight: 700, fontFamily: fontStack, margin: 0 }}>
+          <p style={{ color: '#575757', fontSize: usernameSize, fontWeight, fontFamily: fontStack, margin: 0 }}>
             {active.username}
           </p>
         </div>
-        <p style={{ color: '#111', fontSize: bodySize, fontWeight: 600, fontFamily: fontStack, margin: '9px 0 0', lineHeight: 1.34 }}>
+        <p style={{ color: '#111', fontSize: bodySize, fontWeight, fontFamily: fontStack, margin: '9px 0 0', lineHeight: 1.34 }}>
           {active.body}
         </p>
       </div>
