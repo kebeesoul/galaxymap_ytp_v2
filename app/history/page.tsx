@@ -1,5 +1,4 @@
 import { createClient } from '@/lib/supabase/server'
-import DashboardNav from '@/components/dashboard/nav'
 import HistoryPanel from './HistoryPanel'
 import type { HistoryProject, HistoryRender } from './HistoryPanel'
 
@@ -43,7 +42,6 @@ export default async function HistoryPage() {
 
   return (
     <div className="min-h-screen bg-black">
-      <DashboardNav />
       <main className="mx-auto max-w-[1200px] px-6 py-10">
         <h1 className="mb-8 text-[28px] font-semibold text-white">History</h1>
         <HistoryPanel

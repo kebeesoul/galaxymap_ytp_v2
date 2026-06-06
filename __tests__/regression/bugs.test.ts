@@ -102,3 +102,22 @@ describe('Bug 4 regression: import/route processing guard', () => {
     expect(src).toContain('updated?.length')
   })
 })
+
+describe('Bug 5 regression: duplicate dashboard navigation', () => {
+  const layout = read('app/layout.tsx')
+  const historyPage = read('app/history/page.tsx')
+  const editorPage = read('app/editor/[id]/page.tsx')
+  const editorClient = read('app/editor/[id]/EditorClient.tsx')
+
+  it('renders AppNav only from the root layout', () => {
+    expect(layout).toContain('<AppNav />')
+    expect(historyPage).not.toContain('DashboardNav')
+    expect(editorPage).not.toContain('DashboardNav')
+  })
+
+  it('keeps editor ingest retry and queued states intact', () => {
+    expect(editorClient).toContain("label=\"재시도\"")
+    expect(editorClient).toContain("'Queued…'")
+    expect(editorClient).toContain("'Downloading…'")
+  })
+})

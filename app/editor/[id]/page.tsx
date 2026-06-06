@@ -1,6 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
-import DashboardNav from '@/components/dashboard/nav'
 import EditorClient from './EditorClient'
 import { textOverlaySchema, type TextOverlay } from '@/lib/text-overlays'
 
@@ -66,8 +65,6 @@ export default async function EditorPage({ params }: Props) {
 
   return (
     <div className="min-h-screen bg-black">
-      <DashboardNav />
-
       <div className="mx-auto max-w-[980px] px-6 py-8">
         <EditorClient
           project={project}
