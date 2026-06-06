@@ -62,3 +62,4 @@ yarn.lock
 .env.save
 .env*
 .pnpm-store/
+*.bak
