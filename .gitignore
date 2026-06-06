@@ -50,3 +50,16 @@ dist/
 
 # yt-dlp cookies (sensitive — never commit)
 workers/ingest/cookies.txt
+<<<<<<< Updated upstream
+=======
+
+# local media scratch (STORAGE_ROOT)
+storage/
+workspace/
+
+# wrong lockfiles (pnpm-lock.yaml only)
+package-lock.json
+yarn.lock
+.env.save
+.env*
+>>>>>>> Stashed changes

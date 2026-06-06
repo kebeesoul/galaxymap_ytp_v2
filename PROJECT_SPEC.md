@@ -369,11 +369,42 @@ ALTER TABLE clips ADD COLUMN render_error text;
 
 POST /api/render { clip_id }
 
+<<<<<<< Updated upstream
 1. clips + segments + comments + template 조회
 2. render_status = 'pending' 업데이트
 3. render-queue/worker.ts에 job 전달
 4. 완료 시: render_status = 'success' + render_path 업데이트
 5. 실패 시: render_status = 'failed' + render_error 업데이트
+=======
+- `2026-06-03` — 배포는 **Railway 확정**(Vercel 폐기) : 상시 프로세스가 폴링/프록시에 유리, 기존 문서 의도와 정합.
+- `2026-06-03` — 파일 스토리지 **Cloudflare R2 확정** : 영상은 egress가 비용 지배 → egress 무료인 R2가 최적. Supabase Storage 폐기.
+- `2026-06-03` — **UID별 R2 폴더 격리** : Supabase Auth UID를 키 최상위 prefix로. 작업자별 물리 분리 + presign 시 소유권 검증.
+- `2026-06-03` — 단일 사용자 → **다중 작업자 + 웹 접속**으로 전제 변경 : Auth/RLS 활성화·중복 가드가 필수로 승격.
+- `2026-06-03` — **pnpm 전용** : npm/yarn 금지, lockfile 단일화.
+- `2026-06-03` — 작업 파일은 Mac 로컬 스크래치 처리, 최종물만 R2 게시(하이브리드) : 다중 동시 접속 시 Mac 대역폭 병목 회피. 렌더 입력은 항상 로컬에서 읽어 처리속도 손실 없음.
+- `2026-06-03` — pnpm **10.x + Node 20** 라인 확정 : pnpm 11은 Node 22 강제 → 현 워커(`nvm use 20`)와 충돌, 리빌딩 중 런타임 변수 최소화.
+- `2026-06-03` — Curator LLM = **Gemini 2.5 Flash Lite**(MVP) : 필요 시 교체.
+- `2026-06-03` — Mac 스크래치 경로 = `<repo>/storage/` : 레포 하위에 두되 .gitignore로 커밋 차단.
+- `2026-06-03` — PR #75 main 반영 **실증**(next.config.mjs에 `staleTimes:{dynamic:0}` 존재) → Draft는 중복 잔재, 닫기.
+- `2026-06-03` — **PR 4개(#75/#77/#82/#85) 전부 닫기 확정** : 모두 main에 이미 반영된 뒤 남은 Draft 잔재로 간주.
+- `2026-06-03` — Curator는 **Google Gemini SDK**로 호출(REST 아님) : Google SDK 도입 필요.
+- `2026-06-03` — 로컬 경로 **env(`STORAGE_ROOT`)화** : 레포가 public이라 절대경로·사용자명 노출 방지 + 폴더 이동 내성 확보(.env 한 줄로 경로 변경).
+- `2026-06-03` — **Node 20 통일** : 실환경 Node 22 감지됐으나 개발 셸·Mac 워커 모두 20으로 일원화(`nvm alias default 20` + `.nvmrc`=20 + `engines`). Remotion/tsx 워커 회귀 방지. pnpm은 10.34.1 유지(11 불필요).
+- `2026-06-03` — **로컬 = 휘발성 캐시(B안)** : R2가 진실의 원본, 로컬은 lazy-fill 캐시. yt-dlp·Remotion은 로컬 처리가 물리적으로 필수(R2 직접 처리 불가)이므로 로컬을 “통과 스크래치+캐시”로 둔다. import 원본은 즉시 삭제 안 하고 캐시 보존(다중 클립 렌더·프리뷰 재사용). cleanup은 TTL+용량상한 LRU.
+- `2026-06-03` — **워크플로우 메뉴화** : 선형(Curator→Import→…)을 폐기하고 상단 메뉴 4개(Curation/Select/Editor/History)로 재편. **Curation은 import로 안 이어지는 read-only 참고 보드**, **Select가 YouTube 링크 입력 = 작업 진입점**.
+- `2026-06-03` — **Auth/RLS = A/A/A** : (D1) 초대/관리자 생성제, 공개 가입 비활성. (D2) owner_uid는 projects·track_recommendations에만, 하위는 project 상속. (D3) tone_presets는 전역 공유 read-only.
+- `2026-06-03` — **마이그레이션 squash(베이스라인 재설정)** : 26개 누더기 + 죽은 컬럼을 클린 init 1개로 통합. **데이터 폐기(A) 확정**(projects/clips 0행, track_rec 38행 — 무손실). 단 **시드 2개(templates·tone_presets) 보존**(drop 안 함, RLS만 추가).
+- `2026-06-03` — **Auth = 이메일+비밀번호, 운영 최대 5인** : 공개 가입 비활성, 계정은 Supabase 대시보드 수동 발급. 내부 도구라 OAuth 외부설정 불필요. 인원 증가 시 OAuth 재검토.
+- `2026-06-05` — **자유 텍스트 오버레이(Phase 6)** : 가사 자막은 기존 위치 고정(건드리지 않음). 상/하단 검정 바(각 15% 고정) 위에만 자유 텍스트 배치. 별도 `text_overlays` 테이블(zone=top/bottom, 좌표·크기 전부 상대값). 검정 바는 `clips.bar_enabled`로 분리(기존 subtitle_style에서 이전).
+- `2026-06-05` — **폰트 12종 고정**(전부 구글폰트, `lib/fonts.ts` 단일 레지스트리·에디터/Remotion 공유) : 영문 montserrat/inter/bebas/playfair/oswald/roboto + 한글 noto_kr/gmarket/nanum_square/gowun/black_han/jua. Pretendard는 jua로 교체(구글폰트 통일). 무제한 폰트는 렌더·로딩 부담이라 12종 enum 강제.
+- `2026-06-06` — **폰트 로딩 구현** : 10종은 `@remotion/google-fonts`, Gmarket Sans·NanumSquare는 해당 패키지 미지원으로 로컬 폰트 자산과 `@remotion/fonts`를 사용. 브라우저와 Remotion은 `lib/fonts.ts`의 동일한 `font_key` 정의를 공유.
+- `2026-06-06` — **service_role 클라이언트 분리** : `lib/supabase/service-role.ts`는 서버·로컬 워커 전용이며 RLS를 우회한다. 활성 ingest/render worker의 anon key fallback을 제거해 service_role 누락 시 즉시 실패하도록 고정.
+- `2026-06-06` — **Auth 문지기 구현** : `/curation`·`/select`·`/editor`·`/history`와 하위 경로를 쿠키 세션으로 보호하고, `/login`과 정적 자산은 미들웨어 인증 검사에서 제외한다.
+- `2026-06-06` — **워크플로우 메뉴 구현** : `/editor`가 프로젝트 목록을 직접 제공하고 구형 `/projects`·`/projects/new`는 각각 `/editor`·`/select`로 리다이렉트한다. 프로젝트·추천 생성은 `owner_uid`를 필수로 기록하며 구형 스키마 fallback을 허용하지 않는다.
+- `2026-06-06` — **자유 텍스트 WYSIWYG 구현** : 에디터 Player와 최종 Remotion 렌더가 동일한 `BarLayer`·`TextOverlayLayer`를 사용한다. Moveable 조작값은 zone 내부 상대좌표와 화면높이 비율로 `text_overlays`에 저장한다.
+- `2026-06-06` — **ESLint 비대화형 고정** : Next.js 14·ESLint 8 legacy 설정인 `.eslintrc.json`에서 `next/core-web-vitals` 표준 preset만 사용한다.
+- `2026-06-06` — **렌더 중복 가드 복구** : `/api/render`는 `render_status is null or != processing`인 행만 원자적으로 pending 전환하고, 이미 processing이면 409를 반환한다. stale processing 복구는 Mac 워커 시작 로직이 담당한다.
+>>>>>>> Stashed changes
 
 ---
 
