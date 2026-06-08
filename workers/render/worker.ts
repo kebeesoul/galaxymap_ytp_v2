@@ -3,7 +3,9 @@ import { renderMedia, selectComposition } from '@remotion/renderer'
 import { promises as fs, existsSync, readFileSync } from 'fs'
 import path from 'path'
 import os from 'os'
+import { pathToFileURL } from 'url'
 import { selectCommentsForRender } from '../../lib/comments/select-for-render'
+import { downloadSourceObject } from '../../lib/r2'
 import { createServiceRoleClient } from '../../lib/supabase/service-role'
 import { textOverlaySchema } from '../../lib/text-overlays'
 
@@ -52,17 +54,6 @@ function extractLayout(config: unknown): CompositionId {
   }
   return 'LayoutA'
 }
-
-async function getSourceSignedUrl(
-  storagePath: string,
-  ytVideoId: string | null,
-): Promise<string> {
-  console.log(`[source] signed URL for ${ytVideoId ?? storagePath}`)
-  const { data, error } = await supabase.storage.from('sources').createSignedUrl(storagePath, 7200)
-  if (error || !data?.signedUrl) throw new Error(`source signed url failed: ${error?.message ?? 'no url'}`)
-  return data.signedUrl
-}
-
 
 async function processJob(clipId: string): Promise<void> {
   console.time('[render] total')
@@ -114,10 +105,12 @@ async function processJob(clipId: string): Promise<void> {
   const serveUrl = await ensureBundle()
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'galaxymap-render-'))
   const outputPath = path.join(tmpDir, `${clipId}.mp4`)
+  const sourcePath = path.join(tmpDir, `${project.yt_video_id ?? 'source'}.mp4`)
 
   try {
     console.time('[render] source')
-    const renderVideoUrl = await getSourceSignedUrl(project.yt_source_path, project.yt_video_id ?? null)
+    await downloadSourceObject(project.yt_source_path, sourcePath)
+    const renderVideoUrl = pathToFileURL(sourcePath).href
     console.timeEnd('[render] source')
 
     const inputProps = {

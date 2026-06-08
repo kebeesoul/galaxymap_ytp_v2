@@ -1,4 +1,5 @@
 yt-dlp>=2025.04.01
+boto3>=1.36.0
 supabase==2.10.0
 python-dotenv==1.0.1
 fastapi==0.115.6

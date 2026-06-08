@@ -298,7 +298,7 @@ export default function ClipEditor({
     setSourceError(null)
 
     try {
-      const response = await fetch(`/api/projects/${project.id}/source-url`, {
+      const response = await fetch(`/api/source-url?project_id=${encodeURIComponent(project.id)}`, {
         cache: 'no-store',
       })
       const body = (await response.json()) as { url?: string; error?: string }

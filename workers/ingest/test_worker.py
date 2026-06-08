@@ -20,15 +20,21 @@ class WorkerPathTests(unittest.TestCase):
             Path(tmpdir) / "user-123" / "sources" / "preview" / "video-456.mp4",
         )
 
-    def test_local_source_path_marks_legacy_rows(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            with patch.object(worker, "STORAGE_ROOT", Path(tmpdir)):
-                path = worker.local_source_path(None, "video-456")
+    def test_source_key_requires_owner_uid(self):
+        with self.assertRaisesRegex(RuntimeError, "owner_uid"):
+            worker.source_object_key("", "video-456")
 
-        self.assertEqual(
-            path,
-            Path(tmpdir) / "legacy" / "sources" / "preview" / "video-456.mp4",
-        )
+    def test_publish_source_removes_local_file_after_r2_upload(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "video.mp4"
+            path.write_bytes(b"video")
+            key = "user-123/sources/preview/video-456.mp4"
+            with patch.object(worker, "upload_source", return_value=key) as upload_mock:
+                result = worker.publish_source(path, key)
+
+        self.assertEqual(result, key)
+        self.assertFalse(path.exists())
+        upload_mock.assert_called_once_with(path, key)
 
 
 class WorkerErrorTests(unittest.TestCase):

@@ -246,6 +246,7 @@ cd workers/ingest && ./setup.sh   # launchd 영구 등록
 - **render_path도 동일 전환 대상인가**: 이번 스펙은 *source(ingest)* 만 다룬다. clips.render_path(렌더 결과물)도 같은 R2 패턴 필요하면 별도 패스로 — 단 코드는 A-1 함수 재사용.
 - **비용**: R2 스토리지 과금(저장량) 발생, egress는 무료. 50MB→풀영상이면 저장량 급증 — 오래된 source 정리(TTL/lifecycle rule) 정책을 다음 스펙에서.
 - **LLM Gemini 전환(#81)과 독립**: 이 작업과 충돌 없음. 별도 트랙.
+- **⚠️ Railway 배포 시 워커 URL 교체**: `.env.local`의 `PYTHON_WORKER_URL`/`WHISPER_WORKER_URL`은 `localhost:8001`/`8002`로 로컬 dev에선 맞지만, **Railway 프론트가 읽으면 localhost=Railway 컨테이너 자신**이라 워커 호출이 죽는다(connection refused). Railway 환경변수에서는 Mac Studio에 도달하는 **Cloudflare Tunnel 공개 URL**로 교체해야 한다. Lane A 머지 후 Railway에서 풀영상 ingest 검증하는 시점에 반드시 적용. (토폴로지: Railway 프론트 → Mac Studio 로컬 워커)
 
 ---
 

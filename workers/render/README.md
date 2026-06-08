@@ -1,13 +1,14 @@
 # Render Worker
 
-Local Mac-only worker that renders Remotion compositions to MP4 and uploads to
-Supabase Storage. Polls every 3s for `clips.render_status='pending'`.
+Local Mac-only worker that downloads source video from Cloudflare R2, renders
+Remotion compositions to MP4, and uploads render output to Supabase Storage.
+Polls every 3s for `clips.render_status='pending'`.
 
 ## First-time setup
 
 ```bash
 # from repo root
-npm install            # installs @remotion/renderer + @remotion/bundler + tsx
+pnpm install
 ```
 
 Remotion will auto-download a headless Chrome on first run (~150 MB, cached
@@ -21,7 +22,7 @@ environments.
 
 ```bash
 # from repo root, with .env.local present
-npm run render-worker
+pnpm render-worker
 ```
 
 Press Ctrl+C to stop. On crash / restart any clip stuck in `processing` is
@@ -32,7 +33,11 @@ reset to `pending` automatically.
 Read from `.env.local` at the repo root:
 
 - `NEXT_PUBLIC_SUPABASE_URL` (required)
-- `SUPABASE_SERVICE_ROLE_KEY` (preferred) **or** `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `R2_ENDPOINT`
+- `R2_ACCESS_KEY_ID`
+- `R2_SECRET_ACCESS_KEY`
+- `R2_BUCKET`
 
 ## Output
 

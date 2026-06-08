@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y ffmpeg aria2 && rm -rf /var/lib/apt/lis
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY worker.py server.py docker-entrypoint.sh ./
+COPY worker.py storage.py server.py docker-entrypoint.sh ./
 RUN chmod +x docker-entrypoint.sh
 
 CMD ["./docker-entrypoint.sh"]

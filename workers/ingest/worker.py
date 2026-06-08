@@ -1,8 +1,8 @@
 """
 Pull-based ingest worker.
 Polls Supabase for projects with import_status='pending', downloads via yt-dlp,
-uploads preview mp4 to Supabase Storage, then updates the project row.
-No HTTP server — only outbound connections to Supabase.
+uploads the source mp4 to Cloudflare R2, then updates the project row.
+No HTTP server — only outbound connections to Supabase, YouTube, and R2.
 """
 import asyncio
 from datetime import datetime, timedelta, timezone
@@ -13,6 +13,7 @@ import shutil
 
 from dotenv import load_dotenv
 from supabase import create_client
+from storage import upload_source
 
 load_dotenv()
 
@@ -159,9 +160,20 @@ def classify_ytdlp_error(stderr: str, stage: str) -> str:
     return f"{stage} 실패: 분류되지 않은 yt-dlp 오류입니다. 원본 오류: {err}"
 
 
-def local_source_path(owner_uid: str | None, video_id: str) -> Path:
-    owner_prefix = owner_uid or "legacy"
-    return STORAGE_ROOT / owner_prefix / "sources" / "preview" / f"{video_id}.mp4"
+def source_object_key(owner_uid: str, video_id: str) -> str:
+    if not owner_uid:
+        raise RuntimeError("Project owner_uid is required for R2 source isolation")
+    return f"{owner_uid}/sources/preview/{video_id}.mp4"
+
+
+def local_source_path(owner_uid: str, video_id: str) -> Path:
+    return STORAGE_ROOT / source_object_key(owner_uid, video_id)
+
+
+def publish_source(local_path: Path, key: str) -> str:
+    uploaded_key = upload_source(local_path, key)
+    local_path.unlink(missing_ok=True)
+    return uploaded_key
 
 
 def utc_timestamp(now: datetime | None = None) -> str:
@@ -224,6 +236,9 @@ async def process(supabase, project_id: str, source_url: str, owner_uid: str | N
         return  # Already claimed by another instance
 
     try:
+        if not owner_uid:
+            raise RuntimeError("Project owner_uid is required for R2 source isolation")
+
         # Fetch metadata
         rc, stdout, stderr = await _run(60, "--dump-json", "--no-playlist", source_url)
         if rc != 0:
@@ -271,13 +286,8 @@ async def process(supabase, project_id: str, source_url: str, owner_uid: str | N
         if downloaded_path != output_path:
             downloaded_path.replace(output_path)
 
-        storage_path = f"{owner_uid or 'legacy'}/sources/preview/{video_id}.mp4"
-        with output_path.open("rb") as source_file:
-            supabase.storage.from_("sources").upload(
-                path=storage_path,
-                file=source_file.read(),
-                file_options={"content-type": "video/mp4", "upsert": "true"},
-            )
+        storage_path = source_object_key(owner_uid, video_id)
+        publish_source(output_path, storage_path)
 
         supabase.table("projects").update({
             "import_status": "success",
