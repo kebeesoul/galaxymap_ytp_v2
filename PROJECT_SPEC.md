@@ -8,7 +8,7 @@
 # galaxymap_ytp_v2 — Project Spec
 
 > **한 줄 목적:** YouTube 영상을 받아 자막·댓글·BGM을 입힌 음악 큐레이션/요약 클립을 만드는 웹 에디터 + 로컬 렌더 파이프라인.
-> **spec 버전:** v1.0 (리빌딩 기준) · **마지막 갱신:** 2026-06-03
+> **spec 버전:** v1.0 (리빌딩 기준) · **마지막 갱신:** 2026-06-08
 
 -----
 
@@ -163,7 +163,7 @@
 
 |테이블                    |핵심 컬럼                                                                                                                                                                                                                                                                                                                   |관계                                                        |비고                                                             |
 |-----------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------|---------------------------------------------------------------|
-|`projects`             |artist, song_title, source_url, **ip_owner**(bool), ip_confirmed_at, yt_video_id, yt_title, yt_duration_sec, yt_thumbnail_url, **yt_source_path**(=R2 key), import_status, import_error, song_lyrics, song_lyrics_timestamps(jsonb), description_base, description_styled, description_tone(ref_01/02/03), **owner_uid**|1—N clips · 1—N track_recommendations                     |owner_uid=auth.uid(). ip_owner=권리 게이트. ~yt_hq_source_path 죽은컬럼~|
+|`projects`             |artist, song_title, source_url, **ip_owner**(bool), ip_confirmed_at, yt_video_id, yt_title, yt_duration_sec, yt_thumbnail_url, **yt_source_path**(=R2 key), import_status, import_error, **processing_started_at**, song_lyrics, song_lyrics_timestamps(jsonb), description_base, description_styled, description_tone(ref_01/02/03), **owner_uid**|1—N clips · 1—N track_recommendations                     |owner_uid=auth.uid(). processing_started_at=ingest claim UTC 시각. ~yt_hq_source_path 죽은컬럼~|
 |`templates`            |name, config_json(jsonb)                                                                                                                                                                                                                                                                                                |1—N clips                                                 |**시드(3행)·전역 read-only.** Remotion 레이아웃. 폐기 금지                  |
 |`clips`                |project_id, template_id, start/end_sec, label, render_status(+cancelled), render_path(=R2 key), render_error, render_preset(fast/balanced/quality), render_progress, bgm_url(=R2 key), bgm_volume, bgm_start_sec, original_volume, subtitle_style(jsonb), comment_style(jsonb), **bar_enabled**                         |N—1 projects/templates · 1—N lyrics/comments/text_overlays|소유권은 project 상속. bar_enabled=상/하단 검정 바(각 15% 고정)               |
 |`text_overlays`        |clip_id, **zone**(top/bottom), content, x, y, rotation, font_key, size, color, align, effect, z_index, start_sec, end_sec                                                                                                                                                                                               |N—1 clips                                                 |**자유 텍스트** — 검정 바 위 배치. 좌표·크기 전부 상대값. 소유권 상속                   |
@@ -171,6 +171,7 @@
 |`comments`             |clip_id, username, body, likes_count, source, is_selected                                                                                                                                                                                                                                                               |N—1 clips                                                 |소유권 상속                                                         |
 |`track_recommendations`|batch_id, rank(1-3), artist, song_title, release_year, genre, reason, role(popular/reliable/wildcard), popularity_estimate(1-10), topic, era, genre_filter, yt_video_id, yt_title, yt_search_status(pending/found/not_found), used, used_project_id, **owner_uid**                                                      |FK→projects (ON DELETE SET NULL)                          |**독립 owner_uid** (Curation에서 프로젝트 전 존재)                        |
 |`tone_presets`         |key(ref_01/02/03 unique), label, description, reference_text, is_active                                                                                                                                                                                                                                                 |독립                                                        |**시드(3행)·전역 read-only.** 폐기 금지                                 |
+|`worker_health`        |worker_id(PK), last_beat_at, note                                                                                                                                                                                                                                                                                         |독립                                                        |service_role 워커가 upsert. authenticated는 SELECT only. ingest UI 오프라인 판정에 사용|
 
 ### 6.1 Auth & RLS [DECIDED]
 
@@ -208,7 +209,9 @@
 
 |Job/Flow         |트리거                              |주기       |[runs]           |[stores]                           |책임                               |
 |-----------------|---------------------------------|---------|-----------------|-----------------------------------|---------------------------------|
-|import(ingest)   |`/api/import` → status=pending   |3초 폴링    |Mac Studio       |로컬 캐시 → **R2(원본)** + Supabase(meta)|yt-dlp 다운로드 → R2 PUT, 로컬 사본 캐시 보존|
+|import(ingest)   |`/api/import` → status=pending   |1초 폴링    |Mac Studio       |로컬 캐시 → **R2(원본)** + Supabase(meta)|원자 claim 시 processing_started_at 기록. 부팅 시 15분 초과 processing을 failed self-heal|
+|worker heartbeat|ingest 워커 독립 태스크            |30초       |Mac Studio       |Supabase `worker_health`             |다운로드 처리와 독립적으로 `worker_id='ingest'` last_beat_at upsert. UI는 2분 stale 또는 행 없음이면 offline 표시|
+|stale ingest reaper|pg_cron                         |2분        |Supabase         |Supabase `projects`                  |processing_started_at이 15분 초과한 processing을 failed + timeout 오류로 전환|
 |bgm upload       |`/api/upload-bgm` → ingest-server|on-demand|Mac Studio(:8001)|**R2** + Supabase                  |BGM 수신·게시                        |
 |render           |`/api/render` → status=pending   |3초 폴링    |Mac Studio       |로컬 캐시 읽기(없으면 R2 GET) → **R2(결과)**  |Remotion 렌더, R2 PUT              |
 |curator recommend|`/api/curator/*`                 |on-demand|Railway          |Supabase                           |Claude+YT 추천                     |
@@ -299,11 +302,13 @@
 - `2026-06-06` — **자유 텍스트 WYSIWYG 구현** : 에디터 Player와 최종 Remotion 렌더가 동일한 `BarLayer`·`TextOverlayLayer`를 사용한다. Moveable 조작값은 zone 내부 상대좌표와 화면높이 비율로 `text_overlays`에 저장한다.
 - `2026-06-06` — **렌더 중복 가드 복구** : `/api/render`는 `render_status is null or != processing`인 행만 원자적으로 pending 전환하고, 이미 processing이면 409를 반환한다. stale processing 복구는 Mac 워커 시작 로직이 담당한다.
 - `2026-06-06` — **상단 네비 단일화** : 루트 `app/layout.tsx`의 AppNav만 전역 렌더하며, 페이지별 DashboardNav와 Editor 상세의 중복 History 진입점은 폐기한다.
+- `2026-06-08` — **ingest reaper 신뢰성 설계** : claim은 `processing_started_at=now()`를 원자 기록하고, Supabase pg_cron `reap_stale_ingest`가 2분마다 15분 초과 processing을 failed로 전환한다. 워커 부팅 self-heal도 동일 조건만 처리하며, 다운로드와 독립된 30초 heartbeat 태스크는 `worker_health(worker_id='ingest')`에 upsert한다. UI 오프라인 기준은 heartbeat 2분 stale이다.
 
 -----
 
 ## 12. Known Issues / Backlog
 
+- [ ] **Gate 2 Lane B 운영 수용 테스트** — 코드(B-2/B-4)는 구현됨. Mac ingest 워커 재기동 후 heartbeat 갱신, 처리 중 강제 종료 후 최대 17분 내 pg_cron failed 전환, 재기동 self-heal을 라이브 작업으로 검증해야 Gate 2 전체 통과로 판정한다.
 - [x] **PR #75/#77/#82/#85 — 전부 닫기 확정.** 모두 main에 이미 반영된 뒤 남은 Draft 잔재. (#75는 next.config.mjs로 실증, 나머지 동일 패턴으로 간주.)
 - [ ] Google Gemini SDK 도입(`@google/genai` 등) + Curator 호출부 정리.
 - [ ] **Phase 2: DB 베이스라인 재설정(squash)** — init SQL 작성 완료. 적용 시 5개 테이블(projects·clips·lyrics_segments·comments·track_recommendations)만 drop&재생성, **시드 2개(templates·tone_presets)는 보존하고 RLS만 추가**. 브랜치 검증 후 운영 전환.

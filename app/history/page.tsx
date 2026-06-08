@@ -11,7 +11,7 @@ export default async function HistoryPage() {
     await Promise.all([
       supabase
         .from('projects')
-        .select('id, artist, song_title, import_status, created_at')
+        .select('id, artist, song_title, source_url, import_status, import_error, created_at')
         .order('created_at', { ascending: false }),
       supabase
         .from('clips')

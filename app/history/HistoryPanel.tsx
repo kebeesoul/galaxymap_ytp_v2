@@ -8,7 +8,9 @@ export interface HistoryProject {
   id: string
   artist: string
   song_title: string
+  source_url: string
   import_status: string | null
+  import_error: string | null
   created_at: string | null
 }
 
@@ -51,7 +53,12 @@ const RENDER_STATUS_COLORS: Record<string, string> = {
 
 function formatDate(iso: string | null) {
   if (!iso) return '—'
-  return new Date(iso).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  const kst = new Date(new Date(iso).getTime() + 9 * 60 * 60 * 1000)
+  const month = kst.getUTCMonth() + 1
+  const day = kst.getUTCDate()
+  const hour = String(kst.getUTCHours()).padStart(2, '0')
+  const minute = String(kst.getUTCMinutes()).padStart(2, '0')
+  return `${month}월 ${day}일 ${hour}:${minute}`
 }
 
 function formatDuration(start: number, end: number) {
@@ -74,6 +81,7 @@ export default function HistoryPanel({ initialProjects, initialRenders }: Props)
   const [deletingAllRenders, setDeletingAllRenders] = useState(false)
   const [downloadingRender, setDownloadingRender] = useState<string | null>(null)
   const [openingRender, setOpeningRender] = useState<string | null>(null)
+  const [retryingProject, setRetryingProject] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [editBlockedId, setEditBlockedId] = useState<string | null>(null)
   const router = useRouter()
@@ -94,12 +102,14 @@ export default function HistoryPanel({ initialProjects, initialRenders }: Props)
       if (ids.length === 0) return
       const { data } = await supabase
         .from('projects')
-        .select('id, import_status')
+        .select('id, import_status, import_error')
         .in('id', ids)
       if (!data) return
       setProjects(prev => prev.map(p => {
         const u = data.find(d => d.id === p.id)
-        return u && u.import_status !== p.import_status ? { ...p, import_status: u.import_status } : p
+        return u && (u.import_status !== p.import_status || u.import_error !== p.import_error)
+          ? { ...p, import_status: u.import_status, import_error: u.import_error }
+          : p
       }))
     }, 3000)
     return () => clearInterval(timer)
@@ -138,6 +148,29 @@ export default function HistoryPanel({ initialProjects, initialRenders }: Props)
     } else {
       setEditBlockedId(p.id)
       setTimeout(() => setEditBlockedId(null), 3000)
+    }
+  }
+
+  async function handleRetryProject(project: HistoryProject) {
+    setRetryingProject(project.id)
+    setError(null)
+    try {
+      const response = await fetch('/api/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_id: project.id, url: project.source_url }),
+      })
+      const body = (await response.json().catch(() => ({}))) as { error?: string }
+      if (!response.ok) throw new Error(body.error ?? `HTTP ${response.status}`)
+      setProjects(previous => previous.map(item => (
+        item.id === project.id
+          ? { ...item, import_status: 'pending', import_error: null }
+          : item
+      )))
+    } catch (retryError) {
+      setError(retryError instanceof Error ? retryError.message : 'Retry failed')
+    } finally {
+      setRetryingProject(null)
     }
   }
 
@@ -281,10 +314,24 @@ export default function HistoryPanel({ initialProjects, initialRenders }: Props)
                     파일 생성 중입니다. 잠시만 기다리세요.
                   </p>
                 )}
+                {p.import_status === 'failed' && p.import_error && (
+                  <p className="mb-2 break-words text-[11px] leading-snug text-red-300/80">
+                    {p.import_error}
+                  </p>
+                )}
                 <div className="flex items-center gap-2">
                   <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${STATUS_COLORS[p.import_status ?? ''] ?? STATUS_COLORS.pending}`}>
                     {p.import_status ?? 'pending'}
                   </span>
+                  {p.import_status === 'failed' && (
+                    <button
+                      onClick={() => void handleRetryProject(p)}
+                      disabled={retryingProject === p.id}
+                      className="rounded-md bg-[#0071e3] px-2 py-1 text-[11px] text-white hover:bg-[#0077ed] disabled:opacity-50"
+                    >
+                      {retryingProject === p.id ? '재시도 중…' : '재시도'}
+                    </button>
+                  )}
                   <span className="text-[11px] text-[rgba(255,255,255,0.3)]">
                     {formatDate(p.created_at)}
                   </span>

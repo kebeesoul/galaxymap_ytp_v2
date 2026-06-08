@@ -30,7 +30,7 @@ function ImportStatusBadge({ status, importError }: { status: string | null; imp
         </span>
         {importError && (
           <span
-            className="max-w-[220px] truncate text-[11px] text-red-400 cursor-default"
+            className="max-w-[320px] break-words text-right text-[11px] leading-snug text-red-500 cursor-default"
             title={importError}
           >
             {importError}
@@ -49,6 +49,8 @@ export default function ProjectList({ initialProjects }: { initialProjects: Proj
   const [projects, setProjects] = useState(initialProjects)
   const [deleting, setDeleting] = useState<string | null>(null)
   const [deletingAll, setDeletingAll] = useState(false)
+  const [retrying, setRetrying] = useState<string | null>(null)
+  const [retryErrors, setRetryErrors] = useState<Record<string, string>>({})
   const router = useRouter()
   const supabase = useMemo(() => createClient(), [])
 
@@ -140,11 +142,33 @@ export default function ProjectList({ initialProjects }: { initialProjects: Proj
   }
 
   async function handleRetry(id: string, sourceUrl: string) {
-    await fetch('/api/import', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ project_id: id, url: sourceUrl }),
+    setRetrying(id)
+    setRetryErrors(prev => {
+      const next = { ...prev }
+      delete next[id]
+      return next
     })
+    try {
+      const response = await fetch('/api/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_id: id, url: sourceUrl }),
+      })
+      const body = (await response.json().catch(() => ({}))) as { error?: string }
+      if (!response.ok) throw new Error(body.error ?? `HTTP ${response.status}`)
+      setProjects(prev => prev.map(project => (
+        project.id === id
+          ? { ...project, import_status: 'pending', import_error: null }
+          : project
+      )))
+    } catch (error) {
+      setRetryErrors(prev => ({
+        ...prev,
+        [id]: error instanceof Error ? error.message : 'Retry failed',
+      }))
+    } finally {
+      setRetrying(null)
+    }
   }
 
   async function handleDelete(id: string) {
@@ -231,53 +255,58 @@ export default function ProjectList({ initialProjects }: { initialProjects: Proj
           ].map(project => {
             const isImporting = project.import_status === 'pending' || project.import_status === 'processing'
             return (
-              <div key={project.id} className="group relative">
-                <Link href={`/editor/${project.id}`}>
-                  <div className={`flex items-center gap-6 rounded-2xl px-6 py-5 transition-shadow ${
-                    isImporting
-                      ? 'bg-amber-50 ring-1 ring-amber-200 shadow-[rgba(0,0,0,0.06)_0px_2px_12px] hover:shadow-[rgba(0,0,0,0.12)_0px_4px_20px]'
-                      : 'bg-white shadow-[rgba(0,0,0,0.08)_0px_2px_12px] hover:shadow-[rgba(0,0,0,0.14)_0px_4px_20px]'
-                  }`}>
-                    {project.yt_thumbnail_url ? (
-                      <img
-                        src={project.yt_thumbnail_url}
-                        alt={project.yt_title ?? project.song_title}
-                        className="h-16 w-28 rounded-lg object-cover"
-                      />
-                    ) : (
-                      <div className={`h-16 w-28 shrink-0 rounded-lg ${isImporting ? 'bg-amber-100' : 'bg-[#f5f5f7]'}`} />
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-[21px] font-semibold leading-[1.19] tracking-[0.231px] text-[#1d1d1f]">
-                        {project.song_title}
-                      </p>
-                      <p className="mt-0.5 text-[14px] text-[rgba(0,0,0,0.6)]">{project.artist}</p>
-                    </div>
-                    <ImportStatusBadge status={project.import_status} importError={project.import_error} />
+              <div
+                key={project.id}
+                className={`flex items-center gap-4 rounded-2xl px-6 py-5 transition-shadow ${
+                  isImporting
+                    ? 'bg-amber-50 ring-1 ring-amber-200 shadow-[rgba(0,0,0,0.06)_0px_2px_12px] hover:shadow-[rgba(0,0,0,0.12)_0px_4px_20px]'
+                    : 'bg-white shadow-[rgba(0,0,0,0.08)_0px_2px_12px] hover:shadow-[rgba(0,0,0,0.14)_0px_4px_20px]'
+                }`}
+              >
+                <Link href={`/editor/${project.id}`} className="flex min-w-0 flex-1 items-center gap-6">
+                  {project.yt_thumbnail_url ? (
+                    <img
+                      src={project.yt_thumbnail_url}
+                      alt={project.yt_title ?? project.song_title}
+                      className="h-16 w-28 rounded-lg object-cover"
+                    />
+                  ) : (
+                    <div className={`h-16 w-28 shrink-0 rounded-lg ${isImporting ? 'bg-amber-100' : 'bg-[#f5f5f7]'}`} />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[21px] font-semibold leading-[1.19] tracking-[0.231px] text-[#1d1d1f]">
+                      {project.song_title}
+                    </p>
+                    <p className="mt-0.5 text-[14px] text-[rgba(0,0,0,0.6)]">{project.artist}</p>
                   </div>
                 </Link>
-
-                {project.import_status === 'failed' && (
-                  <button
-                    onClick={(e) => { e.preventDefault(); handleRetry(project.id, project.source_url) }}
-                    className="absolute right-12 top-1/2 -translate-y-1/2 flex h-7 w-7 items-center justify-center rounded-full bg-white text-[rgba(0,0,0,0.3)] opacity-0 shadow-sm transition-all hover:bg-blue-50 hover:text-blue-500 group-hover:opacity-100"
-                    title="다시 시도"
-                  >
-                    <span className="text-[14px] leading-none">↺</span>
-                  </button>
-                )}
-                <button
-                  onClick={() => handleDelete(project.id)}
-                  disabled={deleting === project.id}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 flex h-7 w-7 items-center justify-center rounded-full bg-white text-[rgba(0,0,0,0.3)] opacity-0 shadow-sm transition-all hover:bg-red-50 hover:text-red-500 group-hover:opacity-100 disabled:opacity-40"
-                  title="삭제"
-                >
-                  {deleting === project.id ? (
-                    <span className="h-3 w-3 animate-spin rounded-full border border-red-300 border-t-red-500" />
-                  ) : (
-                    <span className="text-[14px] leading-none">✕</span>
+                <div className="flex shrink-0 items-center gap-3">
+                  <ImportStatusBadge
+                    status={project.import_status}
+                    importError={retryErrors[project.id] ?? project.import_error}
+                  />
+                  {project.import_status === 'failed' && (
+                    <button
+                      onClick={() => void handleRetry(project.id, project.source_url)}
+                      disabled={retrying === project.id}
+                      className="rounded-lg bg-[#0071e3] px-3 py-1.5 text-[12px] text-white shadow-sm transition-colors hover:bg-[#0077ed] disabled:opacity-50"
+                    >
+                      {retrying === project.id ? '재시도 중…' : '재시도'}
+                    </button>
                   )}
-                </button>
+                  <button
+                    onClick={() => handleDelete(project.id)}
+                    disabled={deleting === project.id}
+                    className="flex h-7 w-7 items-center justify-center rounded-full bg-white text-[rgba(0,0,0,0.3)] shadow-sm transition-colors hover:bg-red-50 hover:text-red-500 disabled:opacity-40"
+                    title="삭제"
+                  >
+                    {deleting === project.id ? (
+                      <span className="h-3 w-3 animate-spin rounded-full border border-red-300 border-t-red-500" />
+                    ) : (
+                      <span className="text-[14px] leading-none">✕</span>
+                    )}
+                  </button>
+                </div>
               </div>
             )
           })}

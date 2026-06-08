@@ -5,6 +5,7 @@ uploads preview mp4 to Supabase Storage, then updates the project row.
 No HTTP server — only outbound connections to Supabase.
 """
 import asyncio
+from datetime import datetime, timedelta, timezone
 import json
 import os
 from pathlib import Path
@@ -21,6 +22,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 STORAGE_ROOT = Path(os.environ.get("STORAGE_ROOT", PROJECT_ROOT / "workspace")).expanduser()
 COOKIE_FILE = Path(__file__).resolve().parent / "cookies.txt"
 POLL_INTERVAL = 1
+HEARTBEAT_INTERVAL = 30
+WORKER_ID = "ingest"
+STALE_PROCESSING_MINUTES = 15
 PRIMARY_PLAYER_CLIENT = "web,web_safari"
 FALLBACK_PLAYER_CLIENT = "android,web"
 
@@ -160,10 +164,63 @@ def local_source_path(owner_uid: str | None, video_id: str) -> Path:
     return STORAGE_ROOT / owner_prefix / "sources" / "preview" / f"{video_id}.mp4"
 
 
+def utc_timestamp(now: datetime | None = None) -> str:
+    return (now or datetime.now(timezone.utc)).isoformat()
+
+
+def claim_project(supabase, project_id: str, now: datetime | None = None) -> bool:
+    claim = (
+        supabase.table("projects")
+        .update({
+            "import_status": "processing",
+            "processing_started_at": utc_timestamp(now),
+            "import_error": None,
+        })
+        .eq("id", project_id)
+        .eq("import_status", "pending")
+        .execute()
+    )
+    return bool(claim.data)
+
+
+def heartbeat(supabase, now: datetime | None = None) -> None:
+    supabase.table("worker_health").upsert(
+        {
+            "worker_id": WORKER_ID,
+            "last_beat_at": utc_timestamp(now),
+            "note": "polling",
+        },
+        on_conflict="worker_id",
+    ).execute()
+
+
+async def maintain_heartbeat(supabase) -> None:
+    while True:
+        try:
+            heartbeat(supabase)
+        except Exception as exc:
+            print(f"[HEARTBEAT ERR] {exc}")
+        await asyncio.sleep(HEARTBEAT_INTERVAL)
+
+
+def reap_stale_processing(supabase, now: datetime | None = None) -> int:
+    cutoff = (now or datetime.now(timezone.utc)) - timedelta(minutes=STALE_PROCESSING_MINUTES)
+    result = (
+        supabase.table("projects")
+        .update({
+            "import_status": "failed",
+            "import_error": "timeout: worker did not finish within 15min",
+        })
+        .eq("import_status", "processing")
+        .lt("processing_started_at", cutoff.isoformat())
+        .execute()
+    )
+    return len(result.data or [])
+
+
 async def process(supabase, project_id: str, source_url: str, owner_uid: str | None) -> None:
     # Claim the job atomically — only update if still pending (guard against duplicates)
-    claim = supabase.table("projects").update({"import_status": "processing"}).eq("id", project_id).eq("import_status", "pending").execute()
-    if not claim.data:
+    if not claim_project(supabase, project_id):
         return  # Already claimed by another instance
 
     try:
@@ -253,9 +310,11 @@ async def main() -> None:
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
     STORAGE_ROOT.mkdir(parents=True, exist_ok=True)
 
-    # Reset any jobs stuck in 'processing' from a previous crash
-    supabase.table("projects").update({"import_status": "pending"}).eq("import_status", "processing").execute()
+    reaped = reap_stale_processing(supabase)
+    if reaped:
+        print(f"[SELF-HEAL] marked {reaped} stale ingest job(s) as failed")
 
+    asyncio.create_task(maintain_heartbeat(supabase))
     print(f"galaxymap ingest worker — polling every {POLL_INTERVAL}s, storage={STORAGE_ROOT}")
     while True:
         try:

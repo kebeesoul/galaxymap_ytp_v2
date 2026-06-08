@@ -228,6 +228,7 @@ export type Database = {
           ip_confirmed_at: string | null
           ip_owner: boolean
           owner_uid: string
+          processing_started_at: string | null
           song_lyrics: string | null
           song_lyrics_timestamps: Json | null
           song_title: string
@@ -250,6 +251,7 @@ export type Database = {
           ip_confirmed_at?: string | null
           ip_owner?: boolean
           owner_uid: string
+          processing_started_at?: string | null
           song_lyrics?: string | null
           song_lyrics_timestamps?: Json | null
           song_title: string
@@ -272,6 +274,7 @@ export type Database = {
           ip_confirmed_at?: string | null
           ip_owner?: boolean
           owner_uid?: string
+          processing_started_at?: string | null
           song_lyrics?: string | null
           song_lyrics_timestamps?: Json | null
           song_title?: string
@@ -281,6 +284,24 @@ export type Database = {
           yt_thumbnail_url?: string | null
           yt_title?: string | null
           yt_video_id?: string | null
+        }
+        Relationships: []
+      }
+      worker_health: {
+        Row: {
+          last_beat_at: string
+          note: string | null
+          worker_id: string
+        }
+        Insert: {
+          last_beat_at?: string
+          note?: string | null
+          worker_id: string
+        }
+        Update: {
+          last_beat_at?: string
+          note?: string | null
+          worker_id?: string
         }
         Relationships: []
       }

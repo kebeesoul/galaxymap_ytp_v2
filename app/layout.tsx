@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import AppNav from '@/components/navigation/AppNav'
+import WorkerOfflineBanner from '@/components/navigation/WorkerOfflineBanner'
 import { GOOGLE_FONTS_STYLESHEET } from '@/lib/fonts'
 import './globals.css'
 
@@ -26,6 +27,7 @@ export default function RootLayout({
       </head>
       <body>
         <AppNav />
+        <WorkerOfflineBanner />
         {children}
       </body>
     </html>

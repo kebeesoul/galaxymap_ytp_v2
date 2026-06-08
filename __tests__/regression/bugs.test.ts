@@ -121,3 +121,28 @@ describe('Bug 5 regression: duplicate dashboard navigation', () => {
     expect(editorClient).toContain("'Downloading…'")
   })
 })
+
+describe('Gate 2 Lane B regression: ingest reliability feedback', () => {
+  const layout = read('app/layout.tsx')
+  const banner = read('components/navigation/WorkerOfflineBanner.tsx')
+  const projectList = read('app/projects/ProjectList.tsx')
+  const historyPanel = read('app/history/HistoryPanel.tsx')
+
+  it('mounts one global worker health banner', () => {
+    expect(layout).toContain('<WorkerOfflineBanner />')
+    expect(banner).toContain(".from('worker_health')")
+    expect(banner).toContain(".eq('worker_id', 'ingest')")
+  })
+
+  it('keeps failed import error and retry actions visible', () => {
+    expect(projectList).toContain('importError={retryErrors[project.id] ?? project.import_error}')
+    expect(projectList).toContain("retrying === project.id ? '재시도 중…' : '재시도'")
+    expect(historyPanel).toContain("p.import_status === 'failed' && p.import_error")
+    expect(historyPanel).toContain('handleRetryProject(p)')
+  })
+
+  it('uses deterministic KST dates to avoid hydration mismatch', () => {
+    expect(historyPanel).not.toContain('toLocaleDateString')
+    expect(historyPanel).toContain('getUTCHours')
+  })
+})
