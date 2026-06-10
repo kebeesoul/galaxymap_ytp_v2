@@ -421,6 +421,8 @@ export default function ClipEditor({
 
   // Resume polling for in-progress renders on page load
   useEffect(() => {
+    const pollingIntervals = pollingIntervalsRef.current
+
     for (const clip of initialClips) {
       if (clip.render_status === 'pending' || clip.render_status === 'processing') {
         setRendering(prev => ({ ...prev, [clip.id]: true }))
@@ -428,7 +430,7 @@ export default function ClipEditor({
       }
     }
     return () => {
-      for (const id of Object.values(pollingIntervalsRef.current)) {
+      for (const id of Object.values(pollingIntervals)) {
         clearInterval(id)
       }
     }

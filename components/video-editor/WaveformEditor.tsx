@@ -162,7 +162,7 @@ export default function WaveformEditor({
         })
       })
     }
-  }, [startSec, endSec])
+  }, [startSec, endSec, mediaEl])
 
   const selectionSec =
     startSec !== null && endSec !== null ? endSec - startSec : null

@@ -122,6 +122,21 @@ describe('Bug 5 regression: duplicate dashboard navigation', () => {
   })
 })
 
+describe('Editor effect lifecycle regressions', () => {
+  const clipEditor = read('components/video-editor/ClipEditor.tsx')
+  const waveformEditor = read('components/video-editor/WaveformEditor.tsx')
+
+  it('cleans up the polling map captured when the effect starts', () => {
+    expect(clipEditor).toContain('const pollingIntervals = pollingIntervalsRef.current')
+    expect(clipEditor).toContain('Object.values(pollingIntervals)')
+    expect(clipEditor).not.toContain('Object.values(pollingIntervalsRef.current)')
+  })
+
+  it('rebinds the selected region when the video element changes', () => {
+    expect(waveformEditor).toContain('}, [startSec, endSec, mediaEl])')
+  })
+})
+
 describe('Gate 2 Lane B regression: ingest reliability feedback', () => {
   const layout = read('app/layout.tsx')
   const banner = read('components/navigation/WorkerOfflineBanner.tsx')
