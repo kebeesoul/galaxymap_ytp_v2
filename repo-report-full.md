@@ -384,9 +384,9 @@ This is valid as an intermediate stage but increases operational complexity and 
 
 ### Medium: operational documentation has drift
 
-`OPERATIONS.md` still contains Supabase Storage source assumptions and treats `PROJECT_SPEC.md` inconsistently with the current repository authority rules. Operators could follow stale source-path or storage instructions.
+At report generation time, `OPERATIONS.md` contained stale Supabase Storage source assumptions. This was corrected in the subsequent documentation synchronization.
 
-The specification filename also carries historical case/naming ambiguity: repository instructions refer to `project_spec.md`, while the tracked file is `PROJECT_SPEC.md`.
+The specification filename is now consistently referenced as the tracked `PROJECT_SPEC.md`.
 
 ### Medium: no automated CI gate
 

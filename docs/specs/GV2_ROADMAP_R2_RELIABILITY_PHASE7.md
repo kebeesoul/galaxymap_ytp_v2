@@ -3,8 +3,8 @@
 > **레포**: `~/Desktop/vc/galaxymap_ytp_v2` (`gv2`)
 > **위임 대상**: Claude Code (Mac Studio 로컬 실행)
 > **작성**: 2026-06-06 / 시퀀스 마스터 스펙
-> **포맷 규약**: vibe-supervisor (기능 추가 시나리오). **단일 진실 공급원은 레포의 `project_spec.md`.**
-> 이 문서는 실행 순서·게이트·Phase 7 설계를 담은 *위임 지침서*다. 실행 후 Claude Code는 **반드시 `project_spec.md`를 같은 턴에 갱신**한다(SYNC 의무, §SYNC 참조).
+> **포맷 규약**: vibe-supervisor (기능 추가 시나리오). **단일 진실 공급원은 레포의 `PROJECT_SPEC.md`.**
+> 이 문서는 실행 순서·게이트·Phase 7 설계를 담은 *위임 지침서*다. 실행 후 Claude Code는 **반드시 `PROJECT_SPEC.md`를 같은 턴에 갱신**한다(SYNC 의무, §SYNC 참조).
 
 ---
 
@@ -152,7 +152,7 @@ align 워커도 상시 → 같은 안전망을 붙인다:
 
 ## SYNC 의무 (작업 종료 직전, 생략 불가)
 
-Phase 7 구현 후 Claude Code는 `project_spec.md`를 다음과 같이 갱신한다:
+Phase 7 구현 후 Claude Code는 `PROJECT_SPEC.md`를 다음과 같이 갱신한다:
 - `## Data Model` — `clips.transcribe_started_at` 추가, (v2 시) 단어단위 저장 구조
 - `## Jobs & Flows` — `align_lyrics` job [runs]/[reads]/[stores] 태깅, MCP 툴 5종
 - `## Compute Topology` — align 워커(Mac Studio), MCP 호스트(Mac Studio+Tunnel)
@@ -176,5 +176,5 @@ GATE 3  Phase 7
         ├ 7.6 MCP 5툴 (async start→job_id→poll)
         ├ 7.9 Acceptance 통과
         └ v2 루프: MFA 한국어 + 단어단위 카라오케
-SYNC    project_spec.md 갱신 (매 블록 종료 시)
+SYNC    PROJECT_SPEC.md 갱신 (매 블록 종료 시)
 ```

@@ -1,8 +1,8 @@
 <!--
-  project_spec.md — 이 레포의 단일 진실 공급원(single source of truth).
+  PROJECT_SPEC.md — 이 레포의 단일 진실 공급원(single source of truth).
   규칙: 코드를 고치면 이 문서도 같은 작업에서 고친다. 안 쓰는 항목은 지우지 말고 N/A.
   태그: [CONFIRM] 사용자 확인 필요 / [UNVERIFIED] 코드에서 추출했으나 미검증 / [DECIDED] 확정.
-  이 문서가 기존 PROJECT_SPEC.md(과거 설계, 일부 코드와 불일치)를 대체한다. PROJECT_SPEC.md는 폐기.
+  이 파일은 이 레포에서 트래킹하는 유일한 설계 정본이다.
 -->
 
 # galaxymap_ytp_v2 — Project Spec
@@ -14,7 +14,7 @@
 
 ## 0. 이 문서의 위상 (먼저 읽을 것)
 
-- 기존 `PROJECT_SPEC.md`는 **과거 설계 문서이며 코드와 불일치** → **폐기**. 이 `project_spec.md`가 유일한 진실 공급원이다.
+- `PROJECT_SPEC.md`가 현재 트래킹된 유일한 설계 정본이다.
 - `ARCHITECTURE.md`는 2026-06-03 구현 스냅샷. 이 spec과 충돌 시 **이 spec이 우선**하고, ARCHITECTURE.md는 이 spec에 맞춰 갱신/흡수한다.
 - 운영 절차(Docker 명령, yt-dlp 쿠키 등)는 `OPERATIONS.md`로 분리 유지. 설계·토폴로지·데이터모델은 이 문서가 관장.
 
@@ -254,7 +254,7 @@
 - 상태 전이는 **조건부 업데이트**로 (`WHERE status != 'processing'`) — 중복 처리 가드. (§12 Issue)
 - R2 객체 키는 **반드시 `{uid}/` prefix**로 시작.
 - **절대경로 하드코딩 금지.** 로컬 경로는 `STORAGE_ROOT` 등 env로 주입하고, 코드/문서/공개 레포에 `/Users/...` 절대경로·사용자명을 박지 않는다. 실제 경로는 `.env`(gitignore)에만.
-- 코드 변경 시 이 `project_spec.md` 동시 갱신(spec drift 금지).
+- 코드 변경 시 이 `PROJECT_SPEC.md` 동시 갱신(spec drift 금지).
 
 -----
 
@@ -262,7 +262,7 @@
 
 |Phase|범위                                                                                              |상태    |PR/메모                                                                          |
 |-----|------------------------------------------------------------------------------------------------|------|-------------------------------------------------------------------------------|
-|0    |문서 단일화(PROJECT_SPEC.md 삭제, 이 spec 확정) + PR 4개 닫기                                                |☑ 완료  |#75/#77/#82/#85 closed, PROJECT_SPEC.md 삭제됨                                    |
+|0    |문서 단일화(`PROJECT_SPEC.md` 정본 확정) + PR 4개 닫기                                                       |☑ 완료  |#75/#77/#82/#85 closed, 단일 spec 파일 유지                                       |
 |1    |pnpm 전환 + Node 20 통일(lock 교체, packageManager 10.34.1, railway.json, .gitignore, .nvmrc, engines)|☑ 완료  |`phase1/pnpm-migration` 브랜치, type-check 통과, push 대기                            |
 |2    |**DB 베이스라인 재설정(squash)** + `owner_uid` + Supabase Auth(이메일/비번) + RLS                            |☐ todo|init SQL 작성됨. 5개만 재생성, 시드 2개 보존. 데이터 폐기(A) 확정                                  |
 |3    |R2 이전 + presign API + UID 격리                                                                      |◐ source 완료|source PUT/GET/presign 코드 완료. 실제 R2 full ingest와 BGM/render 결과 전환은 운영·후속 검증 필요|
@@ -303,6 +303,7 @@
 - `2026-06-06` — **렌더 중복 가드 복구** : `/api/render`는 `render_status is null or != processing`인 행만 원자적으로 pending 전환하고, 이미 processing이면 409를 반환한다. stale processing 복구는 Mac 워커 시작 로직이 담당한다.
 - `2026-06-06` — **상단 네비 단일화** : 루트 `app/layout.tsx`의 AppNav만 전역 렌더하며, 페이지별 DashboardNav와 Editor 상세의 중복 History 진입점은 폐기한다.
 - `2026-06-08` — **ingest reaper 신뢰성 설계** : claim은 `processing_started_at=now()`를 원자 기록하고, Supabase pg_cron `reap_stale_ingest`가 2분마다 15분 초과 processing을 failed로 전환한다. 워커 부팅 self-heal도 동일 조건만 처리하며, 다운로드와 독립된 30초 heartbeat 태스크는 `worker_health(worker_id='ingest')`에 upsert한다. UI 오프라인 기준은 heartbeat 2분 stale이다.
+- `2026-06-10` — **문서 정본·운영 토폴로지 동기화** : 실제 트래킹 파일 `PROJECT_SPEC.md`로 모든 spec 참조를 통일하고, source=R2·BGM/render output=Supabase Storage인 부분 마이그레이션 상태와 1시간 source presign 운영 절차를 `OPERATIONS.md`에 확정한다.
 
 -----
 

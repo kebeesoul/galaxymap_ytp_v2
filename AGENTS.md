@@ -1,9 +1,9 @@
 # AGENTS.md — galaxymap_ytp_v2 AI 협업 규칙
 
 > 이 파일은 Codex(및 모든 AI 코딩 에이전트)가 이 레포에서 작업할 때 **반드시 따르는 운영 기준**이다.
-> 설계·토폴로지·데이터모델의 단일 진실 공급원은 **`project_spec.md`** 다. 작업 전 항상 먼저 읽는다.
+> 설계·토폴로지·데이터모델의 단일 진실 공급원은 **`PROJECT_SPEC.md`** 다. 작업 전 항상 먼저 읽는다.
 > 운영 절차(Docker·yt-dlp·배포 등) 상세는 **`OPERATIONS.md`**, UI/UX는 **`DESIGN.md`** 를 따른다.
-> 구버전 `PROJECT_SPEC.md` 는 폐기됨 — 코드/이 문서와 충돌 시 무시한다.
+> `PROJECT_SPEC.md`는 현재 트래킹된 유일한 정본이다.
 
 ---
 
@@ -36,7 +36,7 @@
 
 ## ⛔ 절대 규칙 #2 — 토폴로지를 어기지 않는다
 
-`project_spec.md` §2·§3 의 토폴로지가 이 레포의 상수다.
+`PROJECT_SPEC.md` §2·§3 의 토폴로지가 이 레포의 상수다.
 
 - **무거운 미디어 처리(yt-dlp / Remotion 렌더 / ffmpeg / 대용량 변환)는 Mac Studio 로컬 워커에서만 돈다.** Railway(Next.js)에서 이걸 처리하려는 코드는 버그다.
 - **ingest/render 워커를 Railway·Vercel·Edge function 에 배포 금지.** 워커는 Mac Studio 로컬(Docker 또는 bare process)에만 존재한다.
@@ -49,14 +49,14 @@
 
 ## ⛔ 절대 규칙 #3 — spec drift 금지
 
-- 작업 시작 전 `project_spec.md`를 **먼저 읽는다.**
-- 코드를 고쳐서 토폴로지·데이터모델·job·conventions 중 하나라도 바뀌면 **같은 작업에서 `project_spec.md`를 갱신**한다. 코드만 고치고 spec을 안 고치면 작업은 미완이다.
+- 작업 시작 전 `PROJECT_SPEC.md`를 **먼저 읽는다.**
+- 코드를 고쳐서 토폴로지·데이터모델·job·conventions 중 하나라도 바뀌면 **같은 작업에서 `PROJECT_SPEC.md`를 갱신**한다. 코드만 고치고 spec을 안 고치면 작업은 미완이다.
 - 의미 있는 결정은 spec §11 Decisions, 미해결은 §12 Known Issues에 한 줄이라도 남긴다.
 - 추측으로 진단하지 않는다. 실제 코드·로그·에러를 읽고 판단하고, 검증 불가하면 "확인할 수 없다"고 말한다.
 
 ---
 
-## 작업 컨텍스트 (요약 — 상세는 project_spec.md)
+## 작업 컨텍스트 (요약 — 상세는 PROJECT_SPEC.md)
 
 - **무엇:** YouTube 영상 → 자막·댓글·BGM 입힌 큐레이션/요약 클립 제작 웹 에디터 + 로컬 렌더 파이프라인.
 - **흐름:** Curator → Import(yt-dlp/Mac) → Editor → Render(Remotion/Mac) → History/Export(R2).
@@ -133,4 +133,4 @@
 
 ---
 
-*이 문서는 운영 규칙이다. 변경 시 변경 이유를 project_spec.md §11에 남긴다.*
+*이 문서는 운영 규칙이다. 변경 시 변경 이유를 PROJECT_SPEC.md §11에 남긴다.*

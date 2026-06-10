@@ -4,7 +4,7 @@
 > **레포**: `~/Desktop/vc/galaxymap_ytp_v2` (`gv2`) · **위치**: `docs/specs/R2_MIGRATION_SPEC.md`
 > **짝 문서**: `docs/specs/GV2_ROADMAP_R2_RELIABILITY_PHASE7.md` (게이트 순서 = 이 문서 = Block 1·2)
 > **작성**: 2026-06-06 / galaxymap_ytp_v2 Phase 3 · **DB완료 반영 패치: 2026-06-06**
-> **단일 진실 공급원**: 이 작업의 결과는 `project_spec.md`에 반영할 것 (spec drift 방지)
+> **단일 진실 공급원**: 이 작업의 결과는 `PROJECT_SPEC.md`에 반영할 것 (spec drift 방지)
 
 ---
 
@@ -235,7 +235,7 @@ cd workers/ingest && ./setup.sh   # launchd 영구 등록
 4. **self-heal**: 워커 재기동 → stale-processing이 부팅 reaper로 정리됨. (B-2)
 5. **하트비트**: `worker_health.last_beat_at`이 워커 가동 중 갱신됨. (B-2)
 6. 빌드 통과 ≠ 통과. **브라우저 런타임 검증 필수** (오늘 교훈).
-7. `git diff --name-status`로 변경 표면 확인 + `project_spec.md` 갱신.
+7. `git diff --name-status`로 변경 표면 확인 + `PROJECT_SPEC.md` 갱신.
 
 ---
 
