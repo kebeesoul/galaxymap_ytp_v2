@@ -17,7 +17,7 @@ The current code baseline is healthy: 78 TypeScript tests, 13 Python worker test
 
 The repository is not operationally release-ready yet. The primary blocker is confirmed R2 authorization failure (`403 AccessDenied`). End-to-end acceptance for ingest, presigned playback, cross-user isolation, worker reaping, and render completion is therefore incomplete. Code quality is ahead of infrastructure readiness.
 
-The local `main` branch is clean before this report, two commits ahead of `origin/main`, and has no release tags. No CI workflow exists, so the passing verification state is not automatically enforced after push.
+At report generation time, no CI workflow existed. A subsequent change added GitHub Actions checks for Node and Python on `main` pushes and pull requests.
 
 ## 2. Repository State
 
@@ -388,9 +388,9 @@ At report generation time, `OPERATIONS.md` contained stale Supabase Storage sour
 
 The specification filename is now consistently referenced as the tracked `PROJECT_SPEC.md`.
 
-### Medium: no automated CI gate
+### Resolved: automated CI gate
 
-There are strong local checks but no committed CI workflow. A push can regress tests, type safety, build output, or Python workers without an automatic block.
+GitHub Actions now runs frozen pnpm install, tests, type-check, build, and Python ingest worker tests on `main` pushes and pull requests.
 
 ### Medium: selected API boundaries do not consistently use Zod
 
@@ -459,9 +459,9 @@ A option - continue manual local verification.
 - Advantage: no setup work.
 - Risk: passing checks are not enforced on every push or pull request.
 
-B option - add a minimal pnpm and Python GitHub Actions workflow.
+B option - add a minimal pnpm and Python GitHub Actions workflow. Implemented after report generation.
 
-- Advantage: protects the current 91-test baseline, type-check, and build.
+- Advantage: protects the current 99-test baseline, type-check, and build.
 - Risk: requires GitHub authentication and runner/environment decisions.
 
 Recommendation: B after GitHub access is restored.
@@ -502,7 +502,7 @@ Recommendation: B after GitHub access is restored.
 | Worker reliability | Implemented, live failure recovery pending |
 | Storage readiness | Blocked by R2 authorization |
 | Operational documentation | Partially stale |
-| CI/release discipline | Weak |
+| CI/release discipline | CI added; release tagging remains unresolved |
 | Production readiness | Not ready until R2 and Gate 2 acceptance pass |
 
 ## 16. Evidence Inventory

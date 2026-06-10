@@ -126,6 +126,7 @@
 - **오디오 UI:** wavesurfer.js 7
 - **ingest 워커:** Python + yt-dlp (Docker), FastAPI(server.py)
 - **테스트:** vitest
+- **CI:** GitHub Actions. `main` push와 모든 pull request에서 Node 20 + pnpm 10.34.1의 test/type-check/build와 Python 3.11 ingest worker unittest를 독립 job으로 강제한다.
 
 -----
 
@@ -305,6 +306,7 @@
 - `2026-06-08` — **ingest reaper 신뢰성 설계** : claim은 `processing_started_at=now()`를 원자 기록하고, Supabase pg_cron `reap_stale_ingest`가 2분마다 15분 초과 processing을 failed로 전환한다. 워커 부팅 self-heal도 동일 조건만 처리하며, 다운로드와 독립된 30초 heartbeat 태스크는 `worker_health(worker_id='ingest')`에 upsert한다. UI 오프라인 기준은 heartbeat 2분 stale이다.
 - `2026-06-10` — **문서 정본·운영 토폴로지 동기화** : 실제 트래킹 파일 `PROJECT_SPEC.md`로 모든 spec 참조를 통일하고, source=R2·BGM/render output=Supabase Storage인 부분 마이그레이션 상태와 1시간 source presign 운영 절차를 `OPERATIONS.md`에 확정한다.
 - `2026-06-10` — **Curator LLM provider 단일화** : 추천 3슬롯·대체 추천·메모·톤 변환은 `@google/genai`의 `gemini-2.5-flash-lite`만 사용한다. JSON structured output을 Zod로 재검증하며 Anthropic SDK와 환경변수는 제거한다.
+- `2026-06-10` — **최소 CI 게이트 도입** : `main` push와 pull request마다 pnpm frozen install → 86 TS tests → type-check → build, Python ingest worker 13 tests를 실행한다. CI는 더미 env만 사용하며 외부 Supabase/R2/LLM 요청과 배포를 수행하지 않는다.
 
 -----
 
