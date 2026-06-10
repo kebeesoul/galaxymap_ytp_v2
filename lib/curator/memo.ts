@@ -1,4 +1,4 @@
-import { generateJson } from '@/lib/llm/anthropic'
+import { generateJson } from '@/lib/llm/gemini'
 import { MemoSchema } from '@/lib/llm/types'
 import { buildToneSystemPrompt } from './tone-prompt-builder'
 

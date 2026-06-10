@@ -121,7 +121,7 @@
 - **렌더:** Remotion 4.0.451 (`@remotion/bundler|cli|player|renderer`)
 - **DB/Auth:** Supabase (`@supabase/supabase-js` 2.45.4) — Postgres + Auth + RLS
 - **스토리지:** Cloudflare R2 (`@aws-sdk/client-s3` + Python boto3). source 전환 완료, BGM/render output 후속
-- **LLM:** **Gemini 2.5 Flash Lite [DECIDED]** (Curator, MVP). **Google Gemini SDK 도입 필요**(`@google/genai` 등 — 현재 package.json 미포함, Phase에서 추가). 필요 시 모델 교체. [CONFIRM] 기존 `@anthropic-ai/sdk`의 실제 용도(소개문구 등 병용 여부) 코드 확인
+- **LLM:** **Gemini 2.5 Flash Lite [DECIDED]** (Curator, MVP). `@google/genai` structured output + Zod 재검증으로 추천·메모·톤 변환을 처리한다.
 - **검증:** zod 4.3.6 (LLM 입출력·외부 API·env 전부)
 - **오디오 UI:** wavesurfer.js 7
 - **ingest 워커:** Python + yt-dlp (Docker), FastAPI(server.py)
@@ -222,7 +222,7 @@
 
 ## 8. LLM & External APIs
 
-- **LLM:** **Gemini 2.5 Flash Lite** (Curator, MVP). **Google Gemini SDK 도입 필요**(`@google/genai` 등, 정확 패키지명은 설치 시 확인). 필요 시 교체. [CONFIRM] 기존 `@anthropic-ai/sdk` 병용 여부 코드 확인.
+- **LLM:** **Gemini 2.5 Flash Lite** (Curator, MVP). `@google/genai` 사용. `GEMINI_API_KEY`는 서버 런타임 환경변수이며 브라우저에 노출하지 않는다.
 - **외부 API:** YouTube Data API v3 (메타데이터·댓글·검색). rate limit 주의.
 - **검증:** 모든 LLM 출력·YT 응답·env를 zod로 강제.
 
@@ -304,6 +304,7 @@
 - `2026-06-06` — **상단 네비 단일화** : 루트 `app/layout.tsx`의 AppNav만 전역 렌더하며, 페이지별 DashboardNav와 Editor 상세의 중복 History 진입점은 폐기한다.
 - `2026-06-08` — **ingest reaper 신뢰성 설계** : claim은 `processing_started_at=now()`를 원자 기록하고, Supabase pg_cron `reap_stale_ingest`가 2분마다 15분 초과 processing을 failed로 전환한다. 워커 부팅 self-heal도 동일 조건만 처리하며, 다운로드와 독립된 30초 heartbeat 태스크는 `worker_health(worker_id='ingest')`에 upsert한다. UI 오프라인 기준은 heartbeat 2분 stale이다.
 - `2026-06-10` — **문서 정본·운영 토폴로지 동기화** : 실제 트래킹 파일 `PROJECT_SPEC.md`로 모든 spec 참조를 통일하고, source=R2·BGM/render output=Supabase Storage인 부분 마이그레이션 상태와 1시간 source presign 운영 절차를 `OPERATIONS.md`에 확정한다.
+- `2026-06-10` — **Curator LLM provider 단일화** : 추천 3슬롯·대체 추천·메모·톤 변환은 `@google/genai`의 `gemini-2.5-flash-lite`만 사용한다. JSON structured output을 Zod로 재검증하며 Anthropic SDK와 환경변수는 제거한다.
 
 -----
 
@@ -315,7 +316,7 @@
 - [ ] **R2 후속 범위** — 이번 Lane A는 source만 전환했다. BGM·render output·삭제/orphan cleanup은 아직 Supabase Storage 경로이므로 별도 전환이 필요하다.
 - [ ] **R2 source 삭제 보상** — 프로젝트 삭제가 아직 Supabase Storage만 지우므로 R2 source 객체가 남는다. source key 소유권 검증 후 DeleteObject와 orphan cleanup을 후속 Lane에 추가한다.
 - [x] **PR #75/#77/#82/#85 — 전부 닫기 확정.** 모두 main에 이미 반영된 뒤 남은 Draft 잔재. (#75는 next.config.mjs로 실증, 나머지 동일 패턴으로 간주.)
-- [ ] Google Gemini SDK 도입(`@google/genai` 등) + Curator 호출부 정리.
+- [x] Google Gemini SDK 도입(`@google/genai`) + Curator 호출부 단일화.
 - [ ] **Phase 2: DB 베이스라인 재설정(squash)** — init SQL 작성 완료. 적용 시 5개 테이블(projects·clips·lyrics_segments·comments·track_recommendations)만 drop&재생성, **시드 2개(templates·tone_presets)는 보존하고 RLS만 추가**. 브랜치 검증 후 운영 전환.
 - [ ] **RLS + Auth 활성화** — Phase 2에 포함. service_role 워커 우회 구조 검증.
 - [ ] 죽은 컬럼(`hq_source_path`, `transcribe_status`)·whisperX 잔재 — **Phase 2 베이스라인에서 자연 제외**(별도 DROP 마이그레이션 불요).
@@ -323,6 +324,6 @@
 - [x] **워크플로우 재편(Phase 4)** — Curation 참고 보드 / Select 링크입력·프로젝트 생성 / Editor 프로젝트 목록·편집 / History 렌더 결과를 상단 네비로 연결.
 - [ ] 죽은 코드: `lib/rendering/lambda.ts`(stub), `workers/render/worker.mjs`(미참조 여부 확인). [CONFIRM]
 - [ ] `INGEST_WORKER_URL` 외부 노출 방식(터널/고정IP) 운영 확정.
-- [ ] Curator = Gemini 2.5 Flash Lite (Google SDK 호출). [CONFIRM] 기존 `@anthropic-ai/sdk`의 실제 용도 확인.
+- [x] Curator = Gemini 2.5 Flash Lite (`@google/genai`) 단일 provider. Anthropic 잔재 제거 완료.
 - [ ] 동시 편집 충돌 정책(낙관적 잠금 or 프로젝트 분리 규칙).
 - [ ] Mac 스크래치 경로·보존정책 확정.

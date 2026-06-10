@@ -265,7 +265,7 @@ The production build passes with non-blocking warnings:
 1. Direct `<img>` usage in export, project-list, and video-preview components.
 2. An effect cleanup reference warning in `ClipEditor.tsx`.
 3. A missing effect dependency warning in `WaveformEditor.tsx`.
-4. `ANTHROPIC_API_KEY` is not set during static generation.
+4. The Curator provider migration was pending at report generation time; it was subsequently completed with Gemini 2.5 Flash Lite.
 
 These warnings do not currently break compilation, but the React effect warnings are plausible sources of stale state or cleanup defects.
 
@@ -402,7 +402,7 @@ The React effect warnings deserve targeted review because they concern dependenc
 
 ### Low: curator provider drift
 
-The intended curator provider is Gemini, while Anthropic dependencies or key checks remain visible in the current build. This suggests incomplete provider migration or legacy code.
+Resolved after report generation: the Curator now uses Gemini 2.5 Flash Lite exclusively, and Anthropic dependencies and key checks have been removed.
 
 ### Low: no release tags
 

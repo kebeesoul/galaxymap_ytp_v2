@@ -11,7 +11,13 @@ export const RecommendationSchema = z.object({
 })
 
 export const RecommendResponseSchema = z.object({
-  recommendations: z.array(RecommendationSchema).length(3),
+  recommendations: z
+    .array(RecommendationSchema)
+    .length(3)
+    .refine(
+      (items) => new Set(items.map((item) => item.role)).size === 3,
+      'popular, reliable, and wildcard roles are each required',
+    ),
 })
 
 export const ReplacementSchema = z.object({
