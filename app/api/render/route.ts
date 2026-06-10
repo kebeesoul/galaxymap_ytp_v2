@@ -1,26 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { renderRequestSchema } from '@/lib/api/request-schemas'
 import { createClient } from '@/lib/supabase/server'
 
-const VALID_PRESETS = ['fast', 'balanced', 'quality'] as const
-type RenderPreset = typeof VALID_PRESETS[number]
-
-interface RenderBody {
-  clip_id: string
-  preset?: string
-}
-
 export async function POST(request: NextRequest) {
-  const body = (await request.json()) as RenderBody
-  const { clip_id, preset = 'balanced' } = body
+  let body: unknown
+  try {
+    body = await request.json()
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+  }
 
-  if (!clip_id) {
+  const parsed = renderRequestSchema.safeParse(body)
+  if (!parsed.success) {
     return NextResponse.json({ error: 'clip_id is required' }, { status: 400 })
   }
 
-  const safePreset: RenderPreset = (VALID_PRESETS as readonly string[]).includes(preset)
-    ? (preset as RenderPreset)
-    : 'balanced'
-
+  const { clip_id, preset } = parsed.data
   const supabase = createClient()
 
   const { data: clip, error: clipError } = await supabase
@@ -37,7 +32,7 @@ export async function POST(request: NextRequest) {
     .from('clips')
     .update({
       render_status: 'pending',
-      render_preset: safePreset,
+      render_preset: preset,
       render_error: null,
       render_progress: 0,
     })

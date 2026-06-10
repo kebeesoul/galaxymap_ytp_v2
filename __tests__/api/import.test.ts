@@ -58,6 +58,15 @@ describe('POST /api/import — Bug 4 regression: processing guard', () => {
     expect(body.error).toMatch(/required/)
   })
 
+  it('400 when the payload has an invalid project_id type', async () => {
+    const { POST } = await import('@/app/api/import/route')
+    const res = await POST(makeRequest({ project_id: 42 }))
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({ error: 'project_id is required' })
+    expect(mockCreateClient).not.toHaveBeenCalled()
+  })
+
   it('422 when url is missing and project has no source URL', async () => {
     mockCreateClient.mockReturnValue(makeChain({ sourceUrl: null, updateRows: [] }))
     const { POST } = await import('@/app/api/import/route')

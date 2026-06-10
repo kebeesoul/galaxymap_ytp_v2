@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const mockOr = vi.fn()
+const mockUpdate = vi.fn()
 
 function makeChain(
   clipExists: boolean,
@@ -26,7 +27,11 @@ function makeChain(
   chain.in     = () => chain
   chain.order  = () => chain
   chain.single = () => Promise.resolve(clipResult)
-  chain.update = () => { afterUpdate = true; return chain }
+  chain.update = (...args: unknown[]) => {
+    mockUpdate(...args)
+    afterUpdate = true
+    return chain
+  }
   chain.select = () => {
     if (afterUpdate) {
       // Terminal call after update() — return update result
@@ -62,6 +67,15 @@ describe('POST /api/render — processing guard regression', () => {
     expect(res.status).toBe(400)
   })
 
+  it('400 when the payload has an invalid clip_id type', async () => {
+    const { POST } = await import('@/app/api/render/route')
+    const res = await POST(makeRequest({ clip_id: 42 }))
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({ error: 'clip_id is required' })
+    expect(mockCreateClient).not.toHaveBeenCalled()
+  })
+
   it('404 when clip does not exist', async () => {
     mockCreateClient.mockReturnValue(makeChain(false, []))
     const { POST } = await import('@/app/api/render/route')
@@ -91,6 +105,17 @@ describe('POST /api/render — processing guard regression', () => {
     expect(res.status).toBe(202)
     const body = await res.json() as { queued: boolean }
     expect(body.queued).toBe(true)
+  })
+
+  it('preserves the balanced fallback for an unknown preset', async () => {
+    mockCreateClient.mockReturnValue(makeChain(true, [{ id: 'clip-1' }]))
+    const { POST } = await import('@/app/api/render/route')
+    const res = await POST(makeRequest({ clip_id: 'clip-1', preset: 'unknown' }))
+
+    expect(res.status).toBe(202)
+    expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      render_preset: 'balanced',
+    }))
   })
 
   it('500 when the conditional update fails', async () => {

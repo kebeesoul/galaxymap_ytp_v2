@@ -1,19 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { importRequestSchema } from '@/lib/api/request-schemas'
 import { createClient } from '@/lib/supabase/server'
 
-interface ImportBody {
-  project_id: string
-  url?: string
-}
-
 export async function POST(request: NextRequest) {
-  const body = (await request.json()) as ImportBody
-  const { project_id, url } = body
+  let body: unknown
+  try {
+    body = await request.json()
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+  }
 
-  if (!project_id) {
+  const parsed = importRequestSchema.safeParse(body)
+  if (!parsed.success) {
     return NextResponse.json({ error: 'project_id is required' }, { status: 400 })
   }
 
+  const { project_id, url } = parsed.data
   const supabase = createClient()
 
   // If url not provided, look it up from the project row
