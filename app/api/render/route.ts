@@ -1,21 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 
 const VALID_PRESETS = ['fast', 'balanced', 'quality'] as const
 type RenderPreset = typeof VALID_PRESETS[number]
 
-interface RenderBody {
-  clip_id: string
-  preset?: string
-}
+const BodySchema = z.object({
+  clip_id: z.string().min(1, 'clip_id is required'),
+  preset: z.string().optional(),
+})
 
 export async function POST(request: NextRequest) {
-  const body = (await request.json()) as RenderBody
-  const { clip_id, preset = 'balanced' } = body
+  let raw: unknown
+  try {
+    raw = await request.json()
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+  }
 
-  if (!clip_id) {
+  const parsed = BodySchema.safeParse(raw)
+  if (!parsed.success) {
     return NextResponse.json({ error: 'clip_id is required' }, { status: 400 })
   }
+  const { clip_id, preset = 'balanced' } = parsed.data
 
   const safePreset: RenderPreset = (VALID_PRESETS as readonly string[]).includes(preset)
     ? (preset as RenderPreset)
@@ -23,10 +30,14 @@ export async function POST(request: NextRequest) {
 
   const supabase = createClient()
 
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const { data: clip, error: clipError } = await supabase
     .from('clips')
-    .select('id, render_status')
+    .select('id, render_status, projects!inner(owner_uid)')
     .eq('id', clip_id)
+    .eq('projects.owner_uid', user.id)
     .single()
 
   if (clipError || !clip) {

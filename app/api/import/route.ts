@@ -1,30 +1,49 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 
-interface ImportBody {
-  project_id: string
-  url?: string
-}
+const BodySchema = z.object({
+  project_id: z.string().min(1, 'project_id is required'),
+  url: z.string().optional(),
+})
 
 export async function POST(request: NextRequest) {
-  const body = (await request.json()) as ImportBody
-  const { project_id, url } = body
-
-  if (!project_id) {
-    return NextResponse.json({ error: 'project_id is required' }, { status: 400 })
+  let raw: unknown
+  try {
+    raw = await request.json()
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
 
+  const parsed = BodySchema.safeParse(raw)
+  if (!parsed.success) {
+    const projectIdIssue = parsed.error.issues.find((i) => i.path[0] === 'project_id')
+    const message = projectIdIssue ? 'project_id is required' : (parsed.error.issues[0]?.message ?? 'Invalid body')
+    return NextResponse.json({ error: message }, { status: 400 })
+  }
+  const { project_id, url } = parsed.data
+
   const supabase = createClient()
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  // Verify the project belongs to the requesting user
+  const { data: owned } = await supabase
+    .from('projects')
+    .select('source_url')
+    .eq('id', project_id)
+    .eq('owner_uid', user.id)
+    .single()
+
+  if (!owned) {
+    return NextResponse.json({ error: 'project not found' }, { status: 404 })
+  }
 
   // If url not provided, look it up from the project row
   let sourceUrl = url
   if (!sourceUrl) {
-    const { data: project } = await supabase
-      .from('projects')
-      .select('source_url')
-      .eq('id', project_id)
-      .single()
-    sourceUrl = project?.source_url ?? undefined
+    sourceUrl = owned.source_url ?? undefined
   }
 
   if (!sourceUrl) {
@@ -35,6 +54,7 @@ export async function POST(request: NextRequest) {
     .from('projects')
     .update({ import_status: 'pending', source_url: sourceUrl, import_error: null })
     .eq('id', project_id)
+    .eq('owner_uid', user.id)
     .or('import_status.is.null,import_status.neq.processing')
     .select('id')
 

@@ -1,37 +1,44 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 
-interface FetchBody {
-  clip_id: string
-  video_id: string
-}
+const BodySchema = z.object({
+  clip_id: z.string().min(1),
+  video_id: z.string().min(1),
+})
 
-interface YoutubeCommentSnippet {
-  authorDisplayName: string
-  textDisplay: string
-  likeCount: number
-}
-
-interface YoutubeItem {
-  snippet: {
-    topLevelComment: {
-      snippet: YoutubeCommentSnippet
-    }
-  }
-}
-
-interface YoutubeResponse {
-  items?: YoutubeItem[]
-  error?: { message: string }
-}
+const YoutubeResponseSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        snippet: z.object({
+          topLevelComment: z.object({
+            snippet: z.object({
+              authorDisplayName: z.string(),
+              textDisplay: z.string(),
+              likeCount: z.number(),
+            }),
+          }),
+        }),
+      }),
+    )
+    .optional(),
+  error: z.object({ message: z.string() }).optional(),
+})
 
 export async function POST(request: NextRequest) {
-  const body = (await request.json()) as FetchBody
-  const { clip_id, video_id } = body
+  let raw: unknown
+  try {
+    raw = await request.json()
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+  }
 
-  if (!clip_id || !video_id) {
+  const parsed = BodySchema.safeParse(raw)
+  if (!parsed.success) {
     return NextResponse.json({ error: 'clip_id and video_id are required' }, { status: 400 })
   }
+  const { clip_id, video_id } = parsed.data
 
   const apiKey = process.env.YOUTUBE_API_KEY
   if (!apiKey) {
@@ -40,11 +47,15 @@ export async function POST(request: NextRequest) {
 
   const supabase = createClient()
 
-  // Verify clip exists
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  // Verify clip exists and belongs to the requesting user via its parent project
   const { data: clip, error: clipError } = await supabase
     .from('clips')
-    .select('id')
+    .select('id, projects!inner(owner_uid)')
     .eq('id', clip_id)
+    .eq('projects.owner_uid', user.id)
     .single()
 
   if (clipError || !clip) {
@@ -60,7 +71,12 @@ export async function POST(request: NextRequest) {
   url.searchParams.set('key', apiKey)
 
   const ytRes = await fetch(url.toString())
-  const ytData = (await ytRes.json()) as YoutubeResponse
+  const ytRaw: unknown = await ytRes.json()
+  const ytParsed = YoutubeResponseSchema.safeParse(ytRaw)
+  if (!ytParsed.success) {
+    return NextResponse.json({ error: 'Unexpected YouTube API response' }, { status: 502 })
+  }
+  const ytData = ytParsed.data
 
   if (!ytRes.ok) {
     const raw = ytData.error?.message ?? 'YouTube API error'

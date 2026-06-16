@@ -11,8 +11,9 @@ function makeChain({
   const chain: Record<string, unknown> = {}
   let afterUpdate = false
 
+  // Ownership lookup always returns an owned project; source_url may be null.
   const lookupResult = () => Promise.resolve({
-    data: sourceUrl === undefined ? null : { source_url: sourceUrl },
+    data: { source_url: sourceUrl ?? null },
     error: null,
   })
 
@@ -30,6 +31,9 @@ function makeChain({
   chain.in = () => chain
   chain.order = () => chain
   chain.from = () => chain
+  chain.auth = {
+    getUser: () => Promise.resolve({ data: { user: { id: 'user-1' } }, error: null }),
+  }
   return chain
 }
 

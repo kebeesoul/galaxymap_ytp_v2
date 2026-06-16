@@ -9,11 +9,15 @@ export async function DELETE(
   const projectId = params.id
   const supabase = createClient()
 
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const [{ data: project, error: projectError }, { data: clipData, error: clipsError }] = await Promise.all([
     supabase
       .from('projects')
       .select('id, yt_source_path')
       .eq('id', projectId)
+      .eq('owner_uid', user.id)
       .single(),
     // select('*') avoids "column does not exist" errors when schema migrations
     // have not yet been applied — PostgREST returns only the columns that exist.
@@ -70,7 +74,11 @@ export async function DELETE(
 
   // DB delete — CASCADE wipes clips, lyrics_segments, comments. If this
   // fails we never touch storage, so the project stays consistent.
-  const { error: deleteError } = await supabase.from('projects').delete().eq('id', projectId)
+  const { error: deleteError } = await supabase
+    .from('projects')
+    .delete()
+    .eq('id', projectId)
+    .eq('owner_uid', user.id)
   if (deleteError) {
     console.error('[delete project] projects.delete failed:', deleteError)
     const hint = deleteError.message.toLowerCase().includes('foreign key')

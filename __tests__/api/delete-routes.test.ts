@@ -10,20 +10,29 @@ function makeProjectDeleteClient() {
   const removed: Record<string, string[][]> = { sources: [], renders: [] }
 
   const client = {
+    auth: {
+      getUser: () => Promise.resolve({ data: { user: { id: 'user-1' } }, error: null }),
+    },
     from(table: string) {
       if (table === 'projects') {
+        const projectSingle = {
+          single: () => Promise.resolve({
+            data: { id: 'project-1', yt_source_path: 'preview/video.mp4' },
+            error: null,
+          }),
+        }
+        // eq is chainable: .eq('id').eq('owner_uid').single()
+        const projectEq: { eq: () => typeof projectEq; single: typeof projectSingle.single } = {
+          eq: () => projectEq,
+          single: projectSingle.single,
+        }
+        const deleteEq = {
+          eq: () => deleteEq,
+          then: <T>(resolve: (v: { error: null }) => T) => Promise.resolve(resolve({ error: null })),
+        }
         return {
-          select: () => ({
-            eq: () => ({
-              single: () => Promise.resolve({
-                data: { id: 'project-1', yt_source_path: 'preview/video.mp4' },
-                error: null,
-              }),
-            }),
-          }),
-          delete: () => ({
-            eq: () => Promise.resolve({ error: null }),
-          }),
+          select: () => projectEq,
+          delete: () => deleteEq,
         }
       }
       if (table === 'clips') {
@@ -67,17 +76,20 @@ function makeProjectDeleteClient() {
 function makeClipDeleteClientWithDbFailure() {
   const remove = vi.fn()
   return {
+    auth: {
+      getUser: () => Promise.resolve({ data: { user: { id: 'user-1' } }, error: null }),
+    },
     from(table: string) {
       if (table !== 'clips') throw new Error(`unexpected table ${table}`)
-      return {
-        select: () => ({
-          eq: () => ({
-            single: () => Promise.resolve({
-              data: { id: 'clip-1', bgm_url: 'https://example.supabase.co/storage/v1/object/sign/sources/bgm/clip-1.wav?token=abc', render_path: 'project-1/render01.mp4' },
-              error: null,
-            }),
-          }),
+      const selectEq: { eq: () => typeof selectEq; single: () => Promise<unknown> } = {
+        eq: () => selectEq,
+        single: () => Promise.resolve({
+          data: { id: 'clip-1', bgm_url: 'https://example.supabase.co/storage/v1/object/sign/sources/bgm/clip-1.wav?token=abc', render_path: 'project-1/render01.mp4' },
+          error: null,
         }),
+      }
+      return {
+        select: () => selectEq,
         delete: () => ({
           eq: () => Promise.resolve({ error: { message: 'delete failed' } }),
         }),

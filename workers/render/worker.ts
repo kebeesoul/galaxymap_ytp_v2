@@ -1,5 +1,5 @@
 import { bundle } from '@remotion/bundler'
-import { renderMedia, selectComposition } from '@remotion/renderer'
+import { makeCancelSignal, renderMedia, selectComposition } from '@remotion/renderer'
 import { promises as fs, existsSync, readFileSync } from 'fs'
 import path from 'path'
 import os from 'os'
@@ -19,6 +19,12 @@ if (existsSync(ENV_PATH)) {
 }
 
 const POLL_INTERVAL_MS = 3000
+const RENDER_TIMEOUT_MS = 15 * 60 * 1000
+
+// OffthreadVideo cache: these compositions play a full-resolution source mp4
+// through OffthreadVideo, so a generous cache avoids re-extracting frames from
+// the source on every render thread. ~2 GB is safe on a Mac Studio.
+const OFFTHREAD_VIDEO_CACHE_BYTES = 2 * 1024 * 1024 * 1024
 
 const supabase = createServiceRoleClient()
 
@@ -39,12 +45,22 @@ function ensureBundle(): Promise<string> {
 
 type CompositionId = 'LayoutA' | 'LayoutB' | 'LayoutC'
 
+// Render presets. Speed levers (vs. the previous manual ffmpeg-override hack):
+//  - hardwareAcceleration: 'if-possible' lets Remotion use h264_videotoolbox on
+//    macOS and auto-falls-back to software — replaces the brittle 23-line
+//    overrideFfmpegCommand surgery and applies cleanly to every preset.
+//  - x264Preset tunes the libx264 software encode speed (only used when the
+//    hardware encoder is unavailable / on software presets).
+//  - imageFormat 'jpeg' (set in renderMedia) makes per-frame capture far faster
+//    than png at negligible quality cost for video output.
 const RENDER_PRESETS = {
-  fast:     { useHardware: true,  bitrate: '8M',    crf: undefined, concurrency: 12, audioBitrate: '192k' },
-  balanced: { useHardware: false, bitrate: undefined, crf: 12,       concurrency: 8,  audioBitrate: '192k' },
-  quality:  { useHardware: false, bitrate: undefined, crf: 10,       concurrency: 6,  audioBitrate: '192k' },
+  fast:     { hardwareAcceleration: 'if-possible', x264Preset: 'veryfast', crf: 18, videoBitrate: '8M',       concurrency: 12, audioBitrate: '192k' },
+  balanced: { hardwareAcceleration: 'disable',     x264Preset: 'veryfast', crf: 12, videoBitrate: undefined, concurrency: 8,  audioBitrate: '192k' },
+  quality:  { hardwareAcceleration: 'disable',     x264Preset: 'medium',   crf: 10, videoBitrate: undefined, concurrency: 6,  audioBitrate: '192k' },
 } as const
 type RenderPreset = keyof typeof RENDER_PRESETS
+type X264Preset = (typeof RENDER_PRESETS)[RenderPreset]['x264Preset']
+type HardwareAccel = (typeof RENDER_PRESETS)[RenderPreset]['hardwareAcceleration']
 
 function extractLayout(config: unknown): CompositionId {
   if (config && typeof config === 'object' && !Array.isArray(config)) {
@@ -140,58 +156,52 @@ async function processJob(clipId: string): Promise<void> {
     const rawPreset = ((clip as Record<string, unknown>).render_preset as RenderPreset) ?? 'balanced'
     const preset = rawPreset in RENDER_PRESETS ? rawPreset : 'balanced'
     const presetCfg = RENDER_PRESETS[preset]
-    console.log(`[render] preset: ${preset} | codec: ${presetCfg.useHardware ? 'h264_videotoolbox' : 'libx264'} | crf: ${presetCfg.crf ?? 'n/a'} | concurrency: ${presetCfg.concurrency}`)
+    console.log(`[render] preset: ${preset} | hwaccel: ${presetCfg.hardwareAcceleration} | x264Preset: ${presetCfg.x264Preset} | crf: ${presetCfg.crf} | concurrency: ${presetCfg.concurrency}`)
+
+    // Cancel the render itself on timeout (the previous Promise.race only
+    // rejected the poll and left Chromium/ffmpeg running → resource contention).
+    const { cancelSignal, cancel } = makeCancelSignal()
+    const timeoutHandle = setTimeout(() => cancel(), RENDER_TIMEOUT_MS)
 
     let lastReportedPct = 0
     console.time('[render] remotion render')
-    await renderMedia({
-      composition,
-      serveUrl,
-      codec: 'h264',
-      crf: presetCfg.crf,
-      pixelFormat: 'yuv420p',
-      audioBitrate: presetCfg.audioBitrate,
-      outputLocation: outputPath,
-      inputProps,
-      concurrency: presetCfg.concurrency,
-      overrideFfmpegCommand: presetCfg.useHardware
-        ? ({ type, args }: { type: string; args: string[] }): string[] => {
-            if (type !== 'stitcher') return args
-            const cmd = [...args]
-
-            const codecIdx = cmd.indexOf('-c:v')
-            if (codecIdx !== -1) {
-              cmd[codecIdx + 1] = 'h264_videotoolbox'
-            }
-
-            const crfIdx = cmd.indexOf('-crf')
-            if (crfIdx !== -1) {
-              cmd.splice(crfIdx, 2)
-            }
-
-            const insertAt = cmd.indexOf('-c:v')
-            if (insertAt !== -1) {
-              cmd.splice(insertAt + 2, 0, '-b:v', presetCfg.bitrate as string, '-profile:v', 'high')
-            }
-
-            console.log(`[render] ffmpeg override applied: ${cmd.slice(0, 12).join(' ')}`)
-            return cmd
+    try {
+      await renderMedia({
+        composition,
+        serveUrl,
+        codec: 'h264',
+        crf: presetCfg.crf,
+        videoBitrate: presetCfg.videoBitrate,
+        pixelFormat: 'yuv420p',
+        audioBitrate: presetCfg.audioBitrate,
+        outputLocation: outputPath,
+        inputProps,
+        concurrency: presetCfg.concurrency,
+        // Speed levers — see RENDER_PRESETS comment.
+        hardwareAcceleration: presetCfg.hardwareAcceleration as HardwareAccel,
+        x264Preset: presetCfg.x264Preset as X264Preset,
+        imageFormat: 'jpeg',
+        jpegQuality: 90,
+        offthreadVideoCacheSizeInBytes: OFFTHREAD_VIDEO_CACHE_BYTES,
+        chromiumOptions: { gl: 'angle' },
+        cancelSignal,
+        onProgress: ({ progress }) => {
+          const pct = Math.round(progress * 100)
+          if (pct - lastReportedPct >= 5) {
+            lastReportedPct = pct
+            supabase
+              .from('clips')
+              .update({ render_progress: pct })
+              .eq('id', clipId)
+              .then(({ error }) => {
+                if (error) console.error(`[progress] ${clipId}: ${error.message}`)
+              })
           }
-        : undefined,
-      onProgress: ({ progress }) => {
-        const pct = Math.round(progress * 100)
-        if (pct - lastReportedPct >= 5) {
-          lastReportedPct = pct
-          supabase
-            .from('clips')
-            .update({ render_progress: pct })
-            .eq('id', clipId)
-            .then(({ error }) => {
-              if (error) console.error(`[progress] ${clipId}: ${error.message}`)
-            })
-        }
-      },
-    })
+        },
+      })
+    } finally {
+      clearTimeout(timeoutHandle)
+    }
 
     console.timeEnd('[render] remotion render')
 
@@ -255,14 +265,10 @@ async function pollOnce(): Promise<void> {
   if (!claimed || claimed.length === 0) return
 
   console.log(`[JOB] ${clipId}`)
-  const RENDER_TIMEOUT_MS = 15 * 60 * 1000
   try {
-    await Promise.race([
-      processJob(clipId),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('render timeout (15 min)')), RENDER_TIMEOUT_MS)
-      ),
-    ])
+    // processJob enforces RENDER_TIMEOUT_MS internally via cancelSignal, which
+    // actually aborts Chromium/ffmpeg rather than leaving them orphaned.
+    await processJob(clipId)
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     console.error(`[ERR] ${clipId}: ${msg}`)
