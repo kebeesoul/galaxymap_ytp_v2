@@ -9,10 +9,14 @@ export async function DELETE(
   const clipId = params.id
   const supabase = createClient()
 
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const { data: clip, error: fetchError } = await supabase
     .from('clips')
-    .select('id, bgm_url, render_path')
+    .select('id, bgm_url, render_path, projects!inner(owner_uid)')
     .eq('id', clipId)
+    .eq('projects.owner_uid', user.id)
     .single()
 
   if (fetchError && (fetchError as { code?: string }).code !== 'PGRST116') {

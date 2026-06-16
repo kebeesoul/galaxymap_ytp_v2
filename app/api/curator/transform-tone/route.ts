@@ -27,6 +27,9 @@ export async function POST(req: Request) {
   const { project_id, base_text, tone } = parsed.data
   const supabase = createClient()
 
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   // Fetch active tone preset
   const { data: preset, error: presetError } = await supabase
     .from('tone_presets')
@@ -47,6 +50,7 @@ export async function POST(req: Request) {
     .from('projects')
     .select('artist, song_title')
     .eq('id', project_id)
+    .eq('owner_uid', user.id)
     .single()
 
   if (projectError || !project) {
@@ -79,6 +83,7 @@ export async function POST(req: Request) {
     .from('projects')
     .update({ description_styled: text, description_tone: tone })
     .eq('id', project_id)
+    .eq('owner_uid', user.id)
 
   if (updateError) {
     return NextResponse.json({ error: updateError.message }, { status: 500 })

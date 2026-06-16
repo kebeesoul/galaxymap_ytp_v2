@@ -8,10 +8,14 @@ export async function GET(request: NextRequest) {
   if (!projectId) return NextResponse.json({ error: 'project_id required' }, { status: 400 })
 
   const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const { data, error } = await supabase
     .from('projects')
     .select('import_status, import_error')
     .eq('id', projectId)
+    .eq('owner_uid', user.id)
     .single()
 
   if (error && error.code !== 'PGRST116') {

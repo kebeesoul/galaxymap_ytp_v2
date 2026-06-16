@@ -121,7 +121,7 @@
 - **렌더:** Remotion 4.0.451 (`@remotion/bundler|cli|player|renderer`)
 - **DB/Auth:** Supabase (`@supabase/supabase-js` 2.45.4) — Postgres + Auth + RLS
 - **스토리지:** Cloudflare R2 (`@aws-sdk/client-s3` + Python boto3). source 전환 완료, BGM/render output 후속
-- **LLM:** **Gemini 2.5 Flash Lite [DECIDED]** (Curator, MVP). **Google Gemini SDK 도입 필요**(`@google/genai` 등 — 현재 package.json 미포함, Phase에서 추가). 필요 시 모델 교체. [CONFIRM] 기존 `@anthropic-ai/sdk`의 실제 용도(소개문구 등 병용 여부) 코드 확인
+- **LLM:** **Gemini 2.5 Flash Lite [DECIDED · 구현됨]** (Curator). **Google Gemini SDK(`@google/genai`) 도입 완료** — `lib/llm/gemini.ts`의 `generateJson<T>()`가 `responseMimeType:'application/json'` 구조화 출력 + zod 검증으로 호출한다. 기존 `@anthropic-ai/sdk`는 제거(2026-06-16). `lib/llm/anthropic.ts`는 import 경로 보존용 thin shim(→gemini 재export).
 - **검증:** zod 4.3.6 (LLM 입출력·외부 API·env 전부)
 - **오디오 UI:** wavesurfer.js 7
 - **ingest 워커:** Python + yt-dlp (Docker), FastAPI(server.py)
@@ -222,9 +222,26 @@
 
 ## 8. LLM & External APIs
 
-- **LLM:** **Gemini 2.5 Flash Lite** (Curator, MVP). **Google Gemini SDK 도입 필요**(`@google/genai` 등, 정확 패키지명은 설치 시 확인). 필요 시 교체. [CONFIRM] 기존 `@anthropic-ai/sdk` 병용 여부 코드 확인.
+- **LLM:** **Gemini 2.5 Flash Lite** (Curator). `@google/genai`로 호출, `gemini-2.5-flash-lite` 모델. 구조화 JSON 출력 + zod 검증(`lib/llm/gemini.ts`). `@anthropic-ai/sdk`는 폐기(2026-06-16).
 - **외부 API:** YouTube Data API v3 (메타데이터·댓글·검색). rate limit 주의.
 - **검증:** 모든 LLM 출력·YT 응답·env를 zod로 강제.
+
+### 8.1 렌더 속도 — "display mode 5" 판단 [2026-06-16]
+
+> 다른 레포(g-ytp-v1, 순수 ffmpeg 파이프라인)의 `displayMode 5` 개념을 이 레포에 적용 가능한지 조사한 결과.
+
+- **v1 `displayMode` (`["0","2","5","full"]`)는 타이틀 카드 표시 방식**이고, v1의 "1시간→72초(약 43배)"는 *모드 번호*가 아니라 **"정적 배경 이미지 + 짧은 오버레이라 화면이 안 변하는 구간을 ffmpeg `-c copy`로 stream-copy"** 한 결과다. `0`=전체 copy, `2`/`5`=오버레이 5초 구간만 인코딩+나머지 copy(fast-path), `full`=상시 표시라 fast-path 없음→전체 재인코딩(0.9배).
+- **이 레포(v2)에는 그대로 이식 불가 [DECIDED]:** (1) 엔진이 다름 — v2는 Remotion(헤드리스 Chrome 프레임 렌더)이라 displayMode·copy 경로 개념이 없다. (2) **결정적 차이 — 배경이 정지 이미지가 아니라 움직이는 유튜브 영상**(`VideoLayer`의 `OffthreadVideo`)이라 "정적 스틸→루프 copy" 트릭이 성립하지 않는다. (3) 클립 전체에 BGM 믹싱+`original_volume` 조절을 하므로 **오디오 stream-copy 원천 불가**.
+- **채택 방향 [DECIDED]:** v2의 현실적 가속은 **Remotion 네이티브 레버 튜닝**으로 한다(아래 §8.2). v1식 segment stream-copy 하이브리드(오버레이 없는 구간만 소스 copy)는 keyframe 정렬·오디오 별도 mux·바/자막 상시표시 시 이득 소멸 등 제약이 커, 별도 POC 대상으로 §12에 보류 등록.
+
+### 8.2 렌더 워커 속도 레버 (`workers/render/worker.ts`) [구현됨 2026-06-16]
+
+- `hardwareAcceleration:'if-possible'` — h264_videotoolbox 자동 사용+SW 폴백. 기존 23줄짜리 깨지기 쉬운 `overrideFfmpegCommand` videotoolbox 수술을 **제거**하고 전 프리셋에 적용.
+- `imageFormat:'jpeg'` + `jpegQuality:90` — 프레임 캡처 가속(화질 손실 무시 가능).
+- `x264Preset` — 소프트웨어 프리셋 인코딩 가속(`balanced`=veryfast, `quality`=medium).
+- `offthreadVideoCacheSizeInBytes` ↑(2GB) — OffthreadVideo 소스 프레임 재추출 회피(영상 기반 컴포지션이라 효과 큼).
+- `chromiumOptions:{gl:'angle'}` — Apple Silicon 권장 GL 백엔드 고정.
+- `cancelSignal`(`makeCancelSignal`) — 15분 타임아웃이 `renderMedia`를 **실제 취소**(기존 `Promise.race`는 poll만 reject하고 Chromium/ffmpeg 잔존 → 다음 job과 경합).
 
 -----
 
@@ -301,6 +318,9 @@
 - `2026-06-06` — **자유 텍스트 WYSIWYG 구현** : 에디터 Player와 최종 Remotion 렌더가 동일한 `BarLayer`·`TextOverlayLayer`를 사용한다. Moveable 조작값은 zone 내부 상대좌표와 화면높이 비율로 `text_overlays`에 저장한다.
 - `2026-06-06` — **렌더 중복 가드 복구** : `/api/render`는 `render_status is null or != processing`인 행만 원자적으로 pending 전환하고, 이미 processing이면 409를 반환한다. stale processing 복구는 Mac 워커 시작 로직이 담당한다.
 - `2026-06-06` — **상단 네비 단일화** : 루트 `app/layout.tsx`의 AppNav만 전역 렌더하며, 페이지별 DashboardNav와 Editor 상세의 중복 History 진입점은 폐기한다.
+- `2026-06-16` — **LLM 공급자 = Gemini 확정(코드 정합)** : 스펙은 Gemini였으나 코드가 `@anthropic-ai/sdk`였던 drift를 해소. `@google/genai`(`gemini-2.5-flash-lite`)로 교체하고 anthropic 의존성 제거. `generateJson` 인터페이스는 보존(`lib/llm/anthropic.ts`는 shim).
+- `2026-06-16` — **"display mode 5" 비이식 + Remotion 레버 채택** : v1의 ffmpeg stream-copy fast-path는 v2(Remotion·움직이는 영상 배경·전구간 BGM 믹싱)에 성립하지 않음. 대신 hardwareAcceleration/jpeg/x264Preset/offthread 캐시/gl:angle/cancelSignal로 가속(§8.1·§8.2). segment stream-copy 하이브리드는 POC 보류(§12).
+- `2026-06-16` — **API 코드 가드 하드닝** : `/api/*`가 미들웨어 밖이고 RLS는 Phase 2(미적용)라 cross-tenant 노출 상태였음. RLS 활성화/마이그레이션 컷오버는 보류하고, 각 라우트에 `getUser()`+owner_uid 소유권 검증을 추가(방어적). `/api/debug` 삭제, `render/cancel` 결과 검증 수정. 데드코드 제거: `lib/rendering/lambda.ts`·`local.ts`, `workers/render/worker.mjs`.
 - `2026-06-08` — **ingest reaper 신뢰성 설계** : claim은 `processing_started_at=now()`를 원자 기록하고, Supabase pg_cron `reap_stale_ingest`가 2분마다 15분 초과 processing을 failed로 전환한다. 워커 부팅 self-heal도 동일 조건만 처리하며, 다운로드와 독립된 30초 heartbeat 태스크는 `worker_health(worker_id='ingest')`에 upsert한다. UI 오프라인 기준은 heartbeat 2분 stale이다.
 
 -----
@@ -313,13 +333,15 @@
 - [ ] **R2 후속 범위** — 이번 Lane A는 source만 전환했다. BGM·render output·삭제/orphan cleanup은 아직 Supabase Storage 경로이므로 별도 전환이 필요하다.
 - [ ] **R2 source 삭제 보상** — 프로젝트 삭제가 아직 Supabase Storage만 지우므로 R2 source 객체가 남는다. source key 소유권 검증 후 DeleteObject와 orphan cleanup을 후속 Lane에 추가한다.
 - [x] **PR #75/#77/#82/#85 — 전부 닫기 확정.** 모두 main에 이미 반영된 뒤 남은 Draft 잔재. (#75는 next.config.mjs로 실증, 나머지 동일 패턴으로 간주.)
-- [ ] Google Gemini SDK 도입(`@google/genai` 등) + Curator 호출부 정리.
+- [x] **Google Gemini SDK 도입 완료**(`@google/genai`, `gemini-2.5-flash-lite`) + Curator 호출부 gemini로 정리, anthropic 의존성 제거 (2026-06-16).
+- [ ] **렌더 segment stream-copy 하이브리드 POC** — 오버레이 없는 구간만 소스 mp4 stream-copy + 오버레이 구간만 Remotion 렌더 후 `-c copy` concat. 제약: keyframe 정렬, 오디오(전구간 BGM 믹싱)는 항상 재인코딩·별도 mux, `bar_enabled`/자막 상시표시 시 이득 소멸. 자막 밀도 높은 큐레이션 클립 특성상 이득 편차 큼 → 별도 설계·POC 후 판단(§8.1).
+- [ ] **API 가드 → RLS 승격** — 현재는 라우트별 `getUser()`+owner 코드 가드만. Phase 2 RLS 활성화 시 DB 레벨에서도 강제되도록 이중화(코드 가드는 방어적으로 유지).
 - [ ] **Phase 2: DB 베이스라인 재설정(squash)** — init SQL 작성 완료. 적용 시 5개 테이블(projects·clips·lyrics_segments·comments·track_recommendations)만 drop&재생성, **시드 2개(templates·tone_presets)는 보존하고 RLS만 추가**. 브랜치 검증 후 운영 전환.
 - [ ] **RLS + Auth 활성화** — Phase 2에 포함. service_role 워커 우회 구조 검증.
 - [ ] 죽은 컬럼(`hq_source_path`, `transcribe_status`)·whisperX 잔재 — **Phase 2 베이스라인에서 자연 제외**(별도 DROP 마이그레이션 불요).
 - [x] **검정 바 컬럼 이전** — `subtitle_style` JSON의 바 키를 제거하고, 에디터·토글·Remotion·render worker를 `clips.bar_enabled`로 통일. 상/하단 높이 15%와 검정색은 레이어 코드 상수로 고정.
 - [x] **워크플로우 재편(Phase 4)** — Curation 참고 보드 / Select 링크입력·프로젝트 생성 / Editor 프로젝트 목록·편집 / History 렌더 결과를 상단 네비로 연결.
-- [ ] 죽은 코드: `lib/rendering/lambda.ts`(stub), `workers/render/worker.mjs`(미참조 여부 확인). [CONFIRM]
+- [x] **죽은 코드 제거 완료**(2026-06-16): `lib/rendering/lambda.ts`·`lib/rendering/local.ts`(빈 stub, 참조 0), `workers/render/worker.mjs`(발산된 죽은 워커 — 폐기 대상 Supabase Storage `sources`에서 읽고 anon key 사용). 실 워커는 `workers/render/worker.ts`(tsx).
 - [ ] `INGEST_WORKER_URL` 외부 노출 방식(터널/고정IP) 운영 확정.
 - [ ] Curator = Gemini 2.5 Flash Lite (Google SDK 호출). [CONFIRM] 기존 `@anthropic-ai/sdk`의 실제 용도 확인.
 - [ ] 동시 편집 충돌 정책(낙관적 잠금 or 프로젝트 분리 규칙).

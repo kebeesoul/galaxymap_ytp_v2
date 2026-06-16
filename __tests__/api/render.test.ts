@@ -15,6 +15,9 @@ function makeChain(
   const chain: Record<string, (...args: unknown[]) => unknown> = {}
 
   chain.from   = () => chain
+  ;(chain as Record<string, unknown>).auth = {
+    getUser: () => Promise.resolve({ data: { user: { id: 'user-1' } }, error: null }),
+  }
   chain.insert = () => chain
   chain.delete = () => chain
   chain.eq     = () => chain

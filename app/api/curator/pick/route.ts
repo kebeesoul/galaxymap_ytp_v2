@@ -35,6 +35,7 @@ export async function POST(req: Request) {
     .from('track_recommendations')
     .select('artist, song_title, yt_video_id, yt_search_status')
     .eq('id', recommendation_id)
+    .eq('owner_uid', user.id)
     .single()
 
   if (recError || !rec) {
@@ -69,6 +70,7 @@ export async function POST(req: Request) {
     .from('track_recommendations')
     .update({ used: true, used_project_id: project.id })
     .eq('id', recommendation_id)
+    .eq('owner_uid', user.id)
 
   if (updateError) {
     // Revert project on partial failure

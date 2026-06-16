@@ -25,10 +25,14 @@ export async function POST(req: Request) {
   const { project_id } = parsed.data
   const supabase = createClient()
 
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const { data: project, error: fetchError } = await supabase
     .from('projects')
     .select('artist, song_title, yt_duration_sec')
     .eq('id', project_id)
+    .eq('owner_uid', user.id)
     .single()
 
   if (fetchError || !project) {
@@ -55,6 +59,7 @@ export async function POST(req: Request) {
     .from('projects')
     .update({ description_base: text })
     .eq('id', project_id)
+    .eq('owner_uid', user.id)
 
   if (updateError) {
     return NextResponse.json({ error: updateError.message }, { status: 500 })
