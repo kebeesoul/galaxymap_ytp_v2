@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import Image from 'next/image'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
@@ -265,9 +266,12 @@ export default function ProjectList({ initialProjects }: { initialProjects: Proj
               >
                 <Link href={`/editor/${project.id}`} className="flex min-w-0 flex-1 items-center gap-6">
                   {project.yt_thumbnail_url ? (
-                    <img
+                    <Image
                       src={project.yt_thumbnail_url}
                       alt={project.yt_title ?? project.song_title}
+                      width={112}
+                      height={64}
+                      unoptimized
                       className="h-16 w-28 rounded-lg object-cover"
                     />
                   ) : (

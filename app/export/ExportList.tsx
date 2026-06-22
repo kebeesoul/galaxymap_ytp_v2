@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import Image from 'next/image'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
@@ -229,9 +230,12 @@ export default function ExportList({ rows: initialRows }: { rows: ExportRow[] })
             >
               <div className="flex items-center gap-6 px-6 py-5 border-b border-[rgba(0,0,0,0.06)]">
                 {g.thumbnail_url ? (
-                  <img
+                  <Image
                     src={g.thumbnail_url}
                     alt={g.song_title}
+                    width={112}
+                    height={64}
+                    unoptimized
                     className="h-16 w-28 rounded-lg object-cover"
                   />
                 ) : (

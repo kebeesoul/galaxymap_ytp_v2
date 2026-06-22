@@ -1,3 +1,4 @@
+import Image from 'next/image'
 import { formatMss } from '@/lib/utils/time'
 
 interface Props {
@@ -10,11 +11,16 @@ export default function VideoPreview({ thumbnailUrl, title, durationSec }: Props
   return (
     <div className="overflow-hidden rounded-xl bg-[#272729]">
       {thumbnailUrl ? (
-        <img
-          src={thumbnailUrl}
-          alt={title ?? ''}
-          className="aspect-video w-full object-cover"
-        />
+        <div className="relative aspect-video w-full">
+          <Image
+            src={thumbnailUrl}
+            alt={title ?? ''}
+            fill
+            sizes="(min-width: 1024px) 50vw, 100vw"
+            unoptimized
+            className="object-cover"
+          />
+        </div>
       ) : (
         <div className="aspect-video w-full bg-[#1d1d1f]" />
       )}
