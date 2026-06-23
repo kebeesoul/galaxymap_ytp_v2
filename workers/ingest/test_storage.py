@@ -1,74 +1,37 @@
-import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock, patch
 
 import storage
 
 
-R2_ENV = {
-    "R2_ENDPOINT": "https://account.r2.cloudflarestorage.com",
-    "R2_ACCESS_KEY_ID": "access-key",
-    "R2_SECRET_ACCESS_KEY": "secret-key",
-    "R2_BUCKET": "source-bucket",
-}
-
-
-class R2StorageTests(unittest.TestCase):
-    @patch.dict(os.environ, R2_ENV, clear=False)
-    @patch.object(storage.boto3, "client")
-    def test_client_uses_r2_region_and_checksum_compatibility(self, client_mock):
-        storage.r2_client()
-
-        kwargs = client_mock.call_args.kwargs
-        self.assertEqual(kwargs["region_name"], "auto")
-        self.assertEqual(
-            kwargs["config"].request_checksum_calculation,
-            "when_required",
-        )
-        self.assertEqual(
-            kwargs["config"].response_checksum_validation,
-            "when_required",
-        )
-
-    @patch.dict(os.environ, R2_ENV, clear=False)
-    @patch.object(storage, "r2_client")
-    def test_upload_returns_relative_key(self, client_factory):
-        client = Mock()
-        client_factory.return_value = client
-        key = "user-1/sources/preview/video.mp4"
-
+class LocalStorageTests(unittest.TestCase):
+    def test_publish_source_returns_relative_key_without_deleting_file(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             local_path = Path(tmpdir) / "video.mp4"
             local_path.write_bytes(b"video")
-            result = storage.upload_source(local_path, key)
+            key = "user-1/sources/preview/video.mp4"
 
-        self.assertEqual(result, key)
-        client.upload_file.assert_called_once_with(
-            str(local_path),
-            "source-bucket",
-            key,
-            ExtraArgs={"ContentType": "video/mp4"},
+            result = storage.publish_source(local_path, key)
+
+            self.assertEqual(result, key)
+            self.assertTrue(local_path.exists())
+
+    def test_publish_source_requires_existing_file(self):
+        with self.assertRaisesRegex(RuntimeError, "does not exist"):
+            storage.publish_source(Path("/tmp/missing-video.mp4"), "user-1/sources/preview/video.mp4")
+
+    def test_local_source_file_resolves_under_workspace_ingest(self):
+        path = storage.local_source_file(
+            Path("/repo/workspace"),
+            "user-1/sources/preview/video.mp4",
         )
 
-    @patch.dict(os.environ, R2_ENV, clear=False)
-    @patch.object(storage, "r2_client")
-    def test_download_writes_to_requested_scratch_path(self, client_factory):
-        client = Mock()
-        client_factory.return_value = client
-        key = "user-1/sources/preview/video.mp4"
+        self.assertEqual(path, Path("/repo/workspace/ingest/user-1/sources/preview/video.mp4"))
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            local_path = Path(tmpdir) / "nested" / "video.mp4"
-            result = storage.download_source(key, local_path)
-
-        self.assertEqual(result, local_path)
-        client.download_file.assert_called_once_with(
-            "source-bucket",
-            key,
-            str(local_path),
-        )
+    def test_local_source_file_rejects_path_traversal(self):
+        with self.assertRaisesRegex(RuntimeError, "Invalid local source key"):
+            storage.local_source_file(Path("/repo/workspace"), "../escape/sources/preview/video.mp4")
 
 
 if __name__ == "__main__":

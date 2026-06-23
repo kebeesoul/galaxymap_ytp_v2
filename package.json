@@ -16,8 +16,6 @@
     "render-worker": "node scripts/ensure-workspace.mjs && tsx workers/render/worker.ts"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.1063.0",
-    "@aws-sdk/s3-request-presigner": "^3.1063.0",
     "@google/genai": "^2.8.0",
     "@remotion/bundler": "^4.0.451",
     "@remotion/cli": "^4.0.451",

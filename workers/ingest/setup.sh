@@ -8,13 +8,22 @@ LAUNCHAGENT_LABEL="com.galaxymap.ingest"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 LAUNCHAGENT_PLIST="${HOME}/Library/LaunchAgents/${LAUNCHAGENT_LABEL}.plist"
 
+export PYENV_ROOT="${HOME}/.pyenv"
+[[ -d "${PYENV_ROOT}/bin" ]] && export PATH="${PYENV_ROOT}/bin:${PATH}"
+export PATH="/opt/homebrew/bin:/usr/local/bin:${PATH}"
+command -v pyenv &>/dev/null && eval "$(pyenv init -)"
+
 echo ""
 echo "=== galaxymap ingest worker — 설치 ==="
 echo ""
 
 # ── Step 1: Python 의존성 확인 ────────────────────────────────────────────────
 echo "[1/2] Python 의존성 설치..."
-pip install -r "${SCRIPT_DIR}/requirements.txt"
+if command -v pyenv &>/dev/null; then
+  pyenv exec python -m pip install -r "${SCRIPT_DIR}/requirements.txt"
+else
+  python3 -m pip install -r "${SCRIPT_DIR}/requirements.txt"
+fi
 echo "      완료"
 
 # ── Step 2: LaunchAgent 등록 ──────────────────────────────────────────────────

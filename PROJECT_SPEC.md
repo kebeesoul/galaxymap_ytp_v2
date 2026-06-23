@@ -35,9 +35,9 @@
 
 |실행 위치                           |역할                                                                              |이 레포에서 담당하는 것                                                   |
 |--------------------------------|--------------------------------------------------------------------------------|----------------------------------------------------------------|
-|**Railway / Local Next.js**     |Next.js 14 App Router 상시 서버 (**port 3200 고정**)                                |모든 페이지·API. DB 상태 변경, 인증 검증, **R2 presigned URL 발급**. 무거운 처리 안 함|
-|**Mac Studio (로컬 24h)** — Docker|`ingest-worker` (worker.py, yt-dlp) + `ingest-server` (server.py, FastAPI :8001)|YouTube source는 로컬 스크래치 후 R2 게시. BGM은 Supabase Storage 후속 이전 대상|
-|**Mac Studio (로컬 24h)** — Node  |`render-worker` (tsx workers/render/worker.ts, Remotion)                        |R2 source를 로컬 스크래치로 받아 렌더. 결과 업로드는 Supabase Storage 후속 이전 대상|
+|**Railway / Local Next.js**     |Next.js 14 App Router 상시 서버 (**port 3200 고정**)                                |모든 페이지·API. DB 상태 변경, 인증 검증, **로컬 source streaming(`/api/source-file`)**. 무거운 처리 안 함|
+|**Mac Studio (로컬 24h)** — Docker|`ingest-worker` (worker.py, yt-dlp) + `ingest-server` (server.py, FastAPI :8001)|YouTube source는 `workspace/ingest`에 보존. BGM은 Supabase Storage 후속 이전 대상|
+|**Mac Studio (로컬 24h)** — Node  |`render-worker` (tsx workers/render/worker.ts, Remotion)                        |로컬 workspace source를 job scratch로 복사해 렌더. 결과 업로드는 Supabase Storage 후속 이전 대상|
 
 **원칙 [DECIDED]:** 무거운 미디어 처리(yt-dlp/Remotion/대용량 변환)는 서버리스가 아니라 **Mac Studio 로컬 워커**에서 돈다. 이를 어기는 코드는 버그로 간주.
 **배포 타겟 [DECIDED]:** **Railway** (Vercel 아님). `railway.json` 기준. 과거 Vercel 배포 URL은 폐기 대상.
@@ -56,15 +56,15 @@
 |-----------------------|--------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 |**Supabase (Postgres)**|관계형 메타데이터 전부, 상태머신(import/render_status), 인증|DB·Auth·폴링은 항상 여기. zod로 입출력 검증                                                                                                                                                                                     |
 |**Supabase Auth**      |사용자 계정/세션, UID 발급                           |**다중 작업자용. 이번에 활성화 (현재 미사용)**. RLS도 켠다                                                                                                                                                                             |
-|**Cloudflare R2**      |영상 원본 mp4. BGM·렌더 결과 mp4도 후속 전환 대상           |Lane A source 전환 완료. S3 호환, egress 무료. DB에는 상대 객체 key만 저장 [DECIDED]                                                                                                                                              |
-|**Mac 로컬 파일시스템(workspace)** |yt-dlp 다운로드 중간물, R2에서 받은 Remotion 입력, 렌더 작업 파일, 로컬 export 미러|처리용 작업 공간. **경로는 `STORAGE_ROOT` env로 주입**(코드 기본값 `<repo>/workspace/`). 하위는 `ingest/`, `renders/tmp/`, `exports/`, `cache/`로 고정. source PUT 후 ingest source는 삭제하고, render job tmp는 종료 후 삭제하되 최종 mp4는 `exports/`에 남긴다. **.gitignore 필수.** 실제 절대경로는 `.env`에만 두고 코드·문서·공개 레포엔 절대 박지 않음(사용자명 노출 방지) [DECIDED]|
+|**Cloudflare R2**      |N/A (source 임시 비활성). BGM·렌더 결과 mp4도 후속 전환 대상           |R2 credential 문제 해결 전까지 코드 경로에서 차단. `R2_*` env 불필요. 복구 시 기존 UID key 형식 재사용 [PAUSED]                                                                                                                                              |
+|**Mac 로컬 파일시스템(workspace)** |YouTube source 원본, Remotion 입력 복사본, 렌더 작업 파일, 로컬 export 미러|현재 source의 진실원본. **경로는 `STORAGE_ROOT` env로 주입**(코드 기본값 `<repo>/workspace/`). 하위는 `ingest/`, `renders/tmp/`, `exports/`, `cache/`로 고정. ingest source는 `workspace/ingest/{uid}/sources/preview/{video_id}.mp4`에 보존하고, render job tmp는 종료 후 삭제하되 최종 mp4는 `exports/`에 남긴다. **.gitignore 필수.** 실제 절대경로는 `.env`에만 두고 코드·문서·공개 레포엔 절대 박지 않음(사용자명 노출 방지) [DECIDED]|
 |**localStorage**       |UI 경량 상태 (탭 위치, 임시 폼)                       |진실원본·민감정보 저장 금지                                                                                                                                                                                                    |
 
 **폐기 [DECIDED]:** Supabase Storage 버킷(`sources`, `renders`)은 R2로 이전 후 폐기.
 
-### 3.1 R2 키(폴더) 구조 — UID 격리 [DECIDED]
+### 3.1 Source 키(폴더) 구조 — UID 격리 [DECIDED]
 
-> 모든 객체 키의 최상위 prefix는 **Supabase Auth UID**. 작업자별 폴더가 물리적으로 분리된다.
+> 모든 source key의 최상위 prefix는 **Supabase Auth UID**. 현재는 로컬 workspace 경로이며, R2 복구 시 같은 key를 객체 key로 재사용한다.
 
 ```
 {uid}/sources/preview/{video_id}.mp4      # 원본 영상 (미리보기/렌더 입력)
@@ -72,16 +72,16 @@
 {uid}/renders/{project_id}/{clip_id}-{preset}.mp4   # 렌더 결과
 ```
 
-- `yt_source_path`에는 R2 상대 객체 key만 저장한다. `bgm_url`·`render_path`는 아직 Supabase Storage 객체 path이며 후속 Lane에서 R2 key로 전환한다.
-- **격리 규칙:** Railway가 presigned URL을 발급할 때 `요청자 UID == 키의 {uid} prefix`를 반드시 검증. 불일치 시 403.
+- `yt_source_path`에는 `{uid}/sources/preview/{video_id}.mp4` 상대 key만 저장한다. 절대경로·URL 저장 금지. 현재 실제 파일은 `workspace/ingest/{yt_source_path}`에 있다.
+- **격리 규칙:** `/api/source-url`·`/api/source-file`은 `요청자 UID == 키의 {uid} prefix`를 반드시 검증. 불일치 시 403.
 
 ### 3.1.1 로컬 source pass-through [DECIDED]
 
-> R2 = 진실의 원본 / Mac 로컬 = job 수명에 한정된 스크래치.
+> R2 임시 비활성 / Mac 로컬 workspace = source 진실원본.
 
-- DB는 항상 `{uid}/sources/...` R2 key를 가리키며 로컬 경로나 절대 URL을 저장하지 않는다.
-- Import는 yt-dlp → `STORAGE_ROOT/ingest/{uid}/sources/...` 임시 파일 → R2 PUT → 로컬 source 즉시 삭제 순서다.
-- Render는 R2 GET → `STORAGE_ROOT/renders/tmp/{clip_id}/...` job 디렉터리 → Remotion 로컬 입력 → `STORAGE_ROOT/exports/{project_id}/...mp4` 최종 로컬 미러 생성 → Supabase Storage 업로드 → job tmp 삭제 순서다.
+- DB는 항상 `{uid}/sources/...` 상대 key를 가리키며 로컬 절대경로나 URL을 저장하지 않는다.
+- Import는 yt-dlp → `STORAGE_ROOT/ingest/{uid}/sources/...` 파일 보존 → Supabase meta 업데이트 순서다.
+- Render는 `STORAGE_ROOT/ingest/{yt_source_path}` → `STORAGE_ROOT/renders/tmp/{clip_id}/...` job 디렉터리 복사 → Remotion 로컬 입력 → `STORAGE_ROOT/exports/{project_id}/...mp4` 최종 로컬 미러 생성 → Supabase Storage 업로드 → job tmp 삭제 순서다.
 - 중간 wav·분리본 등 처리 중간재는 R2에 게시하지 않는다.
 - 속도 최적화는 품질을 낮추는 방향으로 하지 않는다. Ingest는 `YTDLP_CONCURRENT_FRAGMENTS`·`ARIA2_CONNECTIONS`로 병렬 다운로드만 조절하고, Render는 preset별 codec/CRF/bitrate를 유지한 채 `RENDER_CONCURRENCY_*`로 Remotion 동시성만 조절한다.
 
@@ -93,23 +93,23 @@
    └──요청(영상 보기/업로드)──▶ Railway Next.js
                                    │ 1. 세션 검증 (Supabase Auth)
                                    │ 2. UID prefix 소유권 확인
-                                   │ 3. R2 presigned URL 발급 (S3 SDK)
+                                   │ 3. same-origin source URL 발급
                                    ▼
-브라우저 ──presigned URL──▶ Cloudflare R2 (source 직접 GET, CDN egress)
+브라우저 ──/api/source-file──▶ Next.js 서버가 workspace source stream
 ```
 
-- ingest/render 워커(Mac)는 source에 한해 **R2 서비스 키**로 직접 PUT/GET한다. presigned 흐름은 브라우저 source playback용.
+- `/api/source-file`은 세션·owner_uid·key UID prefix를 재검증하고 byte-range로 mp4를 스트리밍한다.
 
 ### 3.3 셀프 데이터 삭제 [DECIDED · 후속 구현]
 
 > 각 작업자는 자기 UID 폴더의 데이터를 스스로 삭제한다.
 
 - **삭제 단위:** 프로젝트 단위 + UID 전체 단위(계정 데이터 비우기) 둘 다 제공. [CONFIRM] 클립 단위 삭제까지 노출할지.
-- **삭제 절차 (DB + R2 동시 정리, 고아 방지):**
+- **삭제 절차 (DB + workspace/Supabase Storage 동시 정리, 고아 방지):**
 1. Railway가 요청자 UID 소유권 검증.
 1. Supabase에서 해당 row 삭제 (FK CASCADE: projects → clips → lyrics_segments/comments).
-1. R2에서 `{uid}/.../{대상 prefix}` ListObjectsV2 → DeleteObjects 배치 삭제.
-1. 둘 중 하나 실패 시 보상 로직(재시도 큐 또는 orphan 마킹). R2엔 트랜잭션 없음 → **DB 먼저 삭제 후 R2 정리** 순서로, 실패 잔여물은 `cleanup-orphan-storage`가 주기 청소.
+1. 현재 source는 `workspace/ingest/{yt_source_path}` 로컬 파일을 best-effort 삭제. BGM·render output은 Supabase Storage path를 best-effort 삭제.
+1. 둘 중 하나 실패 시 보상 로직(재시도 큐 또는 orphan 마킹). 파일 저장소엔 DB 트랜잭션이 없으므로 **DB 먼저 삭제 후 파일 정리** 순서로, 실패 잔여물은 `cleanup-orphan-storage`가 주기 청소.
 - **안전장치:** 본인 UID 외 삭제 불가. 확인 모달 필수. [CONFIRM] soft-delete(휴지통) 단계 둘지 hard-delete만 할지.
 
 -----
@@ -121,7 +121,7 @@
 - **패키지 매니저:** **pnpm 10.x 전용 [DECIDED]** (Node 20). 현재 `pnpm@10.34.1` 고정. npm/yarn 금지. pnpm 11은 Node 22 강제라 보류. 상세는 §9.1.
 - **렌더:** Remotion 4.0.451 (`@remotion/bundler|cli|player|renderer`)
 - **DB/Auth:** Supabase (`@supabase/supabase-js` 2.45.4) — Postgres + Auth + RLS
-- **스토리지:** Cloudflare R2 (`@aws-sdk/client-s3` + Python boto3). source 전환 완료, BGM/render output 후속
+- **스토리지:** 현재 source는 로컬 workspace 서버 스트리밍. Cloudflare R2 코드는 임시 비활성, BGM/render output 후속
 - **LLM:** **Gemini 2.5 Flash Lite [DECIDED]** (Curator, MVP). `@google/genai` structured output + Zod 재검증으로 추천·메모·톤 변환을 처리한다.
 - **검증:** zod 4.3.6 (LLM 입출력·외부 API·env 전부)
 - **오디오 UI:** wavesurfer.js 7
@@ -151,12 +151,12 @@
 - `app/select` — YouTube 링크 입력 → projects 생성 + import 트리거
 - `app/editor/[id]` — 클립 편집(자막/댓글/BGM/스타일/프리뷰)
 - `app/history` — 렌더 결과 목록(폴링 갱신) + 열기/다운로드
-- `app/api/*` — 상태 변경 + presigned URL 발급(무거운 처리 없음)
+- `app/api/*` — 상태 변경 + 로컬 source URL/streaming(무거운 처리 없음)
 - `lib/curator`, `lib/llm` — Gemini 호출·톤 변환
 - `remotion/` — LayoutA/B/C 컴포지션 + 레이어(Video/Subtitle/Comment)
 - `workers/ingest`, `workers/render` — Mac 로컬 워커
 
-**데이터 흐름:** Select가 status를 pending으로 기록 → Mac 워커가 폴링으로 픽업 → 로컬 처리 → source를 R2에 게시 → DB에 상대 key·성공상태 기록 → UI 폴링으로 반영.
+**데이터 흐름:** Select가 status를 pending으로 기록 → Mac 워커가 폴링으로 픽업 → 로컬 workspace에 source 보존 → DB에 상대 key·성공상태 기록 → UI 폴링으로 반영.
 
 -----
 
@@ -164,7 +164,7 @@
 
 |테이블                    |핵심 컬럼                                                                                                                                                                                                                                                                                                                   |관계                                                        |비고                                                             |
 |-----------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------|---------------------------------------------------------------|
-|`projects`             |artist, song_title, source_url, **ip_owner**(bool), ip_confirmed_at, yt_video_id, yt_title, yt_duration_sec, yt_thumbnail_url, **yt_source_path**(=R2 key), import_status, import_error, **processing_started_at**, song_lyrics, song_lyrics_timestamps(jsonb), description_base, description_styled, description_tone(ref_01/02/03), **owner_uid**|1—N clips · 1—N track_recommendations                     |owner_uid=auth.uid(). processing_started_at=ingest claim UTC 시각. ~yt_hq_source_path 죽은컬럼~|
+|`projects`             |artist, song_title, source_url, **ip_owner**(bool), ip_confirmed_at, yt_video_id, yt_title, yt_duration_sec, yt_thumbnail_url, **yt_source_path**(=UID-prefixed relative source key), import_status, import_error, **processing_started_at**, song_lyrics, song_lyrics_timestamps(jsonb), description_base, description_styled, description_tone(ref_01/02/03), **owner_uid**|1—N clips · 1—N track_recommendations                     |owner_uid=auth.uid(). processing_started_at=ingest claim UTC 시각. 실제 source는 `workspace/ingest/{yt_source_path}`. ~yt_hq_source_path 죽은컬럼~|
 |`templates`            |name, config_json(jsonb)                                                                                                                                                                                                                                                                                                |1—N clips                                                 |**시드(3행)·전역 read-only.** Remotion 레이아웃. 폐기 금지                  |
 |`clips`                |project_id, template_id, start/end_sec, label, render_status(+cancelled), render_path(Supabase Storage path, 후속 R2), render_error, render_preset(fast/balanced/quality), render_progress, bgm_url(Supabase Storage path, 후속 R2), bgm_volume, bgm_start_sec, original_volume, subtitle_style(jsonb), comment_style(jsonb), **bar_enabled**|N—1 projects/templates · 1—N lyrics/comments/text_overlays|소유권은 project 상속. bar_enabled=상/하단 검정 바(각 15% 고정)|
 |`text_overlays`        |clip_id, **zone**(top/bottom), content, x, y, rotation, font_key, size, color, align, effect, z_index, start_sec, end_sec                                                                                                                                                                                               |N—1 clips                                                 |**자유 텍스트** — 검정 바 위 배치. 좌표·크기 전부 상대값. 소유권 상속                   |
@@ -182,14 +182,14 @@
   - `projects`, `track_recommendations`: `owner_uid = auth.uid()` (SELECT/INSERT/UPDATE/DELETE).
   - `clips`/`lyrics_segments`/`comments`/`text_overlays`: `EXISTS(상위 project where owner_uid = auth.uid())`.
   - `tone_presets`·`templates`: authenticated는 **SELECT only**(쓰기 차단). 둘 다 전역 시드, 폐기 금지.
-- **워커는 RLS 우회:** ingest/render 워커는 모든 사용자의 pending을 처리해야 하므로 **service_role 키** 사용. service_role은 `.env`에만, 클라이언트·공개 레포 노출 절대 금지. ingest 워커는 project의 owner_uid를 읽어 source R2 key의 `{uid}/`에 반영.
+- **워커는 RLS 우회:** ingest/render 워커는 모든 사용자의 pending을 처리해야 하므로 **service_role 키** 사용. service_role은 `.env`에만, 클라이언트·공개 레포 노출 절대 금지. ingest 워커는 project의 owner_uid를 읽어 source key의 `{uid}/`에 반영.
 - **Auth 통합 (구현 순서):**
 1. Supabase 대시보드: 공개 가입 끄기 + 소유자 계정 수동 생성(최대 5인 수동 발급).
 1. `@supabase/ssr` 설치 → `lib/supabase/server.ts`·`client.ts`(쿠키 세션).
 1. `middleware.ts`: 비로그인 시 보호 라우트(`/curation`·`/select`·`/editor`·`/history`) → `/login` 리다이렉트.
 1. `app/login`: 이메일+비밀번호 폼(가입 폼 없음). 로그인 submit은 브라우저가 Supabase Auth를 직접 호출하지 않고 Railway `/api/auth/login`으로 보내며, 서버 route가 `@supabase/ssr` 쿠키 세션을 설정한다. 상단 네비에 로그아웃.
-1. presign API: `auth.uid()`로 요청자 확인 → R2 키 `{uid}/` prefix 대조(Phase 3와 완성).
-- **워커 예외:** ingest/render 워커는 로그인하지 않고 **service_role 키로 RLS 우회**(모든 사용자 pending 처리). 키는 `.env`에만, 공개 레포·브라우저 노출 금지. ingest 워커는 project.owner_uid를 source R2 key에 반영.
+1. source URL API: `auth.uid()`로 요청자 확인 → source key `{uid}/` prefix 대조.
+- **워커 예외:** ingest/render 워커는 로그인하지 않고 **service_role 키로 RLS 우회**(모든 사용자 pending 처리). 키는 `.env`에만, 공개 레포·브라우저 노출 금지. ingest 워커는 project.owner_uid를 source key에 반영.
 
 **상태머신**
 
@@ -210,14 +210,14 @@
 
 |Job/Flow         |트리거                              |주기       |[runs]           |[stores]                           |책임                               |
 |-----------------|---------------------------------|---------|-----------------|-----------------------------------|---------------------------------|
-|import(ingest)   |`/api/import` → status=pending   |1초 폴링    |Mac Studio       |로컬 스크래치 → **R2 source PUT** + Supabase(meta)|UID key 저장 후 로컬 source 삭제. 원자 claim·부팅 self-heal 유지|
+|import(ingest)   |`/api/import` → status=pending   |1초 폴링    |Mac Studio       |`workspace/ingest` source 보존 + Supabase(meta)|UID key 저장. 원자 claim·부팅 self-heal 유지|
 |worker heartbeat|ingest 워커 독립 태스크            |30초       |Mac Studio       |Supabase `worker_health`             |다운로드 처리와 독립적으로 `worker_id='ingest'` last_beat_at upsert. UI는 2분 stale 또는 행 없음이면 offline 표시|
 |stale ingest reaper|pg_cron                         |2분        |Supabase         |Supabase `projects`                  |processing_started_at이 15분 초과한 processing을 failed + timeout 오류로 전환|
 |bgm upload       |`/api/upload-bgm` → ingest-server|on-demand|Mac Studio(:8001)|Supabase Storage + Supabase (후속 R2)|BGM 수신·게시                        |
-|render           |`/api/render` → status=pending   |3초 폴링    |Mac Studio       |**R2 source GET** → `workspace/renders/tmp` → `workspace/exports` 로컬 mp4 미러 → Supabase Storage(render 결과, 후속 이전)|Remotion은 로컬 source를 읽고 job 종료 시 tmp 삭제. 업로드는 파일 스트림 기반|
+|render           |`/api/render` → status=pending   |3초 폴링    |Mac Studio       |`workspace/ingest` source copy → `workspace/renders/tmp` → `workspace/exports` 로컬 mp4 미러 → Supabase Storage(render 결과, 후속 이전)|Remotion은 로컬 source를 읽고 job 종료 시 tmp 삭제. 업로드는 파일 스트림 기반|
 |curator recommend|`/api/curator/*`                 |on-demand|Railway          |Supabase                           |Claude+YT 추천                     |
-|source presign   |`GET /api/source-url?project_id=...`|on-demand|Railway          |R2(1시간 GET 서명)                     |Auth user·project owner_uid·key UID prefix를 모두 검증|
-|self-delete      |`/api/projects/[id]` DELETE 등    |on-demand|Railway          |Supabase DB/Storage                 |R2 source 삭제는 후속 구현 필요          |
+|source URL/stream|`GET /api/source-url?project_id=...` → `/api/source-file`|on-demand|Railway/Local Next.js|workspace source same-origin streaming|Auth user·project owner_uid·key UID prefix를 모두 검증|
+|self-delete      |`/api/projects/[id]` DELETE 등    |on-demand|Railway          |Supabase DB + workspace source + Supabase Storage|로컬 source 삭제 + BGM/render cleanup. R2 source 삭제는 복구 후 후속 구현 필요|
 |orphan cleanup   |`pnpm cleanup:storage`           |수동/주기    |Mac or Railway   |Supabase Storage                   |R2 source cleanup은 후속 구현 필요        |
 
 -----
@@ -260,7 +260,7 @@
 - zod 검증 의무 (모든 외부 경계).
 - `/api/import`·`/api/render` 외부 경계 Zod 적용 완료. 요청 body/query는 사용 전에 런타임 스키마 검증을 통과해야 한다. [DECIDED]
 - 상태 전이는 **조건부 업데이트**로 (`WHERE status != 'processing'`) — 중복 처리 가드. (§12 Issue)
-- R2 객체 키는 **반드시 `{uid}/` prefix**로 시작.
+- source key는 **반드시 `{uid}/` prefix**로 시작.
 - **절대경로 하드코딩 금지.** 로컬 경로는 `STORAGE_ROOT` 등 env로 주입하고, 코드/문서/공개 레포에 `/Users/...` 절대경로·사용자명을 박지 않는다. 실제 경로는 `.env`(gitignore)에만.
 - 코드 변경 시 이 `PROJECT_SPEC.md` 동시 갱신(spec drift 금지).
 
@@ -300,6 +300,8 @@
 - `2026-06-23` — **Auth login server boundary** : 로그인은 브라우저 직접 Supabase fetch가 아니라 `/api/auth/login` route에서 처리한다. CORS/브라우저 네트워크 실패 표면을 줄이고, 인증 실패와 Supabase 연결 실패를 분리해 반환한다.
 - `2026-06-23` — **Local workspace contract** : `STORAGE_ROOT` 기본값은 `<repo>/workspace`이며 `ingest/`, `renders/tmp/`, `exports/`, `cache/` 하위 폴더를 표준으로 한다. Render output은 `workspace/exports`에 로컬 미러를 남기고 Supabase Storage에는 파일 스트림으로 업로드한다.
 - `2026-06-23` — **Quality-preserving speed knobs** : ingest 속도는 yt-dlp/aria2 병렬성, render 속도는 Remotion concurrency만 조정한다. codec/CRF/bitrate/audio bitrate를 낮춰 시간을 줄이는 변경은 금지한다.
+- `2026-06-23` — **R2 source single PUT** : source 업로드는 boto3 `upload_file`의 자동 multipart가 아니라 단일 `PutObject` 스트림을 사용한다. R2 토큰에 `CreateMultipartUpload` 권한이 없어도 일반 1080p source 업로드가 진행되도록 한다.
+- `2026-06-23` — **R2 임시 비활성 + local-only source mode** : R2 credential AccessDenied가 해소될 때까지 source bytes는 `workspace/ingest`에 보존하고 Next.js `/api/source-file`이 서버에서 스트리밍한다. `R2_*` env는 현재 실행 경로에서 읽지 않는다. `yt_source_path` key 형식은 R2 복구 호환성을 위해 유지한다.
 - `2026-06-03` — **워크플로우 메뉴화** : 선형(Curator→Import→…)을 폐기하고 상단 메뉴 4개(Curation/Select/Editor/History)로 재편. **Curation은 import로 안 이어지는 read-only 참고 보드**, **Select가 YouTube 링크 입력 = 작업 진입점**.
 - `2026-06-03` — **Auth/RLS = A/A/A** : (D1) 초대/관리자 생성제, 공개 가입 비활성. (D2) owner_uid는 projects·track_recommendations에만, 하위는 project 상속. (D3) tone_presets는 전역 공유 read-only.
 - `2026-06-03` — **마이그레이션 squash(베이스라인 재설정)** : 26개 누더기 + 죽은 컬럼을 클린 init 1개로 통합. **데이터 폐기(A) 확정**(projects/clips 0행, track_rec 38행 — 무손실). 단 **시드 2개(templates·tone_presets) 보존**(drop 안 함, RLS만 추가).
@@ -324,7 +326,7 @@
 
 - [ ] **Gate 2 Lane B 운영 수용 테스트** — 코드(B-2/B-4)는 구현됨. Mac ingest 워커 재기동 후 heartbeat 갱신, 처리 중 강제 종료 후 최대 17분 내 pg_cron failed 전환, 재기동 self-heal을 라이브 작업으로 검증해야 Gate 2 전체 통과로 판정한다.
 - [ ] **Lane A 운영 수용 테스트** — R2 실키로 50MB 초과 1080p full ingest, 버킷 `{uid}/sources/...` 객체, Editor presigned 재생, 타 UID 403을 확인해야 source Gate를 통과한다.
-- [ ] **R2 자격증명 AccessDenied** — 2026-06-08 현재 설정으로 HeadBucket·ListObjectsV2·UID prefix PutObject가 모두 403/AccessDenied. Cloudflare에서 토큰의 대상 bucket=`gv2-sources`, 권한=`Object Read & Write`, account/endpoint 일치를 재발급·확인한 뒤 운영 수용 테스트를 재실행한다.
+- [ ] **R2 자격증명 AccessDenied** — 2026-06-23 현재 설정으로 HeadBucket=403, ListObjectsV2=AccessDenied, PutObject=AccessDenied. Cloudflare에서 토큰의 대상 bucket=`gv2-sources`, 권한=`Object Read & Write`, account/endpoint 일치를 재발급·확인한 뒤 운영 수용 테스트를 재실행한다.
 - [ ] **R2 후속 범위** — 이번 Lane A는 source만 전환했다. BGM·render output·삭제/orphan cleanup은 아직 Supabase Storage 경로이므로 별도 전환이 필요하다.
 - [ ] **R2 source 삭제 보상** — 프로젝트 삭제가 아직 Supabase Storage만 지우므로 R2 source 객체가 남는다. source key 소유권 검증 후 DeleteObject와 orphan cleanup을 후속 Lane에 추가한다.
 - [x] **PR #75/#77/#82/#85 — 전부 닫기 확정.** 모두 main에 이미 반영된 뒤 남은 Draft 잔재. (#75는 next.config.mjs로 실증, 나머지 동일 패턴으로 간주.)

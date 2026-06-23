@@ -1,8 +1,8 @@
 """
 Pull-based ingest worker.
 Polls Supabase for projects with import_status='pending', downloads via yt-dlp,
-uploads the source mp4 to Cloudflare R2, then updates the project row.
-No HTTP server — only outbound connections to Supabase, YouTube, and R2.
+keeps the source mp4 in the local workspace, then updates the project row.
+No HTTP server — only outbound connections to Supabase and YouTube.
 """
 import asyncio
 from datetime import datetime, timedelta, timezone
@@ -13,13 +13,13 @@ import shutil
 
 from dotenv import load_dotenv
 from supabase import create_client
-from storage import upload_source
+from storage import publish_source as publish_local_source
 
-load_dotenv()
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+load_dotenv(PROJECT_ROOT / ".env.local")
 
 SUPABASE_URL = os.environ.get("NEXT_PUBLIC_SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
 STORAGE_ROOT = Path(os.environ.get("STORAGE_ROOT", PROJECT_ROOT / "workspace")).expanduser()
 COOKIE_FILE = Path(__file__).resolve().parent / "cookies.txt"
 POLL_INTERVAL = 1
@@ -40,6 +40,25 @@ def positive_int_env(name: str, default: int) -> int:
 
 YTDLP_CONCURRENT_FRAGMENTS = positive_int_env("YTDLP_CONCURRENT_FRAGMENTS", 8)
 ARIA2_CONNECTIONS = positive_int_env("ARIA2_CONNECTIONS", YTDLP_CONCURRENT_FRAGMENTS)
+DEFAULT_TOOL_PATH = os.pathsep.join([
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+    os.environ.get("PATH", ""),
+])
+
+
+def resolve_binary(name: str, env_name: str, required: bool = True) -> str | None:
+    configured = os.environ.get(env_name)
+    if configured:
+        return configured
+
+    found = shutil.which(name) or shutil.which(name, path=DEFAULT_TOOL_PATH)
+    if found:
+        return found
+
+    if required:
+        raise RuntimeError(f"{name} binary not found. Install it or set {env_name}.")
+    return None
 
 
 async def _run_with_client(
@@ -49,8 +68,9 @@ async def _run_with_client(
     use_cookies: bool = True,
 ) -> tuple[int, bytes, bytes]:
     auth_args = ("--cookies", str(COOKIE_FILE)) if use_cookies and COOKIE_FILE.is_file() else ()
+    yt_dlp = resolve_binary("yt-dlp", "YTDLP_BIN")
     proc = await asyncio.create_subprocess_exec(
-        "yt-dlp",
+        yt_dlp,
         "--extractor-args", f"youtube:player_client={client}",
         "--remote-components", "ejs:github",
         *auth_args,
@@ -103,8 +123,9 @@ async def _run(timeout: int, *args: str) -> tuple[int, bytes, bytes]:
 async def probe_video_height(path: Path) -> int:
     if not path.is_file():
         return 0
+    ffprobe = resolve_binary("ffprobe", "FFPROBE_BIN")
     proc = await asyncio.create_subprocess_exec(
-        "ffprobe",
+        ffprobe,
         "-v", "error",
         "-select_streams", "v:0",
         "-show_entries", "stream=height",
@@ -174,7 +195,7 @@ def classify_ytdlp_error(stderr: str, stage: str) -> str:
 
 def source_object_key(owner_uid: str, video_id: str) -> str:
     if not owner_uid:
-        raise RuntimeError("Project owner_uid is required for R2 source isolation")
+        raise RuntimeError("Project owner_uid is required for local source isolation")
     return f"{owner_uid}/sources/preview/{video_id}.mp4"
 
 
@@ -188,9 +209,7 @@ def ensure_workspace_dirs() -> None:
 
 
 def publish_source(local_path: Path, key: str) -> str:
-    uploaded_key = upload_source(local_path, key)
-    local_path.unlink(missing_ok=True)
-    return uploaded_key
+    return publish_local_source(local_path, key)
 
 
 def utc_timestamp(now: datetime | None = None) -> str:
@@ -254,7 +273,7 @@ async def process(supabase, project_id: str, source_url: str, owner_uid: str | N
 
     try:
         if not owner_uid:
-            raise RuntimeError("Project owner_uid is required for R2 source isolation")
+            raise RuntimeError("Project owner_uid is required for local source isolation")
 
         # Fetch metadata
         rc, stdout, stderr = await _run(60, "--dump-json", "--no-playlist", source_url)
@@ -284,9 +303,10 @@ async def process(supabase, project_id: str, source_url: str, owner_uid: str | N
             "--no-overwrites",
             "-o", str(download_template),
         ]
-        if shutil.which("aria2c"):
+        aria2c = resolve_binary("aria2c", "ARIA2C_BIN", required=False)
+        if aria2c:
             download_args.extend([
-                "--external-downloader", "aria2c",
+                "--external-downloader", aria2c,
                 "--external-downloader-args", f"aria2c:-x{ARIA2_CONNECTIONS} -k1M -s{ARIA2_CONNECTIONS}",
             ])
 

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import { createSourceDownloadUrl } from '@/lib/r2'
+import { createLocalSourcePlaybackUrl } from '@/lib/source-storage'
 import { createClient } from '@/lib/supabase/server'
 
 export const dynamic = 'force-dynamic'
@@ -38,11 +38,5 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  try {
-    const url = await createSourceDownloadUrl(project.yt_source_path)
-    return NextResponse.json({ url })
-  } catch (error) {
-    console.error('[source-url] R2 presign failed', error)
-    return NextResponse.json({ error: 'Source storage is unavailable' }, { status: 503 })
-  }
+  return NextResponse.json({ url: createLocalSourcePlaybackUrl(parsed.data.project_id) })
 }

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mockGetUser = vi.fn()
 const mockProjectSingle = vi.fn()
-const mockCreateSourceDownloadUrl = vi.fn()
+const mockCreateLocalSourcePlaybackUrl = vi.fn()
 
 vi.mock('@/lib/supabase/server', () => ({
   createClient: () => ({
@@ -19,8 +19,8 @@ vi.mock('@/lib/supabase/server', () => ({
   }),
 }))
 
-vi.mock('@/lib/r2', () => ({
-  createSourceDownloadUrl: mockCreateSourceDownloadUrl,
+vi.mock('@/lib/source-storage', () => ({
+  createLocalSourcePlaybackUrl: mockCreateLocalSourcePlaybackUrl,
 }))
 
 const USER_ID = '11111111-1111-4111-8111-111111111111'
@@ -33,15 +33,15 @@ describe('GET /api/source-url', () => {
       data: { user: { id: USER_ID } },
       error: null,
     })
+    mockCreateLocalSourcePlaybackUrl.mockReturnValue(`/api/source-file?project_id=${PROJECT_ID}`)
   })
 
-  it('returns a one-hour R2 playback URL for an owned UID-prefixed key', async () => {
+  it('returns a local server playback URL for an owned UID-prefixed key', async () => {
     const key = `${USER_ID}/sources/preview/video.mp4`
     mockProjectSingle.mockResolvedValue({
       data: { owner_uid: USER_ID, yt_source_path: key },
       error: null,
     })
-    mockCreateSourceDownloadUrl.mockResolvedValue('https://r2.example/video.mp4')
 
     const { GET } = await import('@/app/api/source-url/route')
     const response = await GET(
@@ -50,9 +50,9 @@ describe('GET /api/source-url', () => {
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({
-      url: 'https://r2.example/video.mp4',
+      url: `/api/source-file?project_id=${PROJECT_ID}`,
     })
-    expect(mockCreateSourceDownloadUrl).toHaveBeenCalledWith(key)
+    expect(mockCreateLocalSourcePlaybackUrl).toHaveBeenCalledWith(PROJECT_ID)
   })
 
   it('rejects a key whose UID prefix does not match the authenticated user', async () => {
@@ -70,7 +70,7 @@ describe('GET /api/source-url', () => {
     )
 
     expect(response.status).toBe(403)
-    expect(mockCreateSourceDownloadUrl).not.toHaveBeenCalled()
+    expect(mockCreateLocalSourcePlaybackUrl).not.toHaveBeenCalled()
   })
 
   it('rejects unauthenticated requests', async () => {
@@ -83,27 +83,6 @@ describe('GET /api/source-url', () => {
 
     expect(response.status).toBe(401)
     expect(mockProjectSingle).not.toHaveBeenCalled()
-  })
-
-  it('does not expose R2 credential errors to the browser', async () => {
-    const key = `${USER_ID}/sources/preview/video.mp4`
-    mockProjectSingle.mockResolvedValue({
-      data: { owner_uid: USER_ID, yt_source_path: key },
-      error: null,
-    })
-    mockCreateSourceDownloadUrl.mockRejectedValue(new Error('secret provider detail'))
-
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-    const { GET } = await import('@/app/api/source-url/route')
-    const response = await GET(
-      new Request(`http://localhost/api/source-url?project_id=${PROJECT_ID}`),
-    )
-
-    expect(response.status).toBe(503)
-    await expect(response.json()).resolves.toEqual({
-      error: 'Source storage is unavailable',
-    })
-    consoleError.mockRestore()
   })
 
   it('validates project_id before querying Supabase', async () => {

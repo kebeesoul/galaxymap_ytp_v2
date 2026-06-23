@@ -32,17 +32,17 @@ class WorkerPathTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "owner_uid"):
             worker.source_object_key("", "video-456")
 
-    def test_publish_source_removes_local_file_after_r2_upload(self):
+    def test_publish_source_keeps_local_file_after_publish(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "video.mp4"
             path.write_bytes(b"video")
             key = "user-123/sources/preview/video-456.mp4"
-            with patch.object(worker, "upload_source", return_value=key) as upload_mock:
+            with patch.object(worker, "publish_local_source", return_value=key) as publish_mock:
                 result = worker.publish_source(path, key)
 
-        self.assertEqual(result, key)
-        self.assertFalse(path.exists())
-        upload_mock.assert_called_once_with(path, key)
+            self.assertEqual(result, key)
+            self.assertTrue(path.exists())
+            publish_mock.assert_called_once_with(path, key)
 
 
 class WorkerErrorTests(unittest.TestCase):
@@ -65,6 +65,27 @@ class PlayerClientTests(unittest.TestCase):
     def test_1080p_capable_web_client_is_primary(self):
         self.assertEqual(worker.PRIMARY_PLAYER_CLIENT, "web,web_safari")
         self.assertEqual(worker.FALLBACK_PLAYER_CLIENT, "android,web")
+
+
+class WorkerBinaryResolutionTests(unittest.TestCase):
+    def test_resolve_binary_prefers_explicit_env_path(self):
+        with patch.dict(worker.os.environ, {"YTDLP_BIN": "/custom/yt-dlp"}, clear=True):
+            with patch.object(worker.shutil, "which") as which:
+                self.assertEqual(worker.resolve_binary("yt-dlp", "YTDLP_BIN"), "/custom/yt-dlp")
+
+        which.assert_not_called()
+
+    def test_resolve_binary_falls_back_to_homebrew_path(self):
+        with patch.dict(worker.os.environ, {}, clear=True):
+            with patch.object(worker.shutil, "which", side_effect=[None, "/opt/homebrew/bin/yt-dlp"]) as which:
+                self.assertEqual(worker.resolve_binary("yt-dlp", "YTDLP_BIN"), "/opt/homebrew/bin/yt-dlp")
+
+        self.assertEqual(which.call_count, 2)
+
+    def test_resolve_binary_allows_missing_optional_binary(self):
+        with patch.dict(worker.os.environ, {}, clear=True):
+            with patch.object(worker.shutil, "which", return_value=None):
+                self.assertIsNone(worker.resolve_binary("aria2c", "ARIA2C_BIN", required=False))
 
 
 class WorkerReliabilityTests(unittest.TestCase):

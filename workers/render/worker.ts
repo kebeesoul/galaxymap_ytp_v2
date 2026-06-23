@@ -4,7 +4,7 @@ import { createReadStream, promises as fs, existsSync, readFileSync } from 'fs'
 import path from 'path'
 import { pathToFileURL } from 'url'
 import { selectCommentsForRender } from '../../lib/comments/select-for-render'
-import { downloadSourceObject } from '../../lib/r2'
+import { copyLocalSourceObject } from '../../lib/source-storage'
 import { createServiceRoleClient } from '../../lib/supabase/service-role'
 import { textOverlaySchema } from '../../lib/text-overlays'
 import { ensureWorkspaceLayout, workspacePaths } from '../../lib/workspace'
@@ -140,7 +140,7 @@ async function processJob(clipId: string): Promise<void> {
 
   try {
     console.time('[render] source')
-    await downloadSourceObject(project.yt_source_path, sourcePath)
+    await copyLocalSourceObject(project.yt_source_path, sourcePath)
     const renderVideoUrl = pathToFileURL(sourcePath).href
     console.timeEnd('[render] source')
 

@@ -1,9 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mockCreateClient = vi.fn()
+const mockRemoveLocalSourceObject = vi.fn()
 
 vi.mock('@/lib/supabase/server', () => ({
   createClient: (...args: unknown[]) => mockCreateClient(...args),
+}))
+
+vi.mock('@/lib/source-storage', () => ({
+  removeLocalSourceObject: (key: string) => mockRemoveLocalSourceObject(key),
 }))
 
 function makeProjectDeleteClient() {
@@ -16,7 +21,7 @@ function makeProjectDeleteClient() {
           select: () => ({
             eq: () => ({
               single: () => Promise.resolve({
-                data: { id: 'project-1', yt_source_path: 'preview/video.mp4' },
+                data: { id: 'project-1', yt_source_path: 'user-1/sources/preview/video.mp4' },
                 error: null,
               }),
             }),
@@ -94,9 +99,10 @@ describe('delete routes — storage cleanup regressions', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.resetModules()
+    mockRemoveLocalSourceObject.mockResolvedValue(undefined)
   })
 
-  it('project delete cleans actual BGM object paths and render paths after DB delete', async () => {
+  it('project delete cleans local source, BGM object paths, and render paths after DB delete', async () => {
     const { client, removed } = makeProjectDeleteClient()
     mockCreateClient.mockReturnValue(client)
     const { DELETE } = await import('@/app/api/projects/[id]/route')
@@ -104,7 +110,8 @@ describe('delete routes — storage cleanup regressions', () => {
     const res = await DELETE({} as Parameters<typeof DELETE>[0], { params: { id: 'project-1' } })
 
     expect(res.status).toBe(200)
-    expect(removed.sources).toEqual([['preview/video.mp4', 'bgm/clip-1.wav']])
+    expect(mockRemoveLocalSourceObject).toHaveBeenCalledWith('user-1/sources/preview/video.mp4')
+    expect(removed.sources).toEqual([['bgm/clip-1.wav']])
     expect(removed.renders).toEqual([['project-1/render01.mp4']])
   })
 

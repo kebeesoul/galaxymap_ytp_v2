@@ -42,8 +42,8 @@
 - **무거운 미디어 처리(yt-dlp / Remotion 렌더 / ffmpeg / 대용량 변환)는 Mac Studio 로컬 워커에서만 돈다.** Railway(Next.js)에서 이걸 처리하려는 코드는 버그다.
 - **ingest/render 워커를 Railway·Vercel·Edge function 에 배포 금지.** 워커는 Mac Studio 로컬(Docker 또는 bare process)에만 존재한다.
 - **배포 타겟은 Railway.** Vercel 아님.
-- **파일 바이트는 Cloudflare R2.** DB(Supabase)에는 파일 경로/키만. Supabase Storage는 폐기 대상.
-- **R2 객체 키는 반드시 `{uid}/` prefix로 시작**(Supabase Auth UID 격리). presigned URL 발급 시 요청자 UID와 키 prefix 소유권을 검증한다.
+- **임시 source storage: R2 비활성, 로컬 workspace only.** YouTube source 바이트는 `workspace/ingest/{uid}/sources/preview/{video_id}.mp4`에 보존하고 Next.js `/api/source-file`이 서버에서 스트리밍한다. DB에는 절대경로가 아니라 `{uid}/sources/preview/{video_id}.mp4` 상대 key만 저장한다.
+- **source key는 반드시 `{uid}/` prefix로 시작**(Supabase Auth UID 격리). `/api/source-url`·`/api/source-file`에서 요청자 UID와 key prefix 소유권을 검증한다.
 - **절대경로 하드코딩 금지.** 로컬 경로는 `STORAGE_ROOT` 등 env로 주입(기본값 `<repo>/workspace/`). `/Users/...` 절대경로·사용자명을 코드/문서/공개 레포에 박지 않는다. 실제 경로는 `.env`(gitignore)에만. (이 레포는 **public** 이다.)
 - **서버 포트는 무조건 3200.** 로컬 Next.js는 `localhost:3200`이며 `pnpm dev`가 이미 `next dev -H 127.0.0.1 -p 3200`으로 고정한다. 3000 포트로 안내하거나 실행하지 않는다.
 
@@ -61,11 +61,11 @@
 ## 작업 컨텍스트 (요약 — 상세는 PROJECT_SPEC.md)
 
 - **무엇:** YouTube 영상 → 자막·댓글·BGM 입힌 큐레이션/요약 클립 제작 웹 에디터 + 로컬 렌더 파이프라인.
-- **흐름:** Curator → Import(yt-dlp/Mac) → Editor → Render(Remotion/Mac) → History/Export(R2).
+- **흐름:** Curator → Import(yt-dlp/Mac, workspace source) → Editor → Render(Remotion/Mac) → History/Export.
 - **실행:** Next.js 14 = Railway / ingest·render 워커 = Mac Studio 로컬(Docker + Node).
-- **저장:** Supabase = DB·Auth·RLS·상태폴링 / R2 = 모든 source 파일 / Mac 로컬(`STORAGE_ROOT`, 기본 `<repo>/workspace`) = `ingest/`, `renders/tmp/`, `exports/`, `cache/` 작업 폴더와 로컬 export 미러.
+- **저장:** Supabase = DB·Auth·RLS·상태폴링 / Mac 로컬(`STORAGE_ROOT`, 기본 `<repo>/workspace`) = source 원본(`ingest/`), `renders/tmp/`, `exports/`, `cache/`. R2 source 경로는 credential 해결 전까지 코드에서 비활성.
 - **Curator:** Gemini 2.5 Flash Lite + YouTube 검색. (Google Gemini SDK 도입 필요.)
-- **사용자 모델:** **다중 작업자 + 각자 웹 접속.** Supabase Auth 로그인 → UID별 R2 폴더 격리 → 셀프 삭제(자기 폴더만).
+- **사용자 모델:** **다중 작업자 + 각자 웹 접속.** Supabase Auth 로그인 → UID별 source key/workspace 폴더 격리 → 셀프 삭제(자기 폴더만).
   - ✅ multi-user(각자 계정·UID 격리)는 **한다.**
   - ❌ multi-user **collaboration**(여러 명이 같은 프로젝트를 동시 편집)은 **하지 않는다.** 작업자별 프로젝트 분리 운영.
 

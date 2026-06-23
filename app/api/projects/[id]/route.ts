@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { removeLocalSourceObject } from '@/lib/source-storage'
 import { createClient } from '@/lib/supabase/server'
 import { getBgmStoragePath } from '@/lib/storage/paths'
 
@@ -40,9 +41,13 @@ export async function DELETE(
   }
   const clips = clipsError ? [] : (clipData ?? [])
 
-  // Collect every storage path attached to this project
+  // Collect storage paths attached to this project.
+  // YouTube source is local-only while R2 is paused; BGM/render output still
+  // use Supabase Storage until their follow-up migration.
+  const localSourcePaths: string[] = []
+  if (project.yt_source_path) localSourcePaths.push(project.yt_source_path)
+
   const sourcesPaths: string[] = []
-  if (project.yt_source_path) sourcesPaths.push(project.yt_source_path)
   for (const clip of clips ?? []) {
     const bgmPath = getBgmStoragePath(clip.id, clip.bgm_url)
     if (bgmPath) sourcesPaths.push(bgmPath)
@@ -84,7 +89,8 @@ export async function DELETE(
 
   // Storage cleanup is best-effort: a missing file should not bubble up as an
   // error to the user since the DB row is already gone.
-  const [sourcesResult, rendersResult] = await Promise.all([
+  const [localSourceResult, sourcesResult, rendersResult] = await Promise.all([
+    Promise.allSettled(localSourcePaths.map((sourcePath) => removeLocalSourceObject(sourcePath))),
     sourcesPaths.length > 0
       ? supabase.storage.from('sources').remove(sourcesPaths)
       : Promise.resolve({ error: null }),
@@ -92,6 +98,10 @@ export async function DELETE(
       ? supabase.storage.from('renders').remove(rendersPaths)
       : Promise.resolve({ error: null }),
   ])
+  const localSourceFailures = localSourceResult.filter((result) => result.status === 'rejected')
+  if (localSourceFailures.length > 0) {
+    console.error('[delete project] local source cleanup failed:', localSourceFailures)
+  }
   if (sourcesResult.error) {
     console.error('[delete project] sources cleanup failed:', sourcesResult.error.message)
   }
@@ -103,7 +113,7 @@ export async function DELETE(
     deleted: {
       project_id: projectId,
       clip_count: clips?.length ?? 0,
-      sources_files: sourcesPaths.length,
+      sources_files: sourcesPaths.length + localSourcePaths.length,
       renders_files: rendersPaths.length,
     },
   })

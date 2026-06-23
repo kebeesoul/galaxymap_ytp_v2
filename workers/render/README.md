@@ -1,6 +1,6 @@
 # Render Worker
 
-Local Mac-only worker that downloads source video from Cloudflare R2, renders
+Local Mac-only worker that copies source video from the local workspace, renders
 Remotion compositions to MP4 under the local workspace, and uploads render
 output to Supabase Storage.
 Polls every 3s for `clips.render_status='pending'`.
@@ -35,10 +35,6 @@ Read from `.env.local` at the repo root:
 
 - `NEXT_PUBLIC_SUPABASE_URL` (required)
 - `SUPABASE_SERVICE_ROLE_KEY`
-- `R2_ENDPOINT`
-- `R2_ACCESS_KEY_ID`
-- `R2_SECRET_ACCESS_KEY`
-- `R2_BUCKET`
 - `STORAGE_ROOT` (optional, defaults to `<repo>/workspace`)
 - `RENDER_CONCURRENCY_FAST` (optional, default `12`)
 - `RENDER_CONCURRENCY_BALANCED` (optional, default `8`)
@@ -50,7 +46,8 @@ Render jobs use the same local workspace contract as the rest of the repo:
 
 ```text
 workspace/
-  renders/tmp/{clip_id}/   # R2 source download + Remotion scratch, deleted after job
+  ingest/{uid}/sources/preview/{video_id}.mp4
+  renders/tmp/{clip_id}/   # local source copy + Remotion scratch, deleted after job
   exports/{project_id}/    # final local MP4 mirror, kept for inspection/reuse
 ```
 
