@@ -2,7 +2,14 @@
 
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
+
+function getSafeRedirectPath(): string {
+  const fallback = '/curation'
+  const redirectedFrom = new URLSearchParams(window.location.search).get('redirectedFrom')
+  if (!redirectedFrom) return fallback
+  if (!redirectedFrom.startsWith('/') || redirectedFrom.startsWith('//')) return fallback
+  return redirectedFrom
+}
 
 export default function LoginPage() {
   const router = useRouter()
@@ -17,16 +24,20 @@ export default function LoginPage() {
     const form = event.currentTarget
     const email = (form.elements.namedItem('email') as HTMLInputElement).value.trim()
     const password = (form.elements.namedItem('password') as HTMLInputElement).value
-    const supabase = createClient()
-    const { error: signInError } = await supabase.auth.signInWithPassword({ email, password })
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    })
 
-    if (signInError) {
-      setError(signInError.message)
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null
+      setError(body?.error ?? `Login failed (${res.status})`)
       setLoading(false)
       return
     }
 
-    router.push('/curation')
+    router.push(getSafeRedirectPath())
     router.refresh()
   }
 

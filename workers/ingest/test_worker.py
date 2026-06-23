@@ -17,8 +17,16 @@ class WorkerPathTests(unittest.TestCase):
 
         self.assertEqual(
             path,
-            Path(tmpdir) / "user-123" / "sources" / "preview" / "video-456.mp4",
+            Path(tmpdir) / "ingest" / "user-123" / "sources" / "preview" / "video-456.mp4",
         )
+
+    def test_ensure_workspace_dirs_creates_worker_roots(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.object(worker, "STORAGE_ROOT", Path(tmpdir)):
+                worker.ensure_workspace_dirs()
+
+            for name in ("ingest", "renders", "exports", "cache"):
+                self.assertTrue((Path(tmpdir) / name).is_dir())
 
     def test_source_key_requires_owner_uid(self):
         with self.assertRaisesRegex(RuntimeError, "owner_uid"):

@@ -14,3 +14,8 @@ export const renderRequestSchema = z.object({
     .or(z.string().transform(() => 'balanced' as const))
     .default('balanced'),
 })
+
+export const loginRequestSchema = z.object({
+  email: z.string().trim().email(),
+  password: z.string().min(1),
+})

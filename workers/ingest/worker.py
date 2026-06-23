@@ -30,6 +30,18 @@ PRIMARY_PLAYER_CLIENT = "web,web_safari"
 FALLBACK_PLAYER_CLIENT = "android,web"
 
 
+def positive_int_env(name: str, default: int) -> int:
+    try:
+        value = int(os.environ.get(name, str(default)))
+    except ValueError:
+        return default
+    return max(1, value)
+
+
+YTDLP_CONCURRENT_FRAGMENTS = positive_int_env("YTDLP_CONCURRENT_FRAGMENTS", 8)
+ARIA2_CONNECTIONS = positive_int_env("ARIA2_CONNECTIONS", YTDLP_CONCURRENT_FRAGMENTS)
+
+
 async def _run_with_client(
     client: str,
     timeout: int,
@@ -167,7 +179,12 @@ def source_object_key(owner_uid: str, video_id: str) -> str:
 
 
 def local_source_path(owner_uid: str, video_id: str) -> Path:
-    return STORAGE_ROOT / source_object_key(owner_uid, video_id)
+    return STORAGE_ROOT / "ingest" / source_object_key(owner_uid, video_id)
+
+
+def ensure_workspace_dirs() -> None:
+    for name in ("ingest", "renders", "exports", "cache"):
+        (STORAGE_ROOT / name).mkdir(parents=True, exist_ok=True)
 
 
 def publish_source(local_path: Path, key: str) -> str:
@@ -262,7 +279,7 @@ async def process(supabase, project_id: str, source_url: str, owner_uid: str | N
             "-f",
             "bestvideo[height<=1080][vcodec^=avc1]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]",
             "--merge-output-format", "mp4",
-            "--concurrent-fragments", "8",
+            "--concurrent-fragments", str(YTDLP_CONCURRENT_FRAGMENTS),
             "--no-playlist",
             "--no-overwrites",
             "-o", str(download_template),
@@ -270,7 +287,7 @@ async def process(supabase, project_id: str, source_url: str, owner_uid: str | N
         if shutil.which("aria2c"):
             download_args.extend([
                 "--external-downloader", "aria2c",
-                "--external-downloader-args", "aria2c:-x8 -k1M -s8",
+                "--external-downloader-args", f"aria2c:-x{ARIA2_CONNECTIONS} -k1M -s{ARIA2_CONNECTIONS}",
             ])
 
         rc2, _, stderr2 = await _run(300, *download_args, source_url)
@@ -318,7 +335,7 @@ async def main() -> None:
         )
 
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-    STORAGE_ROOT.mkdir(parents=True, exist_ok=True)
+    ensure_workspace_dirs()
 
     reaped = reap_stale_processing(supabase)
     if reaped:

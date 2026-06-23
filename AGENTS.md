@@ -28,6 +28,7 @@
 | 타입체크 | `pnpm type-check` | `npm run type-check` |
 | 테스트 | `pnpm test` / `pnpm test:watch` | `npm test` |
 | 렌더 워커 | `pnpm render-worker` | `npm run render-worker` |
+| workspace 폴더 준비 | `pnpm workspace:prepare` | 임의 수동 `mkdir` |
 | 스토리지 정리 | `pnpm cleanup:storage` (`--apply`로 실제 삭제) | `node scripts/...` 직접 호출 |
 
 - **Railway 빌드도 pnpm** 으로 동작해야 한다(railway.json / nixpacks / packageManager 필드 확인).
@@ -43,7 +44,8 @@
 - **배포 타겟은 Railway.** Vercel 아님.
 - **파일 바이트는 Cloudflare R2.** DB(Supabase)에는 파일 경로/키만. Supabase Storage는 폐기 대상.
 - **R2 객체 키는 반드시 `{uid}/` prefix로 시작**(Supabase Auth UID 격리). presigned URL 발급 시 요청자 UID와 키 prefix 소유권을 검증한다.
-- **절대경로 하드코딩 금지.** 로컬 경로는 `STORAGE_ROOT` 등 env로 주입(기본값 `<repo>/storage/`). `/Users/...` 절대경로·사용자명을 코드/문서/공개 레포에 박지 않는다. 실제 경로는 `.env`(gitignore)에만. (이 레포는 **public** 이다.)
+- **절대경로 하드코딩 금지.** 로컬 경로는 `STORAGE_ROOT` 등 env로 주입(기본값 `<repo>/workspace/`). `/Users/...` 절대경로·사용자명을 코드/문서/공개 레포에 박지 않는다. 실제 경로는 `.env`(gitignore)에만. (이 레포는 **public** 이다.)
+- **서버 포트는 무조건 3200.** 로컬 Next.js는 `localhost:3200`이며 `pnpm dev`가 이미 `next dev -H 127.0.0.1 -p 3200`으로 고정한다. 3000 포트로 안내하거나 실행하지 않는다.
 
 ---
 
@@ -61,7 +63,7 @@
 - **무엇:** YouTube 영상 → 자막·댓글·BGM 입힌 큐레이션/요약 클립 제작 웹 에디터 + 로컬 렌더 파이프라인.
 - **흐름:** Curator → Import(yt-dlp/Mac) → Editor → Render(Remotion/Mac) → History/Export(R2).
 - **실행:** Next.js 14 = Railway / ingest·render 워커 = Mac Studio 로컬(Docker + Node).
-- **저장:** Supabase = DB·Auth·RLS·상태폴링 / R2 = 모든 파일 / Mac 로컬(`STORAGE_ROOT`) = 처리 스크래치.
+- **저장:** Supabase = DB·Auth·RLS·상태폴링 / R2 = 모든 source 파일 / Mac 로컬(`STORAGE_ROOT`, 기본 `<repo>/workspace`) = `ingest/`, `renders/tmp/`, `exports/`, `cache/` 작업 폴더와 로컬 export 미러.
 - **Curator:** Gemini 2.5 Flash Lite + YouTube 검색. (Google Gemini SDK 도입 필요.)
 - **사용자 모델:** **다중 작업자 + 각자 웹 접속.** Supabase Auth 로그인 → UID별 R2 폴더 격리 → 셀프 삭제(자기 폴더만).
   - ✅ multi-user(각자 계정·UID 격리)는 **한다.**
@@ -74,7 +76,7 @@
 - **Node:** 20.x LTS (`nvm use 20`). **Python:** 3.11 (`pyenv local 3.11`).
 - **Next.js 14.2.x 고정.** **Tailwind v3.4** — **v4 금지.**
 - **ffmpeg:** Homebrew. **arm64/x64 분기 주의**(Intel Mac ↔ M1 Mac Studio). 아키텍처 불일치가 ingest/render 실패의 흔한 원인.
-- **포트:** Next.js `localhost:3000` / Python worker `localhost:8001`.
+- **포트:** Next.js `localhost:3200` / Python worker `localhost:8001`.
 
 ---
 

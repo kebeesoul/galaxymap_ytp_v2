@@ -7,6 +7,9 @@ services:
       - .env.local
     environment:
       - PYTHONUNBUFFERED=1
+      - STORAGE_ROOT=/app/workspace
+    volumes:
+      - ./workspace:/app/workspace
     ports:
       - "8001:8001"
 
@@ -18,4 +21,7 @@ services:
       - .env.local
     environment:
       - PYTHONUNBUFFERED=1
+      - STORAGE_ROOT=/app/workspace
+    volumes:
+      - ./workspace:/app/workspace
     restart: unless-stopped

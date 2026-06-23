@@ -1,13 +1,13 @@
 import { bundle } from '@remotion/bundler'
 import { renderMedia, selectComposition } from '@remotion/renderer'
-import { promises as fs, existsSync, readFileSync } from 'fs'
+import { createReadStream, promises as fs, existsSync, readFileSync } from 'fs'
 import path from 'path'
-import os from 'os'
 import { pathToFileURL } from 'url'
 import { selectCommentsForRender } from '../../lib/comments/select-for-render'
 import { downloadSourceObject } from '../../lib/r2'
 import { createServiceRoleClient } from '../../lib/supabase/service-role'
 import { textOverlaySchema } from '../../lib/text-overlays'
+import { ensureWorkspaceLayout, workspacePaths } from '../../lib/workspace'
 
 const REPO_ROOT = process.cwd()
 const ENV_PATH = path.join(REPO_ROOT, '.env.local')
@@ -21,6 +21,14 @@ if (existsSync(ENV_PATH)) {
 const POLL_INTERVAL_MS = 3000
 
 const supabase = createServiceRoleClient()
+
+function positiveIntEnv(name: string, fallback: number): number {
+  const raw = process.env[name]
+  if (!raw) return fallback
+
+  const parsed = Number.parseInt(raw, 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
 
 let serveUrlPromise: Promise<string> | null = null
 function ensureBundle(): Promise<string> {
@@ -40,9 +48,27 @@ function ensureBundle(): Promise<string> {
 type CompositionId = 'LayoutA' | 'LayoutB' | 'LayoutC'
 
 const RENDER_PRESETS = {
-  fast:     { useHardware: true,  bitrate: '8M',    crf: undefined, concurrency: 12, audioBitrate: '192k' },
-  balanced: { useHardware: false, bitrate: undefined, crf: 12,       concurrency: 8,  audioBitrate: '192k' },
-  quality:  { useHardware: false, bitrate: undefined, crf: 10,       concurrency: 6,  audioBitrate: '192k' },
+  fast: {
+    useHardware: true,
+    bitrate: '8M',
+    crf: undefined,
+    concurrency: positiveIntEnv('RENDER_CONCURRENCY_FAST', 12),
+    audioBitrate: '192k',
+  },
+  balanced: {
+    useHardware: false,
+    bitrate: undefined,
+    crf: 12,
+    concurrency: positiveIntEnv('RENDER_CONCURRENCY_BALANCED', 8),
+    audioBitrate: '192k',
+  },
+  quality: {
+    useHardware: false,
+    bitrate: undefined,
+    crf: 10,
+    concurrency: positiveIntEnv('RENDER_CONCURRENCY_QUALITY', 6),
+    audioBitrate: '192k',
+  },
 } as const
 type RenderPreset = keyof typeof RENDER_PRESETS
 
@@ -103,9 +129,14 @@ async function processJob(clipId: string): Promise<void> {
   })
 
   const serveUrl = await ensureBundle()
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'galaxymap-render-'))
-  const outputPath = path.join(tmpDir, `${clipId}.mp4`)
-  const sourcePath = path.join(tmpDir, `${project.yt_video_id ?? 'source'}.mp4`)
+  const jobDir = workspacePaths.renderJobDir(clipId)
+  await fs.rm(jobDir, { recursive: true, force: true })
+  await fs.mkdir(path.join(jobDir, 'source'), { recursive: true })
+  const outputPath = workspacePaths.renderJobOutputFile(clipId)
+  const sourcePath = workspacePaths.renderJobSourceFile(
+    clipId,
+    `${project.yt_video_id ?? 'source'}.mp4`,
+  )
 
   try {
     console.time('[render] source')
@@ -195,8 +226,6 @@ async function processJob(clipId: string): Promise<void> {
 
     console.timeEnd('[render] remotion render')
 
-    const fileBuffer = await fs.readFile(outputPath)
-
     const sanitize = (s: string) =>
       s.replace(/\s+/g, '_').replace(/[/\\:*?"<>|]/g, '').slice(0, 50)
 
@@ -211,10 +240,18 @@ async function processJob(clipId: string): Promise<void> {
     const songTitle = (project as Record<string, unknown>).song_title as string ?? ''
     const filename = `${sanitize(artist)}_${sanitize(songTitle)}_render${nn}.mp4`
     const renderPath = `${clip.project_id}/${filename}`
+    const localExportPath = workspacePaths.exportFile(clip.project_id, filename)
+    await fs.mkdir(path.dirname(localExportPath), { recursive: true })
+    await fs.rename(outputPath, localExportPath)
+
     console.time('[render] storage upload')
     const { error: uploadErr } = await supabase.storage
       .from('renders')
-      .upload(renderPath, fileBuffer, { contentType: 'video/mp4', upsert: true })
+      .upload(renderPath, createReadStream(localExportPath), {
+        contentType: 'video/mp4',
+        duplex: 'half',
+        upsert: true,
+      })
     if (uploadErr) throw new Error(`upload failed: ${uploadErr.message}`)
     console.timeEnd('[render] storage upload')
 
@@ -230,9 +267,9 @@ async function processJob(clipId: string): Promise<void> {
     if (finalErr) throw new Error(`final update failed: ${finalErr.message}`)
 
     console.timeEnd('[render] total')
-    console.log(`[OK]  ${clipId}  → ${renderPath}`)
+    console.log(`[OK]  ${clipId}  → ${renderPath} | local=${localExportPath}`)
   } finally {
-    await fs.rm(tmpDir, { recursive: true, force: true })
+    await fs.rm(jobDir, { recursive: true, force: true })
   }
 }
 
@@ -274,12 +311,14 @@ async function pollOnce(): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  await ensureWorkspaceLayout()
+
   await supabase
     .from('clips')
     .update({ render_status: 'pending' })
     .eq('render_status', 'processing')
 
-  console.log(`galaxymap render worker — polling every ${POLL_INTERVAL_MS / 1000}s`)
+  console.log(`galaxymap render worker — polling every ${POLL_INTERVAL_MS / 1000}s, workspace=${workspacePaths.root}`)
   await ensureBundle()
 
   // eslint-disable-next-line no-constant-condition
